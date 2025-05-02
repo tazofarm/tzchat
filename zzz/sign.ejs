@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>회원가입 페이지</title>
+    <script src="/js/signup.js" defer></script>
+    <script src="/js/location.js" defer></script>
+    <script src="/js/character.js" defer></script>
+    <script src="/js/birthday.js" defer></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 300px;
+        }
+        h2 {
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .form-group button {
+            width: 100%;
+            padding: 10px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .form-group button:hover {
+            background-color: #218838;
+        }
+        .error {
+            color: red;
+            font-size: 0.9em;
+            display: none;
+        }
+    </style>
+    <script>
+        function validateForm() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const errorMessage = document.getElementById('error-message');
+
+            if (password !== confirmPassword) {
+                errorMessage.style.display = 'block';
+                return false;
+            } else {
+                errorMessage.style.display = 'none';
+                return true;
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h2>회원가입</h2>
+        <form action="/signup" method="POST" onsubmit="return validateForm()">
+            <div class="form-group">
+                <label for="username">아이디</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">비밀번호</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <div class="form-group">
+                <label for="confirm-password">비밀번호 확인</label>
+                <input type="password" id="confirm-password" name="confirm-password" required>
+                <div id="error-message" class="error">비밀번호가 일치하지 않습니다.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="nickname">닉네임</label>
+                <input type="text" id="nickname" name="nickname" required>
+            </div>
+
+            <label for="etc">출생년도</label>  <br>
+            <select id="birth_parent" name="birth_parent" oninput="signUpCheck()">
+                <option value="">년도</option>
+                <!-- 지역 옵션 추가 -->
+                </select>
+                <br><br>
+
+            <div class="gender">
+                <label for="etc">성별</label> <br> 
+                <input id="gender_man" type="radio" name="gender" oninput="signUpCheck()">남성  
+                <input id="gender_woman" type="radio" name="gender" oninput="signUpCheck()">여성
+                <div id="genderError" class="error"></div>
+            </div>  
+            <br>
+
+
+            <br>
+             <!-- Area -->
+            <label for="etc">지역</label> <br>
+            <select id="area_parent" name="area_parent" onchange="loadAreaChild()" oninput="signUpCheck()">
+             <option value="">지역1</option>
+             <!-- 지역 옵션 추가 -->
+             </select>
+            <select id="area_child" name="area_child">
+               <option value="">지역2</option>
+                <!-- 하위 지역 옵션 추가 -->
+            </select>
+            <br><br>
+            
+            <label for="etc">캐릭터</label>  <br>
+            <select id="character_parent" name="charater_parent" oninput="signUpCheck()">
+                <option value="">캐릭터</option>
+                <!-- 지역 옵션 추가 -->
+                </select>
+
+            <div class="line">
+                <hr>
+            </div>
+
+
+
+
+
+
+
+
+            
+            <div class="form-group">
+                <button type="submit">회원가입</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

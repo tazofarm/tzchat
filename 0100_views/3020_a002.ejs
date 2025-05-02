@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>TZ chatting</title>
+    <link rel="stylesheet" href="/css/3000.css"/>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p>환영합니다, <%= user.nickname %>님!</p>
+            <form action="/logout">
+                <button type="submit" class="button_style_001">로그아웃</button>
+            </form>
+        </div>
+        <br>
+        <div class="button-container">
+            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+            <input class="button_style_001" type="button" value="친구찾기" onclick="location.href='a002'">
+            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+        </div>
+
+        <div class="table-container">
+            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>닉네임</th>
+                            <th>성별</th>
+                            <th>지역</th>
+                            <th>출생년도</th>
+                            <th>상태메세지</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userList">
+                        <!-- 사용자 목록이 여기에 추가됩니다. -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+   
+    
+    
+    <script>
+        async function fetchUsers() {
+            try {
+                const response = await fetch('/apigetUsersBy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        searchPreference: '<%= user.searchpreference || "" %>',
+                        searchRegion1: '<%= user.searchregion1 || "" %>',
+                        searchRegion2: '<%= user.searchregion2 || "" %>',
+                        searchBirthYear1: '<%= user.searchbirthyear1 || "전체" %>',
+                        searchBirthYear2: '<%= user.searchbirthyear2 || "전체" %>'
+                    }),
+                });
+
+                const users = await response.json();
+                const tableBody = document.getElementById('userList'); // tbody 요소 선택
+
+                // 기존의 tbody 내용 초기화
+                tableBody.innerHTML = '';
+
+                // 사용자 정보를 테이블에 추가
+                users.forEach(user => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${user.nickname}</td>
+                        <td>${user.gender}</td>
+                        <td>${user.region1}, ${user.region2}</td>
+                        <td>${user.birthyear}</td>
+                        <td>${user.selfintro}</td>
+                        <td>
+                            <button onclick="addUser('${user.username}')">추가</button>
+                            <button onclick="blockUser('${user.username}')">차단</button>
+                        </td>`;
+                    tableBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('사용자 목록을 가져오는 데 오류가 발생했습니다:', error);
+            }
+        }
+
+        //친구 추가
+        async function addUser(username) {
+            try {
+                const response = await fetch('/apiaddFriend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username }) // username을 요청 본문에 포함
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('친구가 추가되었습니다.'); // 친구가 추가되었다는 알림
+                    fetchUsers()
+                } else {
+                    alert('친구 추가에 실패했습니다: ' + result.message); // 실패 메시지
+                }
+            } catch (error) {
+                console.error('친구 추가 중 오류 발생:', error);
+                alert('친구 추가 중 오류가 발생했습니다.'); // 오류 메시지
+            }
+        }
+
+        //친구 차단
+        async function blockUser(username) {
+            try {
+                const response = await fetch('/apiblockUser', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username }) // username을 요청 본문에 포함
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('사용자가 차단되었습니다.'); // 차단 성공 알림
+                    fetchUsers()
+                } else {
+                    alert('사용자 차단에 실패했습니다: ' + result.message); // 실패 메시지
+                }
+            } catch (error) {
+                console.error('사용자 차단 중 오류 발생:', error);
+                alert('사용자 차단 중 오류가 발생했습니다.'); // 오류 메시지
+            }
+        }
+
+        // 페이지가 로드될 때 사용자 목록을 가져옵니다.
+        window.onload = async () => {
+            await fetchUsers(); // 사용자 목록 가져오기
+        };
+    </script>
+
+</body>
+</html>

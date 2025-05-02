@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>TZ chatting</title>
+    <link rel="stylesheet" href="/css/3000.css"/>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p>환영합니다, <%= user.nickname %>님!</p>
+            <form action="/logout">
+                <button type="submit" class="button_style_001">로그아웃</button>
+            </form>
+        </div>
+        <br>
+        <div class="button-container">
+            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+            <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
+            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_001" type="button" value="채팅" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+        </div>
+
+       
+</body>
+</html>

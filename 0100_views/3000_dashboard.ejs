@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>대시보드</title>
+</head>
+<body>
+    <div class="container">
+        <p>환영합니다, <%= user.nickname %>님!</p>
+        <input class="button_style_001" type="button" value="실시간" onclick="location.href='a001'">
+        <form action="/logout">
+            <button type="submit">로그아웃</button>
+        </form>
+    </div>
+</body>
+</html>
