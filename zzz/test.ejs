@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TZ chatting</title>
+    <link rel="stylesheet" href="/css/aaa.css"/>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #333; /* 어두운 색으로 변경 */
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #ddd;
+        }
+        .button_style {
+            margin: 5px;
+            padding: 5px 10px;
+            background-color: #555; /* 어두운 색으로 변경 */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .button_style:hover {
+            background-color: #444; /* 어두운 색으로 변경 */
+        }
+        .header {
+            display: flex;
+            justify-content: space-between; /* 양쪽 끝으로 정렬 */
+            align-items: center; /* 수직 중앙 정렬 */
+        }
+        .button-container {
+            display: flex; /* Flexbox 사용 */
+            flex-wrap: wrap; /* 버튼이 줄 바꿈 가능하도록 설정 */
+            justify-content: center; /* 버튼을 중앙 정렬 */
+            margin-top: 10px; /* 버튼과 테이블 사이의 여백 */
+        }
+        .button-container input {
+            flex: 1; /* 버튼이 동일한 비율로 공간을 차지하도록 설정 */
+            min-width: 100px; /* 버튼의 최소 너비 설정 */
+            margin: 5px; /* 버튼 사이의 여백 */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p>환영합니다, <%= user %>님!</p>
+            <form action="/logout">
+                <button type="submit" class="button_style">로그아웃</button>
+            </form>
+        </div>
+        <br>
+        <div class="button-container">
+            <input class="button_style_002" type="button" value="실시간" onclick="location.href='a001'">
+            <input class="button_style_001" type="button" value="사람들" onclick="location.href='a002'">
+            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_002" type="button" value="쪽지" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+        </div>
+
+        <div style="border: 1px solid black; padding: 10px; width: 100%; height: 600px;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>사용자 이름</th>
+                        <th>지역</th>
+                        <th>작업</th> <!-- 작업 열 추가 -->
+                    </tr>
+                </thead>
+                <tbody>
+                    <% users.forEach(user => { %>
+                        <tr>
+                            <td><%= user.username %></td>
+                            <td><%= user.area_child %></td>
+                            <td>
+                                <button class="button_style" onclick="addUser('<%= user.userid %>')">추가</button>
+                                <button class="button_style" onclick="deleteUser('<%= user.userid %>')">차단</button> <!-- 삭제 버튼을 차단으로 변경 -->
+                            </td>
+                        </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function addUser(userid) {
+            // 추가 요청을 서버로 보내는 코드 추가
+            // 예: location.href = '/add_user/' + userid;
+        }
+
+        function deleteUser(userid) {
+            if (confirm(userid + " 사용자를 차단하시겠습니까?")) { // 확인 메시지도 변경
+                // 삭제 요청을 서버로 보내는 코드 추가
+                // 예: location.href = '/delete_user/' + userid;
+            }
+        }
+    </script>
+</body>
+</html>

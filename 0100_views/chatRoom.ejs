@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= chatRoom.name %></title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f4f4f4;
+        }
+        #chat-box {
+            border: 1px solid #ccc;
+            background: white;
+            padding: 10px;
+            height: 400px;
+            overflow-y: scroll;
+            margin-bottom: 10px;
+        }
+        #message-input {
+            display: flex;
+        }
+        #message {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none; /* 크기 조절 비활성화 */
+        }
+        #send-button {
+            padding: 10px 15px;
+            margin-left: 5px;
+            border: none;
+            background: #5cb85c;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #send-button:hover {
+            background: #4cae4c;
+        }
+        #leave-button {
+            padding: 10px 15px;
+            margin: 5px 0; /* 버튼 마진 추가 */
+            border: none;
+            background: #d9534f; /* 빨간색 배경 */
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #leave-button:hover {
+            background: #c9302c; /* 어두운 빨간색 배경 */
+        }
+    </style>
+</head>
+
+<body>
+    <h1>채팅방: <%= chatRoom.name %></h1>
+    <h2>참여자:</h2>
+    <ul>
+      <% chatRoom.participants.forEach(participant => { %>
+        <li><%= participant.nickname %> (<%= participant.username %>)</li>
+      <% }) %>
+    </ul>
+
+    <div id="chat-box">
+        <!-- 여기에 채팅 메시지가 표시됩니다. -->
+    </div>
+    
+    <div id="message-input">
+        <textarea id="message" placeholder="메시지를 입력하세요..." rows="3"></textarea>
+        <button id="send-button">전송</button>
+    </div>
+
+    <button id="leave-button">나가기</button>
+
+<script src="/socket.io/socket.io.js"></script> 
+<script>
+    // Socket.IO 연결
+    const socket = io();
+
+    const chatBox = document.getElementById('chat-box');
+    const messageInput = document.getElementById('message');
+    const sendButton = document.getElementById('send-button');
+    const leaveButton = document.getElementById('leave-button');
+
+    // 메시지를 화면에 추가하는 함수
+    function addMessageToChat(username, message) {
+        const messageElement = document.createElement('div');
+        messageElement.textContent = `${username}: ${message}`;
+        chatBox.appendChild(messageElement);
+        chatBox.scrollTop = chatBox.scrollHeight; // 스크롤을 최신 메시지로 이동
+    }
+
+    // 메시지 전송 함수
+    function sendMessage() {
+        const message = messageInput.value.trim();
+        if (message) {
+            const username = "<%= user.nickname %>"; // 사용자의 nickname을 가져옵니다
+            const userId = "<%= user._id %>"; // 사용자 ID를 가져옵니다
+
+            // addMessageToChat(username, message); // 화면에 메시지를 추가
+            messageInput.value = ''; // 입력 창 초기화
+
+            // Socket.IO를 통해 메시지를 서버에 전송
+            socket.emit('sendMessage', {
+                username: username,
+                message: message,
+                chatRoomId: '<%= chatRoom._id %>',
+                userId: userId // 사용자 ID 추가
+            });
+        }
+    }
+
+    // 전송 버튼 클릭 이벤트
+    sendButton.addEventListener('click', sendMessage);
+
+    // 엔터 키 입력 처리
+    messageInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            if (event.shiftKey) {
+                return; // Shift + Enter는 줄바꿈을 허용
+            } else {
+                event.preventDefault(); // 기본 이벤트 방지 (줄바꿈 방지)
+                sendMessage();
+            }
+        }
+    });
+
+    // 나가기 버튼 클릭 시 페이지 이동
+    leaveButton.addEventListener('click', () => {
+        window.location.href = '/a004'; // 이동할 경로
+    });
+
+    // 서버로부터 메시지를 수신 처리
+    socket.on('receiveMessage', (data) => {
+        addMessageToChat(data.username, data.message); // 수신한 메시지를 화면에 추가
+    });
+
+    // 페이지 로드 시 이전 메시지 가져오기
+    function loadPreviousMessages() {
+        fetch(`/api/chatroom/<%= chatRoom._id %>/messages`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    data.messages.forEach(msg => {
+                        addMessageToChat(msg.user.nickname, msg.message); // 서버에서 가져온 메시지를 화면에 추가
+                    });
+                } else {
+                    console.error('메시지를 불러오는 중 오류 발생:', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('서버와의 연결 중 오류 발생:', error);
+            });
+    }
+
+    // DOMContentLoaded 이벤트로 페이지가 로드될 때 이전 메시지 불러오기
+    document.addEventListener('DOMContentLoaded', loadPreviousMessages);
+</script>
+
+
+
+
+</body>
+</html>

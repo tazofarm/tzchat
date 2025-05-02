@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>TZ chatting</title>
+    <link rel="stylesheet" href="/css/3000.css"/>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p>환영합니다, <%= user.nickname %>님!</p>
+            <form action="/logout">
+                <button type="submit" class="button_style_001">로그아웃</button>
+            </form>
+        </div>
+        <br>
+        <div class="button-container">
+            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+            <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
+            <input class="button_style_001" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+        </div>
+
+        <h2>친구 리스트</h2>
+        <div class="table-container">
+            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+                <table id="friendListTable">
+                    <thead>
+                        <tr>
+                            <th>닉네임</th>
+                            <th>성별</th>
+                            <th>지역</th>
+                            <th>출생년도</th>
+                            <th>상태메세지</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="friendListBody">
+                        <!-- 친구 목록이 여기에 추가됩니다. -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <h2>차단 리스트</h2>
+        <div class="table-container">
+            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+                <table id="blockListTable">
+                    <thead>
+                        <tr>
+                            <th>닉네임</th>
+                            <th>성별</th>
+                            <th>지역</th>
+                            <th>출생년도</th>
+                            <th>상태메세지</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blockListBody">
+                        <!-- 차단 목록이 여기에 추가됩니다. -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    
+    <script>
+
+        //  친구 불러오기 
+        async function fetchFriends() {
+            try {
+                const response = await fetch('/apifriends'); // 친구 리스트 API 호출
+                const friends = await response.json();
+                const friendListBody = document.getElementById('friendListBody'); // 친구 리스트 tbody 요소 선택
+
+                // 기존의 친구 목록 내용 초기화
+                friendListBody.innerHTML = '';
+
+                friends.forEach(user => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${user.nickname}</td>
+                        <td>${user.gender}</td>
+                        <td>${user.region1}, ${user.region2}</td>
+                        <td>${user.birthyear}</td>
+                        <td>${user.selfintro}</td>
+                        <td>
+                            <button onclick="startchat('${user.username}')">대화하기</button>
+                            <button onclick="removeFriend('${user.username}')">친구 삭제</button>
+                            <button onclick="delandblockUser('${user.username}')">차단 하기</button>
+                        </td>                        
+                        <td>`;
+                    friendListBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('친구 목록을 가져오는 데 오류가 발생했습니다:', error);
+            }
+        }
+
+
+ 
+                //친구 삭제
+                    async function removeFriend(username) {
+                    try {
+                        const response = await fetch('/apiremoveFriend', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ username }) // 삭제할 친구의 username
+                        });
+
+                        const result = await response.json();
+                        if (result.success) {
+                            alert('친구가 삭제되었습니다.');
+                            fetchFriends(); // 친구 목록 갱신 함수 호출
+                        } else {
+                            alert(result.message); // 에러 메시지 처리
+                        }
+                    } catch (error) {
+                        console.error('친구 삭제 중 오류 발생:', error);
+                    }
+                }
+
+
+                //친구 삭제 및 차단
+                async function delandblockUser(username) {
+                try {
+                    const response = await fetch('/apidelandblockUser', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ username }) // username을 요청 본문에 포함
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        alert('사용자가 차단되었습니다.'); // 차단 성공 알림
+                        fetchFriends()
+                        fetchBlockedUsers()
+                    } else {
+                        alert('사용자 차단에 실패했습니다: ' + result.message); // 실패 메시지
+                    }
+                } catch (error) {
+                    console.error('사용자 차단 중 오류 발생:', error);
+                    alert('사용자 차단 중 오류가 발생했습니다.'); // 오류 메시지
+                }
+                }
+
+
+        //차단리스트 불러오기
+        async function fetchBlockedUsers() {
+            try {
+                const response = await fetch('/apiblocked'); // 차단 리스트 API 호출
+                const blockedUsers = await response.json();
+                const blockListBody = document.getElementById('blockListBody'); // 차단 리스트 tbody 요소 선택
+
+                // 기존의 차단 목록 내용 초기화
+                blockListBody.innerHTML = '';
+
+                blockedUsers.forEach(user => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${user.nickname}</td>
+                        <td>${user.gender}</td>
+                        <td>${user.region1}, ${user.region2}</td>
+                        <td>${user.birthyear}</td>
+                        <td>${user.selfintro}</td>
+                        <td>
+                            <button onclick="unblockUser('${user.username}')">차단 해제</button>
+                        </td>`;
+                    blockListBody.appendChild(row);
+                });
+                } catch (error) {
+                console.error('차단 목록을 가져오는 데 오류가 발생했습니다:', error);
+                }
+                }
+
+
+                // 차단 해제
+                async function unblockUser(username) {
+                try {
+                // 사용자 차단 목록에서 제거하는 API 호출
+                const response = await fetch('/apiunblockUser', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username }),
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('차단이 해제되었습니다.');
+                    fetchBlockedUsers(); // 차단 목록 새로고침
+                } else {
+                    alert('차단 해제에 실패했습니다: ' + result.message);
+                }
+                } catch (error) {
+                console.error('차단 해제 중 오류 발생:', error);
+                alert('차단 해제 중 오류가 발생했습니다.');
+                }
+              
+                }
+
+                // 페이지가 로드될 때 사용자 목록을 가져옵니다.
+                window.onload = async () => {
+                await fetchFriends(); // 친구 목록 가져오기
+                await fetchBlockedUsers(); // 차단 목록 가져오기
+                };
+
+
+
+
+                // 채팅 시작하기
+                function startchat(username) {
+                    // 채팅방을 생성하거나 기존 채팅방을 찾기 위한 API 호출
+                    fetch('/api/check-or-create-chatroom', { // 기존 API를 교체 필요
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ username }) // 채팅할 사용자의 username을 포함
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 채팅방 생성 성공 시, 해당 채팅방으로 이동
+                            window.location.href = `/chat/${data.chatRoomId}`; // 데이터에서 chatRoomId를 받아와서 해당 채팅방으로 이동
+                        } else {
+                            // 채팅방 생성 실패 시 사용자에게 알림
+                            alert('채팅방 생성에 실패했습니다: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('채팅방 생성 중 오류 발생:', error);
+                        alert('채팅방 생성 중 오류가 발생했습니다.'); 
+                    });
+                }
+
+
+                </script>
+                
+                </body>
+                </html>

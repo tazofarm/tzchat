@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>TZ chatting</title>
+    <link rel="stylesheet" href="/css/3000.css"/>
+    <script src="/js/searchlocation.js"></script> <!-- JavaScript 파일 연결 -->
+
+    <script>
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const currentYear = new Date().getFullYear();
+            const searchbirthyear1 = document.getElementById('searchbirthyear1');
+            const searchbirthyear2 = document.getElementById('searchbirthyear2');
+
+            // Populate `searchbirthyear1` initially
+            for (let year = currentYear; year >= 1900; year--) {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                searchbirthyear1.appendChild(option);
+            }
+
+            // Populate `searchbirthyear2` based on `searchbirthyear1` selection
+            searchbirthyear1.addEventListener('change', function () {
+                const selectedYear = parseInt(this.value, 10);
+                // Clear existing options in `searchbirthyear2`
+                searchbirthyear2.innerHTML = '<option value="">선택하세요</option><option value="전체">전체</option>';
+
+                for (let year = currentYear; year >= selectedYear; year--) {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    searchbirthyear2.appendChild(option);
+                }
+            });
+        });
+    </script>
+
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <p>환영합니다, <%= user.nickname %>님!</p>
+            <form action="/logout">
+                <button type="submit" class="button_style_001">로그아웃</button>
+            </form>
+        </div>
+        <br>
+        <div class="button-container">
+            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+            <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
+            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+            <input class="button_style_001" type="button" value="설정" onclick="location.href='a006'">
+        </div>
+    </div>
+
+    <div class="user-info">
+        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+            <h2>Profile 수정</h2>
+            <form id="profileForm" action="/update-search" method="POST"> <!-- 폼 추가 -->
+                <table>
+                    <thead>
+                        <tr>
+                            <th>속성</th>
+                            <th>값</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+  
+                         <tr>
+                            <td>나이</td>
+                            <td>
+                                <label for="searchbirthyear1"></label>
+                                <select id="searchbirthyear1" name="searchbirthyear1" required>
+                                    <option value="<%= user.searchbirthyear1 %>" selected><%= user.searchbirthyear1 %></option>
+                                    <option value="전체">전체</option>
+                                </select>
+                            
+                                <label for="searchbirthyear2"> ~ </label>
+                                <select id="searchbirthyear2" name="searchbirthyear2" required>
+                                    <option value="<%= user.searchbirthyear2 %>" selected><%= user.searchbirthyear2 %></option>
+                                    <option value="전체">전체</option>
+                                </select>
+                            </td>
+                        </tr>
+
+
+                        <tr>
+                            <td>성향</td>
+                            <td>
+                                <select name="searchpreference">
+                                    <option value="<%= user.searchpreference %>" selected><%= user.searchpreference %></option>
+                                    <option value="이성1">이성1</option>
+
+                                </select>
+                            </td>
+                        </tr>
+
+
+                        <tr>
+                            <td>지역1</td>
+                            <td>
+                                <label for="searchregion1"></label>
+                                <select id="searchregion1" name="searchregion1" onchange="updateRegion2()" required>
+                                    <option value="<%= user.searchregion1 %>" selected><%= user.searchregion1 %></option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>지역2</td>
+                            <td>
+                                <label for="searchregion2"></label>
+                                <select id="searchregion2" name="searchregion2" required>
+                                    <option value="<%= user.searchregion2 %>" selected><%= user.searchregion2 %></option>
+                                </select>
+                            </td>
+                        </tr>
+                        
+ 
+                    </tbody>
+                </table>
+                <input class="button_style_002" type="submit" value="완료"> <!-- 여기서 type을 submit으로 변경 -->
+                <input class="button_style_002" type="button" value="취소" onclick="location.href='a006'">
+            </form>
+        </div>
+    </div>
+
+   
+</body>
+</html>
