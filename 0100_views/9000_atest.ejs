@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>지역 선택 표 구조</title>
+<link rel="stylesheet" href="/css/atest.css"/>
+<script src="/js/atest.js"></script> <!-- JavaScript 파일 연결 -->
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  tr:hover { background: #f9f9f9; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<h2>좌측: 대분류 선택 / 우측: 하위 지역</h2>
+<div style="display:flex; gap:20px;">
+  <div id="leftTableContainer" style="width:50%;"></div>
+  <div id="rightTableContainer" style="width:50%;"></div>
+</div>
+
+<!-- JS 파일 연결 -->
+<script src="js/region.js"></script>
+</body>
+</html>

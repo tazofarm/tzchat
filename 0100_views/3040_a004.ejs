@@ -2,24 +2,10 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>채팅 리스트</title>
-    <style>
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-    </style>
+    <link rel="stylesheet" href="/css/3000.css"/>
 </head>
 <body>
-
     <div class="container">
         <div class="header">
             <p>환영합니다, <%= user.nickname %>님!</p>
@@ -31,26 +17,40 @@
         <div class="button-container">
             <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
             <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
-            <input class="button_style_001" type="button" value="친구" onclick="location.href='a003'">
-            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+            <input class="button_style_001" type="button" value="채팅" onclick="location.href='a004'">
             <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
             <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
         </div>
 
-    <h1>채팅 리스트</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>채팅방 이름</th>
-                <th>참여자</th>
-                <th>메시지 미리보기</th>
-                <th>액션</th>
-            </tr>
-        </thead>
-        <tbody id="chatRoomListBody">
-            <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
-        </tbody>
-    </table>
+    <h2>채팅 리스트</h2>
+    <div class="table-container">
+        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>채팅방 이름</th>
+                        <th>참여자</th>
+                        <th>메시지 미리보기</th>
+                        <th>액션</th>
+                    </tr>
+                </thead>
+                <tbody id="chatRoomListBody">
+                    <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
+                </tbody>
+            </table>
+
+
+        </div>
+    </div>
+
+
+
+
+
+
+
 
     <script>
         async function fetchChatRooms() {

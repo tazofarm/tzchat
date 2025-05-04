@@ -98,7 +98,7 @@ router.post('/loginup', async (req, res) => {
         
         // 로그인 성공 시 세션 설정
         req.session.user = user; // 사용자 정보를 세션에 저장
-        return res.redirect('/dashboard'); // 대시보드로 리다이렉트
+        return res.redirect('/a001'); // 대시보드로 리다이렉트
     } catch (error) {
         console.error(error);
         return res.render('0100_login.ejs', { error: '서버 오류: ' + error.message });
@@ -293,7 +293,7 @@ router.get('/a006', (req, res) => {
 
 router.get('/a006search', (req, res) => {
     if (req.session.user) {
-        res.render('3060_a006_search.ejs', { user: req.session.user }); // 사용자 정보를 템플릿에 전달
+        res.render('3061_a006_search.ejs', { user: req.session.user }); // 사용자 정보를 템플릿에 전달
     } else {
         res.redirect('/login'); // 로그인되지 않은 경우 로그인 페이지로 리다이렉트
     }
@@ -331,6 +331,20 @@ router.post('/update-search', async (req, res) => {
         }
     } else {
         res.redirect('/login');
+    }
+});
+
+
+
+
+
+//test 설정
+
+router.get('/atest', (req, res) => {
+    if (req.session.user) {
+        res.render('9000_atest.ejs', { user: req.session.user }); // 사용자 정보를 템플릿에 전달
+    } else {
+        res.redirect('/login'); // 로그인되지 않은 경우 로그인 페이지로 리다이렉트
     }
 });
 

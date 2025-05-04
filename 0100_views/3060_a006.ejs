@@ -4,18 +4,7 @@
     <meta charset="UTF-8">
     <title>TZ chatting</title>
     <link rel="stylesheet" href="/css/3000.css"/>
-
-
-<style>
-
-    
-</style>
-
-
-
 </head>
-
-
 <body>
     <div class="container">
         <div class="header">
@@ -33,52 +22,53 @@
             <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
             <input class="button_style_001" type="button" value="설정" onclick="location.href='a006'">
         </div>
-    </div>
+    
 
 
-    <div class="user-info">
-        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-            <h2>친구 찾기 설정</h2>
-            <table>
-                <thead>
-                    <tr>
-                    <th>속성</th>
-                    <th>값</th>
-                    </tr>
-                </thead>
+        <div class="table-container">
+            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+                <h2>친구 찾기 설정</h2>
+                <table>
+                    <thead>
+                        <tr>
+                        <th>속성</th>
+                        <th>값</th>
+                        </tr>
+                    </thead>
 
-                <tbody>
-                   
-
-                    <tr>
-                        <td>나이</td>
-                        <td><%= user.searchbirthyear1 %> ~ <%= user.searchbirthyear2 %></td> <!-- 사용자 Username -->
-                        
-                    </tr>                    
+                    <tbody>
                     
 
-                    <tr>
-                        <td>성향</td>
-                        <td><%= user.searchpreference %></td> <!-- 사용자 Username -->
-                    </tr>
+                        <tr>
+                            <td>나이</td>
+                            <td><%= user.searchbirthyear1 %> ~ <%= user.searchbirthyear2 %></td> <!-- 사용자 Username -->
+                            
+                        </tr>                    
+                        
 
-                    <tr>
-                        <td>지역1</td>
-                        <td><%= user.searchregion1 %></td> <!-- 사용자 Username -->
-                    </tr>
+                        <tr>
+                            <td>성향</td>
+                            <td><%= user.searchpreference %></td> <!-- 사용자 Username -->
+                        </tr>
 
-                    <tr>
-                        <td>지역2</td>
-                        <td><%= user.searchregion2 %></td> <!-- 사용자 Username -->
-                    </tr>
+                        <tr>
+                            <td>지역1</td>
+                            <td><%= user.searchregion1 %></td> <!-- 사용자 Username -->
+                        </tr>
+
+                        <tr>
+                            <td>지역2</td>
+                            <td><%= user.searchregion2 %></td> <!-- 사용자 Username -->
+                        </tr>
 
 
-                </tbody>
-            </table>
-
+                    </tbody>
+                </table>
+                <input class="button_style_002" type="button" value="수정" onclick="location.href='a006search'">
+                <input class="button_style_002" type="button" value="atest" onclick="location.href='atest'">
+            </div>
         </div>
     </div>
-
     
 </body>
 </html>
