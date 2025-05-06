@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>TZ chatting</title>
-    <link rel="stylesheet" href="/css/3000.css"/>
+    <link rel="stylesheet" href="/css/3000.css" />
     <style>
         tr.clickable-row:hover {
             cursor: pointer;
@@ -12,87 +12,84 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <p>환영합니다, <%= user.nickname %>님!</p>
-            <form action="/logout">
-                <button type="submit" class="button_style_001">로그아웃</button>
-            </form>
-        </div>
-        <br>
-        <div class="button-container">
-            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
-            <input class="button_style_001" type="button" value="친구찾기" onclick="location.href='a002'">
-            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
-            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
-            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
-            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
-        </div>
-
-        <div class="table-container">
-            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>닉네임</th>
-                            <th>성별</th>
-                            <th>지역</th>
-                            <th>출생년도</th>
-                            <th>상태메세지</th>
-                        </tr>
-                    </thead>
-                    <tbody id="userList">
-                        <!-- 사용자 목록이 여기에 추가됩니다. -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
+<div class="container">
+    <div class="header">
+        <p class="welcome-text">환영합니다, <%= user.nickname %>님!</p>
+        <form action="/logout">
+            <button type="submit" class="button_style_001">로그아웃</button>
+        </form>
     </div>
 
-    <script>
-        // 사용자 목록 가져오기
-        async function fetchUsers() {
-            try {
-                const response = await fetch('/apigetUsersBy', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        searchPreference: '<%= user.searchpreference || "" %>',
-                        searchRegion1: '<%= user.searchregion1 || "" %>',
-                        searchRegion2: '<%= user.searchregion2 || "" %>',
-                        searchBirthYear1: '<%= user.searchbirthyear1 || "전체" %>',
-                        searchBirthYear2: '<%= user.searchbirthyear2 || "전체" %>'
-                    }),
+    <div class="button-container">
+        <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+        <input class="button_style_001" type="button" value="친구찾기" onclick="location.href='a002'">
+        <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+        <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+        <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+        <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>닉네임</th>
+                    <th>성별</th>
+                    <th>지역</th>
+                    <th>출생년도</th>
+                    <th>상태메세지</th>
+                </tr>
+            </thead>
+            <tbody id="userList">
+                <!-- 사용자 목록이 여기에 추가됩니다. -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    async function fetchUsers() {
+        try {
+            const response = await fetch('/apigetUsersBy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    searchPreference: '<%= user.searchpreference || "" %>',
+                    searchRegion1: '<%= user.searchregion1 || "" %>',
+                    searchRegion2: '<%= user.searchregion2 || "" %>',
+                    searchBirthYear1: '<%= user.searchbirthyear1 || "전체" %>',
+                    searchBirthYear2: '<%= user.searchbirthyear2 || "전체" %>'
+                }),
+            });
+
+            const users = await response.json();
+            const tableBody = document.getElementById('userList');
+            tableBody.innerHTML = '';
+
+            users.forEach(user => {
+                const row = document.createElement('tr');
+                row.classList.add('clickable-row');
+                row.innerHTML = `
+                    <td>${user.nickname}</td>
+                    <td>${user.gender}</td>
+                    <td>${user.region1}, ${user.region2}</td>
+                    <td>${user.birthyear}</td>
+                    <td>${user.selfintro}</td>`;
+
+                row.addEventListener('click', () => {
+                    window.location.href = '/fprofile?username=' + encodeURIComponent(user.username);
                 });
 
-                const users = await response.json();
-                const tableBody = document.getElementById('userList');
-                tableBody.innerHTML = '';
-
-                users.forEach(user => {
-                    const row = document.createElement('tr');
-                    row.classList.add('clickable-row');
-                    row.innerHTML = `
-                        <td>${user.nickname}</td>
-                        <td>${user.gender}</td>
-                        <td>${user.region1}, ${user.region2}</td>
-                        <td>${user.birthyear}</td>
-                        <td>${user.selfintro}</td>`;
-
-                    row.addEventListener('click', () => {
-                        window.location.href = '/fprofile?username=' + encodeURIComponent(user.username);
-                    });
-
-                    tableBody.appendChild(row);
-                });
-            } catch (error) {
-                console.error('사용자 목록을 가져오는 데 오류가 발생했습니다:', error);
-            }
+                tableBody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('사용자 목록을 가져오는 데 오류가 발생했습니다:', error);
         }
+    }
 
-        window.onload = fetchUsers;
-    </script>
+    window.onload = fetchUsers;
+</script>
 </body>
 </html>

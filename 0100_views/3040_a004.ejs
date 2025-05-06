@@ -12,75 +12,73 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <p>환영합니다, <%= user.nickname %>님!</p>
-            <form action="/logout">
-                <button type="submit" class="button_style_001">로그아웃</button>
-            </form>
-        </div>
-        <br>
-        <div class="button-container">
-            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
-            <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
-            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
-            <input class="button_style_001" type="button" value="채팅" onclick="location.href='a004'">
-            <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
-            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
-        </div>
-
-        <h2>채팅 리스트</h2>
-        <div class="table-container">
-            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>채팅방 이름</th>
-                            <th>참여자</th>
-                            <th>메시지 미리보기</th>
-                        </tr>
-                    </thead>
-                    <tbody id="chatRoomListBody">
-                        <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
+<div class="container">
+    <div class="header">
+        <p class="welcome-text">환영합니다, <%= user.nickname %>님!</p>
+        <form action="/logout">
+            <button type="submit" class="button_style_001">로그아웃</button>
+        </form>
     </div>
 
-    <script>
-        async function fetchChatRooms() {
-            try {
-                const response = await fetch('/apichatrooms'); // 채팅방 리스트 API 호출
-                const chatRooms = await response.json();
-                const chatRoomListBody = document.getElementById('chatRoomListBody');
+    <div class="button-container">
+        <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+        <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
+        <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+        <input class="button_style_001" type="button" value="채팅" onclick="location.href='a004'">
+        <input class="button_style_002" type="button" value="프로필" onclick="location.href='a005'">
+        <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+    </div>
 
-                chatRoomListBody.innerHTML = ''; // 기존 내용 초기화
+    <h2>채팅 리스트</h2>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>채팅방 이름</th>
+                    <th>참여자</th>
+                    <th>메시지 미리보기</th>
+                </tr>
+            </thead>
+            <tbody id="chatRoomListBody">
+                <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
+            </tbody>
+        </table>
+    </div>
+</div>
 
-                chatRooms.forEach(chatRoom => {
-                    const row = document.createElement('tr');
-                    row.style.cursor = 'pointer';
-                    row.addEventListener('click', () => {
-                        startChat(chatRoom._id);
-                    });
+<script>
+    async function fetchChatRooms() {
+        try {
+            const response = await fetch('/apichatrooms');
+            const chatRooms = await response.json();
+            const chatRoomListBody = document.getElementById('chatRoomListBody');
 
-                    row.innerHTML = `
-                        <td>${chatRoom.name}</td>
-                        <td>${chatRoom.participants.map(participant => participant.nickname).join(', ')}</td>
-                        <td><!-- 메시지 미리보기 내용 사용 --></td>`;
+            chatRoomListBody.innerHTML = '';
 
-                    chatRoomListBody.appendChild(row);
+            chatRooms.forEach(chatRoom => {
+                const row = document.createElement('tr');
+                row.classList.add('clickable-row');
+                row.addEventListener('click', () => {
+                    startChat(chatRoom._id);
                 });
-            } catch (error) {
-                console.error('채팅방 목록을 가져오는 데 오류가 발생했습니다:', error);
-            }
-        }
 
-        function startChat(chatRoomId) {
-            window.location.href = `/chat/${chatRoomId}`; // 채팅방 페이지로 리다이렉트
-        }
+                row.innerHTML = `
+                    <td>${chatRoom.name}</td>
+                    <td>${chatRoom.participants.map(p => p.nickname).join(', ')}</td>
+                    <td>${chatRoom.latestMessage ? chatRoom.latestMessage : ''}</td>`;
 
-        window.onload = fetchChatRooms;
-    </script>
+                chatRoomListBody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('채팅방 목록을 가져오는 데 오류가 발생했습니다:', error);
+        }
+    }
+
+    function startChat(chatRoomId) {
+        window.location.href = `/chat/${chatRoomId}`;
+    }
+
+    window.onload = fetchChatRooms;
+</script>
 </body>
 </html>

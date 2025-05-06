@@ -4,22 +4,16 @@
     <meta charset="UTF-8">
     <title>TZ chatting</title>
     <link rel="stylesheet" href="/css/3000.css"/>
-    <style>
-        tr[data-username]:hover {
-            background-color: #f0f0f0;
-            cursor: pointer;
-        }
-    </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <p>환영합니다, <%= user.nickname %>님!</p>
+        <p class="welcome-text">환영합니다, <%= user.nickname %>님!</p>
         <form action="/logout">
             <button type="submit" class="button_style_001">로그아웃</button>
         </form>
     </div>
-    <br>
+
     <div class="button-container">
         <input class="button_style_001" type="button" value="사람들" onclick="location.href='a001'">
         <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
@@ -30,9 +24,8 @@
     </div>
 
     <div class="table-container">
-        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-            <table>
-                <thead>
+        <table>
+            <thead>
                 <tr>
                     <th>닉네임</th>
                     <th>성별</th>
@@ -40,17 +33,15 @@
                     <th>출생년도</th>
                     <th>상태메세지</th>
                 </tr>
-                </thead>
-                <tbody id="userList">
+            </thead>
+            <tbody id="userList">
                 <!-- 사용자 목록이 여기에 추가됩니다. -->
-                </tbody>
-            </table>
-        </div>
+            </tbody>
+        </table>
     </div>
 </div>
 
 <script>
-    // 사용자 전체 불러오기
     async function fetchUsers() {
         try {
             const response = await fetch('/a001function');
@@ -69,7 +60,6 @@
                     <td>${user.birthyear}</td>
                     <td>${user.selfintro}</td>`;
 
-                // 행 클릭 시 프로필로 이동
                 row.addEventListener('click', function () {
                     window.location.href = `/fprofile?username=${user.username}`;
                 });

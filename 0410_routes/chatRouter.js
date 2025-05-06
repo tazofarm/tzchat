@@ -63,7 +63,6 @@ router.get('/apichatrooms', authMiddleware, async (req, res) => {
     }
 });
 
-
 // 특정 채팅방의 페이지 보여주기
 router.get('/chat/:chatRoomId', async (req, res) => {
   const { chatRoomId } = req.params;

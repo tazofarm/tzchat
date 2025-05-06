@@ -1,118 +1,117 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <title>TZ chatting</title>
-    <link rel="stylesheet" href="/css/3000.css"/>
-    <script src="/js/location.js"></script> <!-- JavaScript 파일 연결 -->
+  <meta charset="UTF-8">
+  <title>TZ chatting</title>
+  <link rel="stylesheet" href="/css/3000.css"/>
+  <script src="/js/location.js"></script> <!-- 지역 선택용 JS -->
+  <style>
+    textarea {
+      width: 100%;
+      height: 100px;
+      resize: vertical;
+      font-size: 1rem;
+      padding: 0.5rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+
+    .button-group {
+      margin-top: 1rem;
+      display: flex;
+      gap: 10px;
+    }
+  </style>
 </head>
-
 <body>
-    <div class="container">
-        <div class="header">
-            <p>환영합니다, <%= user.nickname %>님!</p>
-            <form action="/logout">
-                <button type="submit" class="button_style_001">로그아웃</button>
-            </form>
-        </div>
-        <br>
-        <div class="button-container">
-            <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
-            <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
-            <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
-            <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
-            <input class="button_style_001" type="button" value="프로필" onclick="location.href='a005'">
-            <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
-        </div>
-    </div>
+<div class="container">
+  <div class="header">
+    <p class="welcome-text">환영합니다, <%= user.nickname %>님!</p>
+    <form action="/logout">
+      <button type="submit" class="button_style_001">로그아웃</button>
+    </form>
+  </div>
 
-    <div class="user-info">
-        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-            <h2>로그인 정보</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>속성</th>
-                        <th>값</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>ID</td>
-                        <td><%= user.username %></td> <!-- 사용자 Username -->
-                    </tr>
-                    <tr>
-                        <td>비밀번호</td>
-                        <td><input class="button_style_002" type="button" value="수정" onclick="location.href='a005pw'"></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+  <div class="button-container">
+    <input class="button_style_002" type="button" value="사람들" onclick="location.href='a001'">
+    <input class="button_style_002" type="button" value="친구찾기" onclick="location.href='a002'">
+    <input class="button_style_002" type="button" value="친구" onclick="location.href='a003'">
+    <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
+    <input class="button_style_001" type="button" value="프로필" onclick="location.href='a005'">
+    <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+  </div>
 
-    <div class="user-info">
-        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-            <h2>Profile 수정</h2>
-            <form id="profileForm" action="/update-profile" method="POST"> <!-- 폼 추가 -->
-                <table>
-                    <thead>
-                        <tr>
-                            <th>속성</th>
-                            <th>값</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>닉네임</td>
-                            <td><%= user.nickname %></td> <!-- 사용자 Nickname -->
-                        </tr>
-                        <tr>
-                            <td>출생년도</td>
-                            <td><%= user.birthyear %></td> <!-- 사용자 출생년도 -->
-                        </tr>
-                        <tr>
-                            <td>성별</td>
-                            <td><%= user.gender %></td> <!-- 사용자 성별 -->
-                        </tr>
-                        <tr>
-                            <td>성향</td>
-                            <td><%= user.preference %></td> <!-- 사용자 성향 -->
-                        </tr>
-                        <tr>
-                            <td>지역1</td>
-                            <td>
-                                <label for="region1"></label>
-                                <select id="region1" name="region1" onchange="updateRegion2()" required>
-                                    <option value="<%= user.region1 %>" selected><%= user.region1 %></option>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>지역2</td>
-                            <td>
-                                <label for="region2"></label>
-                                <select id="region2" name="region2" required>
-                                    <option value="<%= user.region2 %>" selected><%= user.region2 %></option>
-                                </select>
-                            </td>
-                        </tr>
+  <div class="table-container">
+    <h2>로그인 정보</h2>
+    <table>
+      <thead>
+        <tr><th>속성</th><th>값</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ID</td>
+          <td><%= user.username %></td>
+        </tr>
+        <tr>
+          <td>비밀번호</td>
+          <td>
+            <input class="button_style_002" type="button" value="수정" onclick="location.href='a005pw'">
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 
-                        <tr>
+  <div class="table-container">
+    <h2>프로필 수정</h2>
+    <form id="profileForm" action="/update-profile" method="POST">
+      <table>
+        <thead>
+          <tr><th>속성</th><th>값</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>닉네임</td><td><%= user.nickname %></td></tr>
+          <tr><td>출생년도</td><td><%= user.birthyear %></td></tr>
+          <tr><td>성별</td><td><%= user.gender %></td></tr>
+          <tr><td>성향</td><td><%= user.preference %></td></tr>
 
-                        <tr>
-                            <td>자기소개</td>
-                            <td>
-                                <textarea name="selfintro"><%= user.selfintro %></textarea>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <input class="button_style_002" type="submit" value="완료"> <!-- 여기서 type을 submit으로 변경 -->
-                <input class="button_style_002" type="button" value="취소" onclick="location.href='a005'">
-            </form>
-        </div>
-    </div>
+          <tr>
+            <td>지역1</td>
+            <td>
+              <select id="region1" name="region1" onchange="updateRegion2()" required>
+                <option value="<%= user.region1 %>" selected><%= user.region1 %></option>
+              </select>
+            </td>
+          </tr>
 
-   
+          <tr>
+            <td>지역2</td>
+            <td>
+              <select id="region2" name="region2" required>
+                <option value="<%= user.region2 %>" selected><%= user.region2 %></option>
+              </select>
+            </td>
+          </tr>
+
+          <tr>
+            <td>자기소개</td>
+            <td>
+              <textarea name="selfintro"><%= user.selfintro %></textarea>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="button-group">
+        <input class="button_style_002" type="submit" value="완료">
+        <input class="button_style_002" type="button" value="취소" onclick="location.href='a005'">
+      </div>
+    </form>
+  </div>
+</div>
 </body>
 </html>
