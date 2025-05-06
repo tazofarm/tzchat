@@ -98,268 +98,126 @@ router.post('/apigetUsersBy', async (req, res) => {
 }); // 새로운 필터링 함수 추가
 
 
-// 친구 추가
-router.post('/apiaddFriend', async (req, res) => {
-    const username = req.body.username; // username을 요청 본문에서 가져옵니다.
-    const currentUser = req.session.user;
-
-    if (!currentUser) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
-    try {
-        // 입력된 사용자가 친구 목록에 이미 있는지 확인
-        const isAlreadyFriend = await User.findOne({
-            _id: currentUser._id,
-            friendlist: username
-        });
-
-        if (isAlreadyFriend) {
-            return res.status(400).json({ success: false, message: '이미 친구 목록에 있습니다.' });
-        }
-        
-        // 친구 리스트에 username 추가
-        await User.updateOne(
-            { _id: currentUser._id },
-            { $addToSet: { friendlist: username } } // friendlist에 username 추가
-        );
-
-   
-        // 세션 정보 업데이트
-        currentUser.friendlist.push(username); // 세션의 friendlist에 추가
-
-        // 친구 목록 반환
-        res.json({ success: true, friendlist: currentUser.friendlist });
-
-    } catch (error) {
-        console.error('친구 추가 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-    }
-});
-
-
-// 친구 목록 가져오기
-router.get('/apifriends', authMiddleware, async (req, res) => {
-    const user = req.session.user; // 로그인한 사용자 정보 가져오기
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-    
-    try {
-        // 친구 목록에서 사용자 이름 가져오기
-        const friendsUsernames = user.friendlist; // 친구 리스트의 사용자 이름
-
-        // 친구 목록에서 사용자 정보 가져오기
-        const friends = await User.find({ username: { $in: friendsUsernames } });
-        res.json(friends);
-    } catch (error) {
-        console.error('친구 목록 가져오기 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-    }
-});
-
-
-//친구리스트 삭제
-router.post('/apiremoveFriend', authMiddleware, async (req, res) => {
-    const username = req.body.username; // 삭제할 친구의 username
-    const user = req.session.user; // 로그인한 사용자 정보
-
-    // 사용자 로그인 확인
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
-    try {
-        // 친구 리스트에서 username 제거
-        const result = await User.updateOne(
-            { _id: user._id },
-            { $pull: { friendlist: username } } 
-        );
-
-        // 결과 확인 (변경된 문서가 있는지)
-        if (result.modifiedCount > 0) {
-            // 성공적으로 삭제되었으므로 세션 업데이트
-            user.friendlist = user.friendlist.filter(friend => friend !== username);
-            res.json({ success: true });
-        } else {
-            // 삭제할 친구가 목록에 없을 경우
-            res.json({ success: false, message: '친구 목록에 존재하지 않습니다.' });
-        }
-    } catch (error) {
-        console.error('친구 삭제 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-    }
-});
-
-
-
-// 친구 삭제 및 차단
-router.post('/apidelandblockUser', authMiddleware, async (req, res) => {
-    const username = req.body.username; // 삭제할 친구의 username
-    const user = req.session.user; // 로그인한 사용자 정보
-
-    // 사용자 로그인 확인
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
-    try {
-        // 친구 리스트에서 username 제거
-        const removeFriendResult = await User.updateOne(
-            { _id: user._id },
-            { $pull: { friendlist: username } } // 친구 리스트에서 username 제거
-        );
-
-        // blocklist에 username 추가
-        const blockUserResult = await User.updateOne(
-            { _id: user._id },
-            { $addToSet: { blocklist: username } } // blocklist에 username 추가
-        );
-
-        // 만약 친구가 성공적으로 제거되었다면, 세션에서도 업데이트
-        if (removeFriendResult.modifiedCount > 0) {
-            user.friendlist = user.friendlist.filter(friend => friend !== username); // 세션의 friendlist에서 제거
-        }
-
-        // 세션 정보 업데이트: 차단된 목록에 추가
-        user.blocklist.push(username); // 세션의 blocklist에 추가
-
-        // 응답: 성공적으로 요청이 처리되면 응답합니다.
-        res.json({ success: true, blocklist: user.blocklist }); 
-        
-    } catch (error) {
-        console.error('친구 삭제 및 차단 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-    }
-});
-
-// 친구 차단
-router.post('/apiblockUser', async (req, res) => {
-    const username = req.body.username; // username을 요청 본문에서 가져옵니다.
-    const currentUser = req.session.user;
-
-    if (!currentUser) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
-    try {
-        // 입력된 사용자가 차단 목록에 이미 있는지 확인
-        const isAlreadyBlocked = await User.findOne({
-            _id: currentUser._id,
-            blocklist: username
-        });
-
-        if (isAlreadyBlocked) {
-            return res.status(400).json({ success: false, message: '이미 차단 목록에 있습니다.' });
-        }
-
-        // 차단 리스트에 username 추가
-        await User.updateOne(
-            { _id: currentUser._id },
-            { $addToSet: { blocklist: username } } // blocklist에 username 추가
-        );
-
-        
-         // 세션 정보 업데이트
-         currentUser.blocklist.push(username); // 세션의 friendlist에 추가
-
-         // 친구 목록 반환
-         res.json({ success: true, blocklist: currentUser.blocklist });
- 
-     } catch (error) {
-         console.error('친구 차단 중 오류 발생:', error);
-         res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-     }
-});
-
-
-
-
-
-
-// 차단 목록 가져오기
-router.get('/apiblocked', authMiddleware, async (req, res) => {
-    const user = req.session.user; // 로그인한 사용자 정보 가져오기
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
-    try {
-        // 차단 목록에서 사용자 이름 가져오기
-        const blockedUsernames = user.blocklist; // 차단 리스트의 사용자 이름
-
-        // 차단 목록에서 사용자 정보 가져오기
-        const blockedUsers = await User.find({ username: { $in: blockedUsernames } });
-        res.json(blockedUsers);
-    } catch (error) {
-        console.error('차단 목록 가져오기 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
-    }
-});
-
-
-
-
-
-// 차단 해제
-router.post('/apiunblockUser', authMiddleware, async (req, res) => {
-    const username = req.body.username; // 제거할 사용자 username
-    const user = req.session.user; // 로그인한 사용자 정보
-
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' }); // 로그인 체크
-    }
-
-    try {
-        // 차단 리스트에서 username 제거
-        const result = await User.updateOne(
-            { _id: user._id },
-            { $pull: { blocklist: username } } // 차단 리스트에서 사용자 제거
-        );
-
-        // 결과 확인 (변경된 문서가 있는지)
-        if (result.modifiedCount > 0) {
-            // 성공적으로 삭제되었으므로 세션 업데이트
-            user.blocklist = user.blocklist.filter(block => block !== username);
-            res.json({ success: true });
-        } else {
-            // 삭제할 사용자가 차단 목록에 없을 경우
-            res.json({ success: false, message: '차단 목록에 존재하지 않습니다.' });
-        }
-    } catch (error) {
-        console.error('사용자 차단 해제 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message }); // 오류 응답
-    }
-});
-
-
-
-
-router.post('/apiclearAllLists', authMiddleware, async (req, res) => {
+// 1친구 추가 (차단 해제 포함)
+router.post('/apiaddFriend', authMiddleware, async (req, res) => {
+    const username = req.body.username;
     const user = req.session.user;
 
-    if (!user) {
-        return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
-
     try {
-        // 친구 목록 및 차단 목록 모두 비우기
-        await User.updateOne(
-            { _id: user._id },
-            { $set: { friendlist: [], blocklist: [] } } // friendlist와 blocklist를 빈 배열로 설정
-        );
+        const me = await User.findById(user._id);
 
-        // 세션 정보 업데이트
-        req.session.user.friendlist = []; // 세션의 friendlist를 비움
-        req.session.user.blocklist = []; // 세션의 blocklist를 비움
-
-        res.json({ success: true });
-    } catch (error) {
-        console.error('목록 삭제 중 오류 발생:', error);
-        res.status(500).json({ success: false, message: '서버 오류: ' + error.message });
+        if (!me.friendlist.includes(username)) {
+            // blocklist에서 제거
+            me.blocklist = me.blocklist.filter(u => u !== username);
+            // friendlist에 추가
+            me.friendlist.push(username);
+            await me.save();
+            req.session.user = me;
+            return res.json({ success: true });
+        } else {
+            return res.json({ success: false, message: '이미 친구입니다.' });
+        }
+    } catch (err) {
+        console.error('친구 추가 오류:', err);
+        return res.status(500).json({ success: false, message: '서버 오류' });
     }
 });
 
+// 2친구 삭제
+router.post('/apiremoveFriend', authMiddleware, async (req, res) => {
+    const username = req.body.username;
+    const user = req.session.user;
+
+    try {
+        const me = await User.findById(user._id);
+        me.friendlist = me.friendlist.filter(u => u !== username);
+        await me.save();
+        req.session.user = me;
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('친구 삭제 오류:', err);
+        return res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+// 3사용자 차단 (친구였다면 제거 후 차단)
+router.post('/apiblockUser', authMiddleware, async (req, res) => {
+    const username = req.body.username;
+    const user = req.session.user;
+
+    try {
+        const me = await User.findById(user._id);
+        // 친구에서 제거
+        me.friendlist = me.friendlist.filter(u => u !== username);
+        // 차단 목록에 추가
+        if (!me.blocklist.includes(username)) {
+            me.blocklist.push(username);
+        }
+        await me.save();
+        req.session.user = me;
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('차단 오류:', err);
+        return res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+// 4차단 해제
+router.post('/apiunblockUser', authMiddleware, async (req, res) => {
+    const username = req.body.username;
+    const user = req.session.user;
+
+    try {
+        const me = await User.findById(user._id);
+        me.blocklist = me.blocklist.filter(u => u !== username);
+        await me.save();
+        req.session.user = me;
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('차단 해제 오류:', err);
+        return res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+//5 친구 목록 조회
+router.get('/apifriends', authMiddleware, async (req, res) => {
+    const user = req.session.user;
+    try {
+        const friends = await User.find({ username: { $in: user.friendlist } });
+        res.json(friends);
+    } catch (err) {
+        console.error('친구 목록 오류:', err);
+        res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+// 6차단 목록 조회
+router.get('/apiblocked', authMiddleware, async (req, res) => {
+    const user = req.session.user;
+    try {
+        const blockedUsers = await User.find({ username: { $in: user.blocklist } });
+        res.json(blockedUsers);
+    } catch (err) {
+        console.error('차단 목록 오류:', err);
+        res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+// 7전체 초기화
+router.post('/apiclearAllLists', authMiddleware, async (req, res) => {
+    const user = req.session.user;
+    try {
+        const me = await User.findById(user._id);
+        me.friendlist = [];
+        me.blocklist = [];
+        await me.save();
+        req.session.user = me;
+        res.json({ success: true });
+    } catch (err) {
+        console.error('리스트 초기화 오류:', err);
+        res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
 
 
 module.exports = router;

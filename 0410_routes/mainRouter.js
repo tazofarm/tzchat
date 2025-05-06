@@ -240,6 +240,7 @@ router.post('/change-password', async (req, res) => {
     }
 }); // 비밀번호 변경 라우터 추가
 
+// a005 profile
 
 router.get('/a005profile', (req, res) => {
     if (req.session.user) {
@@ -334,6 +335,22 @@ router.post('/update-search', async (req, res) => {
     }
 });
 
+
+//fprofile 설정
+
+router.get('/fprofile', async (req, res) => {
+    const username = req.query.username;
+    try {
+        const user = await User.findOne({ username });
+        if (!user) return res.status(404).send('사용자를 찾을 수 없습니다.');
+
+        const me = await User.findById(req.session.user._id); // 로그인 사용자 정보
+        res.render('4010_f_profile', { user, me });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('서버 오류');
+    }
+});
 
 
 

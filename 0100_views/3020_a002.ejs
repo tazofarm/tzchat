@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <title>TZ chatting</title>
     <link rel="stylesheet" href="/css/3000.css"/>
+    <style>
+        tr.clickable-row:hover {
+            cursor: pointer;
+            background-color: #f0f0f0;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -33,7 +39,6 @@
                             <th>지역</th>
                             <th>출생년도</th>
                             <th>상태메세지</th>
-                            <th>작업</th>
                         </tr>
                     </thead>
                     <tbody id="userList">
@@ -43,10 +48,9 @@
             </div>
         </div>
     </div>
-   
-    
-    
+
     <script>
+        // 사용자 목록 가져오기
         async function fetchUsers() {
             try {
                 const response = await fetch('/apigetUsersBy', {
@@ -64,24 +68,23 @@
                 });
 
                 const users = await response.json();
-                const tableBody = document.getElementById('userList'); // tbody 요소 선택
-
-                // 기존의 tbody 내용 초기화
+                const tableBody = document.getElementById('userList');
                 tableBody.innerHTML = '';
 
-                // 사용자 정보를 테이블에 추가
                 users.forEach(user => {
                     const row = document.createElement('tr');
+                    row.classList.add('clickable-row');
                     row.innerHTML = `
                         <td>${user.nickname}</td>
                         <td>${user.gender}</td>
                         <td>${user.region1}, ${user.region2}</td>
                         <td>${user.birthyear}</td>
-                        <td>${user.selfintro}</td>
-                        <td>
-                            <button onclick="addUser('${user.username}')">추가</button>
-                            <button onclick="blockUser('${user.username}')">차단</button>
-                        </td>`;
+                        <td>${user.selfintro}</td>`;
+
+                    row.addEventListener('click', () => {
+                        window.location.href = '/fprofile?username=' + encodeURIComponent(user.username);
+                    });
+
                     tableBody.appendChild(row);
                 });
             } catch (error) {
@@ -89,59 +92,7 @@
             }
         }
 
-        //친구 추가
-        async function addUser(username) {
-            try {
-                const response = await fetch('/apiaddFriend', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ username }) // username을 요청 본문에 포함
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    alert('친구가 추가되었습니다.'); // 친구가 추가되었다는 알림
-                    fetchUsers()
-                } else {
-                    alert('친구 추가에 실패했습니다: ' + result.message); // 실패 메시지
-                }
-            } catch (error) {
-                console.error('친구 추가 중 오류 발생:', error);
-                alert('친구 추가 중 오류가 발생했습니다.'); // 오류 메시지
-            }
-        }
-
-        //친구 차단
-        async function blockUser(username) {
-            try {
-                const response = await fetch('/apiblockUser', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ username }) // username을 요청 본문에 포함
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    alert('사용자가 차단되었습니다.'); // 차단 성공 알림
-                    fetchUsers()
-                } else {
-                    alert('사용자 차단에 실패했습니다: ' + result.message); // 실패 메시지
-                }
-            } catch (error) {
-                console.error('사용자 차단 중 오류 발생:', error);
-                alert('사용자 차단 중 오류가 발생했습니다.'); // 오류 메시지
-            }
-        }
-
-        // 페이지가 로드될 때 사용자 목록을 가져옵니다.
-        window.onload = async () => {
-            await fetchUsers(); // 사용자 목록 가져오기
-        };
+        window.onload = fetchUsers;
     </script>
-
 </body>
 </html>

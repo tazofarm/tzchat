@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <title>채팅 리스트</title>
     <link rel="stylesheet" href="/css/3000.css"/>
+    <style>
+        tr:hover {
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -23,34 +29,24 @@
             <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
         </div>
 
-    <h2>채팅 리스트</h2>
-    <div class="table-container">
-        <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th>채팅방 이름</th>
-                        <th>참여자</th>
-                        <th>메시지 미리보기</th>
-                        <th>액션</th>
-                    </tr>
-                </thead>
-                <tbody id="chatRoomListBody">
-                    <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
-                </tbody>
-            </table>
-
-
+        <h2>채팅 리스트</h2>
+        <div class="table-container">
+            <div style="border: 1px solid black; padding: 10px; width: 100%; flex: 1; overflow: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>채팅방 이름</th>
+                            <th>참여자</th>
+                            <th>메시지 미리보기</th>
+                        </tr>
+                    </thead>
+                    <tbody id="chatRoomListBody">
+                        <!-- 채팅 리스트 내용이 여기에 동적으로 추가됩니다. -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
-
-
-
-
-
-
-
 
     <script>
         async function fetchChatRooms() {
@@ -63,13 +59,16 @@
 
                 chatRooms.forEach(chatRoom => {
                     const row = document.createElement('tr');
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('click', () => {
+                        startChat(chatRoom._id);
+                    });
+
                     row.innerHTML = `
                         <td>${chatRoom.name}</td>
                         <td>${chatRoom.participants.map(participant => participant.nickname).join(', ')}</td>
-                        <td><!-- 메시지 미리보기 내용 사용 --></td>
-                        <td>
-                            <button onclick="startChat('${chatRoom._id}')">대화하기</button>
-                        </td>`;
+                        <td><!-- 메시지 미리보기 내용 사용 --></td>`;
+
                     chatRoomListBody.appendChild(row);
                 });
             } catch (error) {
@@ -81,10 +80,7 @@
             window.location.href = `/chat/${chatRoomId}`; // 채팅방 페이지로 리다이렉트
         }
 
-        // 페이지 로드 시 Chat Rooms 불러오기
-        window.onload = async () => {
-            await fetchChatRooms();
-        };
+        window.onload = fetchChatRooms;
     </script>
 </body>
 </html>

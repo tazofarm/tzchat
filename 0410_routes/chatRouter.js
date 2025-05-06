@@ -49,16 +49,18 @@ router.post('/api/check-or-create-chatroom', async (req, res) => {
 
 
 // routes/chatRoomRouter.js
-router.get('/apichatrooms', async (req, res) => {
-  const userId = req.session.user._id; // 현재 로그인한 사용자 ID
+router.get('/apichatrooms', authMiddleware, async (req, res) => {
+    const userId = req.session.user._id;
 
-  try {
-      const chatRooms = await ChatRoom.find({ participants: userId }).populate('participants', 'username nickname'); // 사용자 ID가 포함된 채팅방 찾기
-      res.json(chatRooms);
-  } catch (error) {
-      console.error('채팅 방 목록을 가져오는 중 오류 발생:', error);
-      res.status(500).json({ message: '채팅 방 목록을 가져오는 중 오류 발생' });
-  }
+    try {
+        const chatRooms = await ChatRoom.find({ participants: userId })
+            .populate('participants', 'username nickname'); // 프론트에 보여줄 용도
+
+        res.json(chatRooms);
+    } catch (error) {
+        console.error('채팅방 목록 오류:', error);
+        res.status(500).json({ message: '채팅방 목록 오류' });
+    }
 });
 
 
@@ -121,6 +123,49 @@ router.get('/api/chatroom/:chatRoomId/messages', async (req, res) => {
       res.status(500).json({ success: false, message: '메시지를 불러오는 중 오류 발생' });
   }
 });
+
+
+
+router.post('/startChat', authMiddleware, async (req, res) => {
+    const { username } = req.body;
+    const myId = req.session.user._id;
+
+    try {
+        const me = await User.findById(myId);
+        const target = await User.findOne({ username });
+        if (!target) {
+            return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다.' });
+        }
+
+        // ObjectId 기준으로 참가자 모두 포함된 방 검색
+        let chatRoom = await ChatRoom.findOne({
+            participants: { $all: [me._id, target._id], $size: 2 }
+        });
+
+        if (!chatRoom) {
+            chatRoom = new ChatRoom({
+                name: `${me.nickname} & ${target.nickname}`,
+                participants: [me._id, target._id],
+            });
+            await chatRoom.save();
+        }
+
+        return res.json({ success: true, chatRoomId: chatRoom._id });
+    } catch (error) {
+        console.error('채팅방 생성 오류:', error);
+        return res.status(500).json({ success: false, message: '서버 오류' });
+    }
+});
+
+
+
+
+
+
+
+
+
+
 
 
 module.exports = router;

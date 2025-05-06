@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title><%= user.nickname %>님의 프로필</title>
+    <link rel="stylesheet" href="/css/3000.css" />
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h2><%= user.nickname %>님의 프로필</h2>
+    </div>
+
+    <div class="profile-info">
+        <p><strong>닉네임:</strong> <%= user.nickname %></p>
+        <p><strong>성별:</strong> <%= user.gender %></p>
+        <p><strong>지역:</strong> <%= user.region1 %>, <%= user.region2 %></p>
+        <p><strong>출생년도:</strong> <%= user.birthyear %></p>
+        <p><strong>상태메세지:</strong> <%= user.selfintro %></p>
+    </div>
+
+    <div class="profile-actions" style="margin-top: 20px;">
+        <button class="button_style_001" onclick="startChat('<%= user.username %>')">대화하기</button>
+
+        <% const isFriend = me.friendlist.includes(user.username); %>
+        <% const isBlocked = me.blocklist.includes(user.username); %>
+
+        <% if (!isFriend && !isBlocked) { %>
+            <!-- Case 1: 친구 아님 + 차단 아님 -->
+            <button class="button_style_002" onclick="addFriend('<%= user.username %>')">친구 추가</button>
+            <button class="button_style_002" onclick="blockUser('<%= user.username %>')">차단하기</button>
+        <% } else if (isFriend && !isBlocked) { %>
+            <!-- Case 2: 친구 + 차단 아님 -->
+            <button class="button_style_002" onclick="removeFriend('<%= user.username %>')">친구 삭제</button>
+            <button class="button_style_002" onclick="blockUser('<%= user.username %>')">차단하기</button>
+        <% } else if (!isFriend && isBlocked) { %>
+            <!-- Case 3: 친구 아님 + 차단 중 -->
+            <button class="button_style_002" onclick="addFriend('<%= user.username %>')">친구 추가</button>
+            <button class="button_style_002" onclick="unblockUser('<%= user.username %>')">차단 해제</button>
+        <% } %>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <button onclick="window.history.back()">돌아가기</button>
+    </div>
+</div>
+
+<script>
+    async function startChat(username) {
+        try {
+            const res = await fetch('/startChat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+
+            const data = await res.json();
+            if (data.success && data.chatRoomId) {
+                window.location.href = `/chat/${data.chatRoomId}`;
+            } else {
+                alert('채팅 시작 실패: ' + data.message);
+            }
+        } catch (err) {
+            console.error('채팅 오류:', err);
+            alert('채팅 시작 중 오류 발생');
+        }
+    }
+
+
+    
+    async function addFriend(username) {
+        try {
+            const res = await fetch('/apiaddFriend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            alert(data.success ? '친구가 추가되었습니다.' : '추가 실패: ' + data.message);
+            location.reload();
+        } catch (err) {
+            console.error('친구 추가 오류:', err);
+            alert('친구 추가 중 오류 발생');
+        }
+    }
+
+    async function removeFriend(username) {
+        if (!confirm('정말 친구를 삭제하시겠습니까?')) return;
+        try {
+            const res = await fetch('/apiremoveFriend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            alert(data.success ? '친구가 삭제되었습니다.' : '삭제 실패: ' + data.message);
+            location.reload();
+        } catch (err) {
+            console.error('친구 삭제 오류:', err);
+            alert('친구 삭제 중 오류 발생');
+        }
+    }
+
+    async function blockUser(username) {
+        if (!confirm('정말 사용자를 차단하시겠습니까?')) return;
+        try {
+            const res = await fetch('/apiblockUser', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            alert(data.success ? '사용자가 차단되었습니다.' : '차단 실패: ' + data.message);
+            location.reload();
+        } catch (err) {
+            console.error('차단 오류:', err);
+            alert('차단 중 오류 발생');
+        }
+    }
+
+    async function unblockUser(username) {
+        try {
+            const res = await fetch('/apiunblockUser', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            alert(data.success ? '차단이 해제되었습니다.' : '해제 실패: ' + data.message);
+            location.reload();
+        } catch (err) {
+            console.error('차단 해제 오류:', err);
+            alert('차단 해제 중 오류 발생');
+        }
+    }
+</script>
+</body>
+</html>
