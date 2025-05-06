@@ -1,163 +1,210 @@
-/* 전체 초기화 및 반응형 기준 설정 */
+.header {
+  background-color: rgba(255, 0, 0, 0.1);  /* 빨간 배경 */
+}
+.welcome-text {
+  background-color: rgba(0, 255, 0, 0.1);  /* 초록 배경 */
+}
+.header form {
+  background-color: rgba(0, 0, 255, 0.1);  /* 파란 배경 */
+}
+
+
+/* 초기화 및 기본 설정 */
 * {
-    box-sizing: border-box;
-  }
-  
-  body {
-    margin: 0;
-    padding: 0;
-    font-family: Arial, sans-serif;
-    background-color: #f4f4f4;
-    font-size: clamp(14px, 2.5vw, 16px); /* 반응형 글자 크기 */
-    overflow-x: hidden;
-  }
-  
-  /* 공통 레이아웃 박스 */
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  background-color: #f4f4f4;
+  font-size: clamp(14px, 2.5vw, 16px);
+  overflow-x: hidden;
+}
+
+/* 컨테이너 박스 */
+.container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 16px;
+  background-color: #fff;
+}
+
+
+
+
+/* 헤더 박스 */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* 환영합니다 텍스트 */
+.welcome-text {
+  font-size: clamp(0.7rem, 2vw, 1.2rem);
+  margin: 0;
+  color: #333;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* form 감싸는 박스 */
+.header form {
+  flex-shrink: 0;
+}
+
+/* 로그아웃 버튼 */
+.button_style_003 {
+  background-color: #343a40;
+  color: white;
+  padding: 4px 8px;
+  font-size: clamp(0.6rem, 1.5vw, 0.9rem);
+  border: none;
+  border-radius: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  max-width: 100%;
+}
+
+.button_style_003:hover {
+  background-color: #23272b;
+}
+
+
+
+
+
+
+/* 버튼 스타일 */
+.button_style_001,
+.button_style_002,
+button,
+input[type="button"] {
+  border: none;
+  border-radius: 5px;
+  padding: 10px;
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  color: white;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+/* 버튼 색상 */
+.button_style_001 {
+  background-color: #343a40;
+}
+.button_style_001:hover {
+  background-color: #23272b;
+}
+
+.button_style_002 {
+  background-color: #6c757d;
+}
+.button_style_002:hover {
+  background-color: #5a6268;
+}
+
+/* 메뉴 버튼: 줄바꿈 없이 꽉 차게 */
+.button-container {
+  display: flex;
+  flex-wrap: nowrap;         /* ❗줄바꿈 금지 */
+  width: 100%;
+  gap: 6px;
+  overflow-x: hidden;        /* 필요시 auto로 바꿔도 됨 */
+  margin-top: 16px;
+}
+
+.button-container input[type="button"] {
+  flex: 1 1 auto;             /* ✅ 균등 분배 + 크기 줄어듦 */
+  min-width: 0;               /* ✅ 줄바꿈 방지 */
+}
+
+/* 테이블 */
+.table-container {
+  margin-top: 20px;
+  width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+th, td {
+  padding: 0.5rem;
+  text-align: left;
+  font-size: clamp(0.6rem, 1.8vw, 1rem);  /* ✅ 작아지기 허용 */
+  white-space: nowrap;                    /* ✅ 줄바꿈 금지 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
+}
+
+th {
+  background-color: #2c2b2b;
+  color: #fff;
+}
+
+tbody {
+  background-color: #fff;
+}
+
+tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+tr:hover {
+  background-color: #f1f1f1;
+  cursor: pointer;
+}
+
+/* 입력 관련 */
+input[type="text"],
+input[type="password"],
+select,
+textarea {
+  width: 100%;
+  font-size: 1rem;
+  padding: 0.5rem;
+  margin: 5px 0;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* 모바일 최적화 */
+@media (max-width: 768px) {
   .container {
-    width: 100%;
-    margin: 0 auto;
-    padding: 16px;
-    background-color: #fff;
+    padding: 12px;
   }
-  
-  /* 헤더: 환영합니다 + 로그아웃 */
+
+  /* ✅ 줄바꿈 방지 유지 */
   .header {
-    display: flex;
-    justify-content: space-between;
+    flex-direction: row;            /* ✅ row 유지 */
     align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
+    justify-content: space-between;
+    gap: 6px;
   }
-  
-  .welcome-text {
-    font-size: clamp(1.2rem, 2.5vw, 1.6rem);
-    color: #333;
-    margin: 0;
-    flex: 1;
-  }
-  
-  /* 공통 버튼 스타일 */
-  .button_style_001,
-  .button_style_002,
-  button,
-  input[type="button"] {
-    border: none;
-    border-radius: 5px;
-    padding: 10px;
-    font-size: clamp(0.9rem, 2vw, 1rem);
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-  }
-  
-  .button_style_001 {
-    background-color: #343a40;
-    color: white;
-  }
-  .button_style_001:hover {
-    background-color: #23272b;
-  }
-  
-  .button_style_002 {
-    background-color: #6c757d;
-    color: white;
-  }
-  .button_style_002:hover {
-    background-color: #5a6268;
-  }
-  
-  /* 버튼들 한 줄 정렬 */
-  .button-container {
-    margin-top: 20px;
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 8px;
-    overflow-x: auto;
-    width: 100%;
-  }
-  
-  .button-container input[type="button"] {
-    flex: 1 1 auto;
-  }
-  
-  /* 테이블 컨테이너 */
-  .table-container {
-    margin-top: 20px;
-    width: 100%;
-    overflow-x: auto;
-  }
-  
+
   table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: unset; /* 공백 유발 제거 */
+    font-size: 0.95rem;
   }
-  
-  th, td {
-    padding: 1rem;
-    border-bottom: 1px solid #ddd;
-    text-align: left;
-    font-size: clamp(0.95rem, 2vw, 1.1rem);
-    word-break: break-word;
-  }
-  
-  th {
-    background-color: #2c2b2b;
-    color: #fff;
-  }
-  
-  tbody {
-    background-color: #fff;
-  }
-  
-  tr:nth-child(even) {
-    background-color: #f9f9f9;
-  }
-  
-  tr:hover {
-    background-color: #f1f1f1;
-    cursor: pointer;
-  }
-  
-  /* 입력, 셀렉트, 텍스트에어리어 */
-  input[type="text"],
-  input[type="password"],
-  select,
-  textarea {
-    width: 100%;
-    font-size: 1rem;
-    padding: 0.5rem;
-    margin: 5px 0;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-  }
-  
-  /* 모바일 대응 */
-  @media (max-width: 768px) {
-    .container {
-      padding: 12px;
-    }
-  
-    .header {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-  
-    .button-container {
-      flex-wrap: wrap;
-      justify-content: flex-start;
-    }
-  
-    .button-container input[type="button"] {
-      flex: 1 1 48%;
-      margin-bottom: 8px;
-    }
-  
-    table {
-      font-size: 0.95rem;
-    }
-  
-    textarea {
-      height: 80px;
-    }
-  }
+}
