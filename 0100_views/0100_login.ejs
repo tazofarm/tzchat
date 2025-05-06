@@ -101,10 +101,45 @@
         <label for="password">비밀번호:</label>
         <input type="password" id="password" name="password" required>
 
+            <!-- 추가된 체크박스 영역 -->
+        <div style="margin-bottom: 15px;">
+            <label style="display: inline-block; margin-right: 10px;">
+                <input type="checkbox" name="rememberId"> 아이디 저장
+            </label>
+
+        </div>
+
         <button type="submit">로그인</button>
         <button type="button" class="signup-button" onclick="location.href='/signup'">회원가입</button>
     </form>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const savedId = localStorage.getItem('savedId');
+    
+        if (savedId) {
+            const usernameInput = document.getElementById('username');
+            const rememberIdCheckbox = document.querySelector('input[name="rememberId"]');
+            if (usernameInput) usernameInput.value = savedId;
+            if (rememberIdCheckbox) rememberIdCheckbox.checked = true;
+        }
+    
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', function () {
+                const rememberId = document.querySelector('input[name="rememberId"]').checked;
+                const username = document.getElementById('username').value;
+    
+                if (rememberId) {
+                    localStorage.setItem('savedId', username);
+                } else {
+                    localStorage.removeItem('savedId');
+                }
+            });
+        }
+    });
+    </script>
 
 </body>
 </html>
