@@ -79,7 +79,7 @@ router.get('/chat/:chatRoomId', async (req, res) => {
       }
 
       // 템플릿 렌더링
-      res.render('chatroom', { 
+      res.render('chatRoom', { 
           chatRoom, // 채팅방 정보
           user: req.session.user // 사용자의 정보를 템플릿에 전달
       });
