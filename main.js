@@ -11,6 +11,9 @@ const socketIo = require('socket.io'); // Socket.IO 추가
 require('dotenv').config();
 
 const Message = require('./0500_models/Message'); // Message 모델 가져오기
+const User = require('./0500_models/User');       // ✅ 추가: 닉네임 조회용
+const ChatRoom = require('./0500_models/ChatRoom'); // ✅ 추가: 메시지 ID 저장용
+
 const mainRouter = require('./0410_routes/mainRouter');
 const friendRouter = require('./0410_routes/friendRouter');
 const chatRouter = require('./0410_routes/chatRouter');
@@ -56,25 +59,51 @@ app.use('/', chatRouter);
 io.on('connection', (socket) => {
     console.log('새로운 사용자 연결됨:', socket.id);
 
+    // ✅ 채팅방 입장 처리
+    socket.on('joinRoom', (chatRoomId) => {
+        socket.join(chatRoomId);
+        console.log(`Socket ${socket.id} joined room ${chatRoomId}`);
+    });
+
     // 클라이언트로부터 메시지를 수신
-    socket.on('sendMessage', (data) => {
-        // 사용자의 ID를 정확히 가져와야 합니다
-        const userId = data.userId; // 사용자 ID를 클라이언트에서 보내도록 설정하거나 세션에서 가져옵니다
-        const { message, chatRoomId, username } = data;
+    socket.on('sendMessage', async (data) => {
+        try {
+            const userId = data.userId;
+            const { message, chatRoomId, username } = data;
 
-        const newMessage = new Message({
-            chatroom: chatRoomId,
-            user: userId, // 사용자 ID는 ObjectId여야 합니다
-            message: message
-        });
-
-        newMessage.save()
-            .then(() => {
-                io.emit('receiveMessage', { username, message }); // 모든 클라이언트에 메시지를 전송
-            })
-            .catch(err => {
-                console.error('메시지 저장 중 오류 발생:', err);
+            const newMessage = new Message({
+                chatroom: chatRoomId,
+                user: userId,
+                message: message
             });
+
+            const savedMessage = await newMessage.save();
+
+            // ✅ 메시지 ID를 채팅방에 추가
+            await ChatRoom.findByIdAndUpdate(chatRoomId, {
+                $push: { messages: savedMessage._id }
+            });
+
+            // ✅ 사용자 정보 조회 (닉네임)
+            const user = await User.findById(userId);
+
+            // ✅ 채팅방 참가자에게만 메시지 전송
+            io.to(chatRoomId).emit('receiveMessage', {
+                username: user.nickname,
+                message: message,
+                timestamp: savedMessage.timestamp
+            });
+
+            // ✅ 자기 자신에게도 전송 (joinRoom 누락 시 대비)
+            socket.emit('receiveMessage', {
+                username: user.nickname,
+                message: message,
+                timestamp: savedMessage.timestamp
+            });
+
+        } catch (err) {
+            console.error('메시지 저장 중 오류 발생:', err);
+        }
     });
 
     socket.on('disconnect', () => {

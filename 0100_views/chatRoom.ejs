@@ -1,169 +1,294 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><%= chatRoom.name %></title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f4f4f4;
-        }
-        #chat-box {
-            border: 1px solid #ccc;
-            background: white;
-            padding: 10px;
-            height: 400px;
-            overflow-y: scroll;
-            margin-bottom: 10px;
-        }
-        #message-input {
-            display: flex;
-        }
-        #message {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            resize: none; /* 크기 조절 비활성화 */
-        }
-        #send-button {
-            padding: 10px 15px;
-            margin-left: 5px;
-            border: none;
-            background: #5cb85c;
-            color: white;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        #send-button:hover {
-            background: #4cae4c;
-        }
-        #leave-button {
-            padding: 10px 15px;
-            margin: 5px 0; /* 버튼 마진 추가 */
-            border: none;
-            background: #d9534f; /* 빨간색 배경 */
-            color: white;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        #leave-button:hover {
-            background: #c9302c; /* 어두운 빨간색 배경 */
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= chatRoom.name %></title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      background: #f4f4f4;
+    }
+
+    #chat-header {
+      padding: 10px 20px;
+      background: #f4f4f4;
+      font-size: 0.9em;
+      border-bottom: 1px solid #ccc;
+    }
+
+    #chat-box {
+      flex-grow: 1;
+      background: white;
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    .message-container {
+      display: flex;
+      flex-direction: column;
+      margin: 10px 0;
+    }
+
+    .message-wrapper {
+      display: flex;
+      align-items: center;
+      max-width: 100%;
+    }
+
+    .self-wrapper {
+      justify-content: flex-end;
+      margin-left: auto;
+    }
+
+    .other-wrapper {
+      justify-content: flex-start;
+    }
+
+    .nickname {
+      font-size: 0.75em;
+      color: #666;
+      margin-bottom: 2px;
+    }
+
+    .message {
+      padding: 8px 12px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-width: 70%;
+    }
+
+    .message.self {
+      background-color: #dcf8c6;
+    }
+
+    .message.other {
+      background-color: #f1f0f0;
+    }
+
+    .timestamp {
+      font-size: 0.75em;
+      color: #888;
+      margin: 0 6px;
+      white-space: nowrap;
+    }
+
+    .date-divider {
+      text-align: center;
+      margin: 15px 0;
+    }
+
+    .date-divider span {
+      background-color: #e0e0e0;
+      color: #333;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      display: inline-block;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    #message-input {
+      display: flex;
+      padding: 10px;
+      border-top: 1px solid #ccc;
+      background: #fff;
+    }
+
+    #message {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: none;
+    }
+
+    #send-button {
+      padding: 10px 15px;
+      margin-left: 5px;
+      border: none;
+      background: #5cb85c;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #send-button:hover {
+      background: #4cae4c;
+    }
+
+    #leave-button {
+      padding: 5px 10px;
+      margin-top: 5px;
+      border: none;
+      background: #d9534f;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #leave-button:hover {
+      background: #c9302c;
+    }
+  </style>
 </head>
-
 <body>
-    <h1>채팅방: <%= chatRoom.name %></h1>
-    <h2>참여자:</h2>
-    <ul>
-      <% chatRoom.participants.forEach(participant => { %>
-        <li><%= participant.nickname %> (<%= participant.username %>)</li>
-      <% }) %>
-    </ul>
 
-    <div id="chat-box">
-        <!-- 여기에 채팅 메시지가 표시됩니다. -->
+  <div id="chat-header">
+    <h3>채팅방: <%= chatRoom.name %></h3>
+    <div>
+      <strong>참여자:</strong>
+      <ul>
+        <% chatRoom.participants.forEach(participant => { %>
+          <li><%= participant.nickname %> (<%= participant.username %>)</li>
+        <% }) %>
+      </ul>
     </div>
-    
-    <div id="message-input">
-        <textarea id="message" placeholder="메시지를 입력하세요..." rows="3"></textarea>
-        <button id="send-button">전송</button>
-    </div>
-
     <button id="leave-button">나가기</button>
+  </div>
 
-<script src="/socket.io/socket.io.js"></script> 
-<script>
-    // Socket.IO 연결
+  <div id="chat-box"></div>
+
+  <div id="message-input">
+    <textarea id="message" placeholder="메시지를 입력하세요..." rows="3"></textarea>
+    <button id="send-button">전송</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
     const socket = io();
+    socket.emit('joinRoom', '<%= chatRoom._id %>');
 
     const chatBox = document.getElementById('chat-box');
     const messageInput = document.getElementById('message');
     const sendButton = document.getElementById('send-button');
     const leaveButton = document.getElementById('leave-button');
+    const currentUser = "<%= user.nickname %>";
+    let lastMessageDate = null;
+    const shownMessageTimestamps = new Set();
 
-    // 메시지를 화면에 추가하는 함수
-    function addMessageToChat(username, message) {
-        const messageElement = document.createElement('div');
-        messageElement.textContent = `${username}: ${message}`;
-        chatBox.appendChild(messageElement);
-        chatBox.scrollTop = chatBox.scrollHeight; // 스크롤을 최신 메시지로 이동
+    function formatTime(isoString) {
+      const date = new Date(isoString);
+      return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
     }
 
-    // 메시지 전송 함수
+    function formatDate(isoString) {
+      const date = new Date(isoString);
+      const yyyy = date.getFullYear();
+      const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+      const dd = date.getDate().toString().padStart(2, '0');
+      return `${yyyy}.${mm}.${dd}`;
+    }
+
+    function addMessageToChat(username, message, timestamp) {
+      const ts = timestamp ? new Date(timestamp) : new Date();
+      const dateStr = formatDate(ts);
+      const timeStr = formatTime(ts);
+      const key = ts.toISOString();
+      if (shownMessageTimestamps.has(key)) return;
+      shownMessageTimestamps.add(key);
+
+      if (lastMessageDate !== dateStr) {
+        const dateDivider = document.createElement('div');
+        dateDivider.className = 'date-divider';
+        dateDivider.innerHTML = `<span>${dateStr}</span>`;
+        chatBox.appendChild(dateDivider);
+        lastMessageDate = dateStr;
+      }
+
+      const container = document.createElement('div');
+      container.className = 'message-container';
+
+      const isSelf = username === currentUser;
+
+      if (!isSelf) {
+        const nicknameLine = document.createElement('div');
+        nicknameLine.className = 'nickname';
+        nicknameLine.textContent = username;
+        container.appendChild(nicknameLine);
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-wrapper ' + (isSelf ? 'self-wrapper' : 'other-wrapper');
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message ' + (isSelf ? 'self' : 'other');
+      bubble.textContent = message;
+
+      const time = document.createElement('div');
+      time.className = 'timestamp';
+      time.textContent = timeStr;
+
+      if (isSelf) {
+        wrapper.appendChild(time);
+        wrapper.appendChild(bubble);
+      } else {
+        wrapper.appendChild(bubble);
+        wrapper.appendChild(time);
+      }
+
+      container.appendChild(wrapper);
+      chatBox.appendChild(container);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
     function sendMessage() {
-        const message = messageInput.value.trim();
-        if (message) {
-            const username = "<%= user.nickname %>"; // 사용자의 nickname을 가져옵니다
-            const userId = "<%= user._id %>"; // 사용자 ID를 가져옵니다
-
-            // addMessageToChat(username, message); // 화면에 메시지를 추가
-            messageInput.value = ''; // 입력 창 초기화
-
-            // Socket.IO를 통해 메시지를 서버에 전송
-            socket.emit('sendMessage', {
-                username: username,
-                message: message,
-                chatRoomId: '<%= chatRoom._id %>',
-                userId: userId // 사용자 ID 추가
-            });
-        }
+      const message = messageInput.value.trim();
+      if (message) {
+        const username = "<%= user.nickname %>";
+        const userId = "<%= user._id %>";
+        messageInput.value = '';
+        socket.emit('sendMessage', {
+          username,
+          message,
+          chatRoomId: '<%= chatRoom._id %>',
+          userId
+        });
+      }
     }
 
-    // 전송 버튼 클릭 이벤트
     sendButton.addEventListener('click', sendMessage);
-
-    // 엔터 키 입력 처리
     messageInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-            if (event.shiftKey) {
-                return; // Shift + Enter는 줄바꿈을 허용
-            } else {
-                event.preventDefault(); // 기본 이벤트 방지 (줄바꿈 방지)
-                sendMessage();
-            }
-        }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
     });
 
-    // 나가기 버튼 클릭 시 페이지 이동
     leaveButton.addEventListener('click', () => {
-        window.location.href = '/a004'; // 이동할 경로
+      window.location.href = '/a004';
     });
 
-    // 서버로부터 메시지를 수신 처리
     socket.on('receiveMessage', (data) => {
-        addMessageToChat(data.username, data.message); // 수신한 메시지를 화면에 추가
+      addMessageToChat(data.username, data.message, data.timestamp);
     });
 
-    // 페이지 로드 시 이전 메시지 가져오기
     function loadPreviousMessages() {
-        fetch(`/api/chatroom/<%= chatRoom._id %>/messages`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    data.messages.forEach(msg => {
-                        addMessageToChat(msg.user.nickname, msg.message); // 서버에서 가져온 메시지를 화면에 추가
-                    });
-                } else {
-                    console.error('메시지를 불러오는 중 오류 발생:', data.message);
-                }
-            })
-            .catch(error => {
-                console.error('서버와의 연결 중 오류 발생:', error);
+      fetch(`/api/chatroom/<%= chatRoom._id %>/messages`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            data.messages.forEach(msg => {
+              addMessageToChat(msg.user.nickname, msg.message, msg.timestamp || msg.createdAt);
             });
+          } else {
+            console.error('메시지를 불러오는 중 오류 발생:', data.message);
+          }
+        })
+        .catch(err => {
+          console.error('서버와의 연결 중 오류 발생:', err);
+        });
     }
 
-    // DOMContentLoaded 이벤트로 페이지가 로드될 때 이전 메시지 불러오기
     document.addEventListener('DOMContentLoaded', loadPreviousMessages);
-</script>
-
-
-
-
+  </script>
 </body>
 </html>
