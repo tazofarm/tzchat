@@ -17,6 +17,8 @@ const ChatRoom = require('./0500_models/ChatRoom'); // ✅ 추가: 메시지 ID 
 const mainRouter = require('./0410_routes/mainRouter');
 const friendRouter = require('./0410_routes/friendRouter');
 const chatRouter = require('./0410_routes/chatRouter');
+const profileImageRouter = require('./0410_routes/profileImage');
+
 
 const app = express();
 const PORT = process.env.PORT || 2000;
@@ -27,6 +29,13 @@ const io = socketIo(server); // Socket.IO 서버 초기화
 
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, '0200_public')));
+
+// 기본 이미지용
+app.use('/images', express.static(path.join(__dirname, '0200_public/images')));
+
+// 업로드된 이미지용
+app.use('/uploads', express.static(path.join(__dirname, '0200_public/uploads')));
+
 
 // EJS 뷰 엔진 설정
 app.set('view engine', 'ejs');
@@ -54,6 +63,9 @@ app.use(session({
 app.use('/', mainRouter);
 app.use('/', friendRouter);
 app.use('/', chatRouter);
+app.use('/profileImage', profileImageRouter);
+
+
 
 // Socket.IO 설정
 io.on('connection', (socket) => {

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -22,6 +22,17 @@
       <input class="button_style_002" type="button" value="채팅" onclick="location.href='a004'">
       <input class="button_style_001" type="button" value="프로필" onclick="location.href='a005'">
       <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
+    </div>
+
+    <!-- ✅ 프로필 이미지 + 업로드 폼 (로그인 정보 위) -->
+    <div style="text-align: center; margin: 20px 0;">
+      <img src="<%= user.profileImage %>" alt="프로필 이미지"
+           style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;" />
+      <form action="/profileImage/upload" method="POST" enctype="multipart/form-data" style="margin-top: 10px;">
+        <input type="hidden" name="userId" value="<%= user._id %>">
+        <input type="file" name="profileImage" accept="image/*" required>
+        <button type="submit">사진 업로드</button>
+      </form>
     </div>
 
     <!-- 로그인 정보 -->

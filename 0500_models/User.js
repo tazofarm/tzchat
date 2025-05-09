@@ -20,12 +20,21 @@ const userSchema = new mongoose.Schema({
     searchregion2: { type: String, default: "전체" },
 
     friendlist: { type: [String], default: [] }, // 친구 리스트
-    blocklist: { type: [String], default: [] },// 차단 리스트
+    blocklist: { type: [String], default: [] }, // 차단 리스트
+
+    // ✅ 프로필 이미지 필드 추가
+    profileImage: {
+        type: String,
+        default: function () {
+            return this.gender === 'female'
+                ? '/images/default_woman.jpg'
+                : '/images/default_man.jpg';
+        }
+    },
 
     // 추가된 채팅 관련 필드
     created_at: { type: Date, default: Date.now },
     last_login: { type: Date, default: Date.now }
-
 });
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
