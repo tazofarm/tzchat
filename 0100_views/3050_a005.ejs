@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -24,14 +24,25 @@
       <input class="button_style_002" type="button" value="설정" onclick="location.href='a006'">
     </div>
 
-    <!-- ✅ 프로필 이미지 + 업로드 폼 (로그인 정보 위) -->
+    <!-- ✅ 프로필 이미지 + 업로드/삭제 폼 -->
     <div style="text-align: center; margin: 20px 0;">
-      <img src="<%= user.profileImage %>" alt="프로필 이미지"
-           style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover;" />
-      <form action="/profileImage/upload" method="POST" enctype="multipart/form-data" style="margin-top: 10px;">
+      <img src="<%= user.profileImage ? (user.profileImage + '?v=' + Date.now()) : '/images/default-profile.jpg' %>" alt="프로필 이미지"
+           style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; cursor: pointer;"
+           onclick="openImageModal(this.src)" />
+
+      <!-- ✅ 업로드 form -->
+      <form action="/profileImage/upload" method="POST" enctype="multipart/form-data" onsubmit="return checkFile()" style="margin-top: 10px;">
         <input type="hidden" name="userId" value="<%= user._id %>">
-        <input type="file" name="profileImage" accept="image/*" required>
-        <button type="submit">사진 업로드</button>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+          <input type="file" name="profileImage" accept="image/*" id="profileImageInput" required>
+          <button type="submit" style="height: 38px; color: black;">사진 업로드</button>
+        </div>
+      </form>
+
+      <!-- ✅ 삭제 form -->
+      <form action="/profileImage/delete" method="POST" onsubmit="return confirm('정말 삭제하시겠습니까?');" style="margin-top: 8px; text-align: center;">
+        <input type="hidden" name="userId" value="<%= user._id %>">
+        <button type="submit" style="height: 38px; color: black;">사진 삭제</button>
       </form>
     </div>
 
@@ -103,6 +114,12 @@
     </div>
   </div>
 
+  <!-- ✅ 이미지 모델 추가 -->
+  <div id="imageModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+       background:rgba(0,0,0,0.8); justify-content:center; align-items:center; z-index:9999;">
+    <img id="modalImage" src="" style="max-width:90%; max-height:90%; border: 4px solid white; border-radius: 10px;">
+  </div>
+
   <script>
     async function clearAllLists() {
       try {
@@ -120,6 +137,26 @@
       } catch (error) {
         console.error('모든 목록 삭제 중 오류 발생:', error);
       }
+    }
+
+    function openImageModal(src) {
+      const modal = document.getElementById('imageModal');
+      const modalImg = document.getElementById('modalImage');
+      modalImg.src = src;
+      modal.style.display = 'flex';
+    }
+
+    document.getElementById('imageModal').addEventListener('click', () => {
+      document.getElementById('imageModal').style.display = 'none';
+    });
+
+    function checkFile() {
+      const input = document.getElementById('profileImageInput');
+      if (!input.files || !input.files[0]) {
+        alert('파일을 선택해주세요.');
+        return false;
+      }
+      return true;
     }
   </script>
 </body>

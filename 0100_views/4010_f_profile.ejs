@@ -12,7 +12,11 @@
         <h2><%= user.nickname %>님의 프로필</h2>
     </div>
 
-    <div class="profile-info">
+    <div class="profile-info" style="text-align: center;">
+        <img src="<%= user.profileImage ? (user.profileImage + '?v=' + Date.now()) : (user.gender === '남자' ? '/images/default_man.jpg' : user.gender === '여자' ? '/images/default_woman.jpg' : '/images/default-profile.jpg') %>"
+             alt="프로필 이미지"
+             style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; margin-bottom: 10px;" />
+
         <p><strong>닉네임:</strong> <%= user.nickname %></p>
         <p><strong>성별:</strong> <%= user.gender %></p>
         <p><strong>지역:</strong> <%= user.region1 %>, <%= user.region2 %></p>
@@ -27,22 +31,19 @@
         <% const isBlocked = me.blocklist.includes(user.username); %>
 
         <% if (!isFriend && !isBlocked) { %>
-            <!-- Case 1: 친구 아님 + 차단 아님 -->
             <button class="button_style_002" onclick="addFriend('<%= user.username %>')">친구 추가</button>
             <button class="button_style_002" onclick="blockUser('<%= user.username %>')">차단하기</button>
         <% } else if (isFriend && !isBlocked) { %>
-            <!-- Case 2: 친구 + 차단 아님 -->
             <button class="button_style_002" onclick="removeFriend('<%= user.username %>')">친구 삭제</button>
             <button class="button_style_002" onclick="blockUser('<%= user.username %>')">차단하기</button>
         <% } else if (!isFriend && isBlocked) { %>
-            <!-- Case 3: 친구 아님 + 차단 중 -->
             <button class="button_style_002" onclick="addFriend('<%= user.username %>')">친구 추가</button>
             <button class="button_style_002" onclick="unblockUser('<%= user.username %>')">차단 해제</button>
         <% } %>
     </div>
 
     <div style="margin-top: 20px;">
-        <button onclick="window.history.back()">돌아가기</button>
+        <button style="color: black;" onclick="window.history.back()">돌아가기</button>
     </div>
 </div>
 
@@ -67,8 +68,6 @@
         }
     }
 
-
-    
     async function addFriend(username) {
         try {
             const res = await fetch('/apiaddFriend', {

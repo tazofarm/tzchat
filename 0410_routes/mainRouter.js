@@ -182,11 +182,21 @@ router.get('/a004', (req, res) => {
 });
 
 //a005 Profile
-router.get('/a005', (req, res) => {
-    if (req.session.user) {
-        res.render('3050_a005.ejs', { user: req.session.user }); // 사용자 정보를 템플릿에 전달
-    } else {
-        res.redirect('/login'); // 로그인되지 않은 경우 로그인 페이지로 리다이렉트
+router.get('/a005', async (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    try {
+        const user = await User.findById(req.session.user._id);
+        if (!user) {
+            return res.redirect('/login'); // 삭제된 유저 예외처리
+        }
+
+        res.render('3050_a005.ejs', { user });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('서버 오류');
     }
 });
 
