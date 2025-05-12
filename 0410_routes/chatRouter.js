@@ -1,6 +1,6 @@
 // routers/chatRouter.js
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const User = require('../0500_models/User'); // User 모델을 불러옵니다.
