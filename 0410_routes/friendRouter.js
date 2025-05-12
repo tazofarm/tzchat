@@ -1,6 +1,6 @@
 // routers/mainRouter.js
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const User = require('../0500_models/User'); // User 모델을 불러옵니다.
