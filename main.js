@@ -103,6 +103,8 @@ io.on('connection', (socket) => {
     });
 });
 
+console.log('✅ 환경 변수:', process.env.MONGODB_URI);
+
 // MongoDB 연결
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
