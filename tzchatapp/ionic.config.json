@@ -1,0 +1,7 @@
+{
+  "name": "tztodoapp",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue-vite"
+}
