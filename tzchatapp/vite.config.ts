@@ -1,6 +1,6 @@
 /// <reference types="vitest" />
 
-import legacy from '@vitejs/plugin-legacy'
+// import legacy from '@vitejs/plugin-legacy'  // 🔴 빌드 오류 원인: 주석 처리
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { defineConfig } from 'vite'
@@ -8,8 +8,8 @@ import { defineConfig } from 'vite'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    vue(),
-    legacy()
+    vue()
+    // legacy()  // 🔴 Rollup 오류 방지: 주석 처리
   ],
   resolve: {
     alias: {
@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 8081,         // 추가: 개발 서버 포트 지정
+    port: 8081,         // 개발용 포트
   },
   test: {
     globals: true,
