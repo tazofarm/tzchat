@@ -120,25 +120,7 @@ router.get('/users', async (req, res) => {
 
 // ❌ 잘못된 위치에서 await 사용했던 코드 제거 (함수 밖에서 await 사용 불가)
 
-// region 업데이트
-router.patch('/user/region', async (req, res) => {
-  try {
-    const userId = req.session.user?._id
-    const { region1, region2 } = req.body
 
-    if (!userId || !region1 || !region2) {
-      return res.status(400).json({ message: '잘못된 요청' })
-    }
-
-    await User.findByIdAndUpdate(userId, { region1, region2 })
-    res.json({ message: '지역 정보가 업데이트되었습니다.' })
-  } catch (err) {
-    console.error('지역 정보 업데이트 실패:', err)
-    res.status(500).json({ message: '서버 오류' })
-  }
-
-
-})
 
 
 
