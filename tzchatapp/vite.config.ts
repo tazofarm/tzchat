@@ -1,6 +1,5 @@
 /// <reference types="vitest" />
 
-import legacy from '@vitejs/plugin-legacy'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { defineConfig } from 'vite'
@@ -16,19 +15,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
-      vue(),              // Vue 플러그인
-      legacy(),           // 구형 브라우저 호환성 플러그인
+      vue()  // Vue 플러그인만 사용 (legacy 제거)
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'), // @ → src 경로로 매핑
+        '@': path.resolve(__dirname, './src'), // @ → src 경로
       },
     },
     server: {
       port: 8081, // 개발 서버 포트 (npm run dev)
     },
     build: {
-      outDir,            // 'dist' 또는 'www'로 빌드 디렉토리 지정
+      outDir,  // 모드에 따라 dist 또는 www
     },
     test: {
       globals: true,
