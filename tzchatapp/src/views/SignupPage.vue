@@ -36,12 +36,18 @@
           <ion-input v-model="nickname" required />
         </ion-item>
 
-        <!-- 출생년도 -->
+        <!-- 출생년도 (ion-datetime 사용) -->
         <ion-item>
-          <ion-label>출생년도</ion-label>
-          <ion-select v-model="birthyear" placeholder="출생년도를 선택하세요">
-            <ion-select-option v-for="year in years" :key="year" :value="year">{{ year }}</ion-select-option>
-          </ion-select>
+          <ion-label position="stacked">출생년도</ion-label>
+          <ion-datetime
+            presentation="year"
+            prefer-wheel="true"
+            :value="birthyear"
+            @ionChange="onBirthYearChange"
+            locale="ko-KR"
+            year-values="1950,1951,...,2020"
+            placeholder="출생년도를 선택하세요"
+          ></ion-datetime>
         </ion-item>
 
         <!-- 성별 -->
@@ -92,12 +98,12 @@ import axios from '@/lib/axiosInstance'
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonItem, IonLabel, IonInput, IonRadio, IonRadioGroup,
-  IonButton, IonText, IonSelect, IonSelectOption
+  IonButton, IonText, IonDatetime
 } from '@ionic/vue'
 
 const router = useRouter()
 
-// 입력값
+// 입력값 정의
 const username = ref('')
 const password = ref('')
 const confirmPassword = ref('')
@@ -105,19 +111,25 @@ const nickname = ref('')
 const gender = ref('')
 const birthyear = ref(null)
 
-// 출생년도 리스트 (1950 ~ 2020)
-const years = Array.from({ length: 2020 - 1950 + 1 }, (_, i) => 2020 - i)
-
 // 메시지
 const errorMsg = ref('')
 const successMsg = ref('')
 
-// 비밀번호 일치 여부
+// 비밀번호 불일치 여부
 const passwordMismatch = computed(() => {
   return confirmPassword.value !== '' && password.value !== confirmPassword.value
 })
 
-// 필수값 유효성 검사
+// 출생년도 선택 시 변경
+function onBirthYearChange(event) {
+  const value = event.detail.value // YYYY-MM-DD 형식
+  if (value) {
+    birthyear.value = value.split('-')[0] // '1998-01-01' → '1998'
+    console.log('📅 출생년도 선택됨:', birthyear.value)
+  }
+}
+
+// 필수값 확인
 const isFormValid = () => {
   return (
     username.value &&
@@ -129,6 +141,7 @@ const isFormValid = () => {
   )
 }
 
+// 회원가입 처리
 async function signup() {
   errorMsg.value = ''
   successMsg.value = ''
@@ -142,6 +155,14 @@ async function signup() {
     errorMsg.value = '비밀번호가 일치하지 않습니다.'
     return
   }
+
+  console.log('📝 회원가입 데이터:', {
+    username: username.value,
+    password: password.value,
+    nickname: nickname.value,
+    gender: gender.value,
+    birthyear: birthyear.value
+  })
 
   try {
     const res = await axios.post('/api/signup', {
@@ -160,6 +181,7 @@ async function signup() {
     }
   } catch (e) {
     errorMsg.value = e.response?.data?.message || '서버 오류'
+    console.error('❌ 회원가입 에러:', e)
   }
 }
 </script>
