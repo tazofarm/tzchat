@@ -7,24 +7,44 @@
     </ion-header>
 
     <ion-content class="ion-padding">
-      <form @submit.prevent="signup" class="signup-form">
+      <form @submit.prevent="signup" class="signup-form" autocomplete="on">
 
         <!-- 아이디 -->
         <ion-item>
-          <ion-label position="stacked">아이디</ion-label>
-          <ion-input v-model="username" autocomplete="username" required />
+          <ion-label for="signup-username" position="stacked">아이디</ion-label>
+          <ion-input
+            id="signup-username"
+            name="username"
+            v-model="username"
+            autocomplete="username"
+            required
+          />
         </ion-item>
 
         <!-- 비밀번호 -->
         <ion-item>
-          <ion-label position="stacked">비밀번호</ion-label>
-          <ion-input type="password" v-model="password" autocomplete="new-password" required />
+          <ion-label for="signup-password" position="stacked">비밀번호</ion-label>
+          <ion-input
+            id="signup-password"
+            name="password"
+            type="password"
+            v-model="password"
+            autocomplete="new-password"
+            required
+          />
         </ion-item>
 
         <!-- 비밀번호 확인 -->
         <ion-item>
-          <ion-label position="stacked">비밀번호 확인</ion-label>
-          <ion-input type="password" v-model="confirmPassword" required />
+          <ion-label for="signup-password2" position="stacked">비밀번호 확인</ion-label>
+          <ion-input
+            id="signup-password2"
+            name="confirm"
+            type="password"
+            v-model="confirmPassword"
+            autocomplete="new-password"
+            required
+          />
         </ion-item>
         <ion-text color="danger" v-if="passwordMismatch">
           <p class="ion-padding-start ion-text-left">⚠ 비밀번호가 일치하지 않습니다.</p>
@@ -32,8 +52,14 @@
 
         <!-- 닉네임 -->
         <ion-item>
-          <ion-label position="stacked">닉네임</ion-label>
-          <ion-input v-model="nickname" required />
+          <ion-label for="signup-nickname" position="stacked">닉네임</ion-label>
+          <ion-input
+            id="signup-nickname"
+            name="nickname"
+            v-model="nickname"
+            autocomplete="nickname"
+            required
+          />
         </ion-item>
 
         <!-- 출생년도 (ion-datetime 사용) -->

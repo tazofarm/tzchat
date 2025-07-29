@@ -4,12 +4,12 @@
       <h2>로그인</h2>
 
       <!-- 로그인 폼 -->
-      <form @submit.prevent="login" class="login-form">
+      <form @submit.prevent="login" class="login-form" autocomplete="on">
         <!-- 아이디 입력 -->
         <div class="form-group">
-          <label for="username">아이디</label>
+          <label for="login-username">아이디</label>
           <input
-            id="username"
+            id="login-username"
             name="username"
             type="text"
             placeholder="아이디"
@@ -21,9 +21,9 @@
 
         <!-- 비밀번호 입력 -->
         <div class="form-group">
-          <label for="password">비밀번호</label>
+          <label for="login-password">비밀번호</label>
           <input
-            id="password"
+            id="login-password"
             name="password"
             type="password"
             placeholder="비밀번호"
