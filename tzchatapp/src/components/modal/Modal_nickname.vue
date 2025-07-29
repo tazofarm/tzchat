@@ -26,43 +26,58 @@ import { ref } from 'vue'
 import axios from '@/lib/axiosInstance'
 import { IonButton } from '@ionic/vue'
 
+// 🔹 Props: 기존 닉네임 전달받음
 const props = defineProps({
-  message: String // 현재 닉네임 값
+  message: String
 })
-const emit = defineEmits(['close'])
+
+// 🔹 Emits: 부모에 닫기(close) 및 수정 완료(updated) 전달
+const emit = defineEmits(['close', 'updated'])
 
 const newNickname = ref(props.message || '')
 const errorMsg = ref('')
 const successMsg = ref('')
 
-// 닉네임 수정 요청
+// 🔧 닉네임 수정 요청
 const submitNickname = async () => {
   errorMsg.value = ''
   successMsg.value = ''
 
-  if (!newNickname.value.trim()) {
+  const trimmed = newNickname.value.trim()
+
+  // 입력 유효성 검사
+  if (!trimmed) {
     errorMsg.value = '닉네임을 입력하세요.'
+    return
+  }
+  if (trimmed === props.message) {
+    errorMsg.value = '기존 닉네임과 동일합니다.'
     return
   }
 
   try {
-    const response = await axios.post(
+    // 닉네임 PUT 요청
+    const response = await axios.put(
       '/api/update-nickname',
-      { nickname: newNickname.value },
+      { nickname: trimmed },
       { withCredentials: true }
     )
 
     if (response.data.success) {
+      console.log(`[닉네임 수정 성공] → ${trimmed}`)
       successMsg.value = '닉네임이 성공적으로 수정되었습니다.'
+
+      // 1초 후 닫기 및 부모에 변경 알림
       setTimeout(() => {
-        emit('close') // 모달 닫기
-        window.location.reload() // 새로고침으로 반영
+        emit('updated', trimmed)
+        emit('close')
       }, 1000)
     } else {
       errorMsg.value = response.data.message || '닉네임 수정 실패'
+      console.warn(`[닉네임 수정 실패] → ${errorMsg.value}`)
     }
   } catch (err) {
-    console.error('닉네임 수정 중 오류:', err)
+    console.error('[닉네임 수정 중 오류]', err)
     errorMsg.value = '서버 오류가 발생했습니다.'
   }
 }

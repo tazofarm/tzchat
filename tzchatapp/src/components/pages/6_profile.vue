@@ -17,7 +17,6 @@
               <td class="readonly">{{ user.birthyear || '미입력' }}</td>
             </tr>
 
-
             <tr>
               <td><strong>성별</strong></td>
               <td class="readonly">
@@ -25,9 +24,7 @@
               </td>
             </tr>
 
-
-
-            <tr @click="openPopup(4, user.preference)" class="editable-row">
+            <tr @click="openPopup(4, user.nickname)" class="editable-row">
               <td><strong>닉네임</strong></td>
               <td class="editable-text">{{ user.nickname }}</td>
             </tr>
@@ -36,30 +33,37 @@
               <td><strong>지역</strong></td>
               <td class="editable-text">{{ user.region1 }} {{ user.region2 }}</td>
             </tr>
+
             <tr @click="openPopup(2, user.preference)" class="editable-row">
               <td><strong>특징</strong></td>
               <td class="editable-text">{{ user.preference }}</td>
             </tr>
+
             <tr @click="openPopup(3, user.selfintro || '소개 없음')" class="editable-row">
               <td><strong>소개</strong></td>
               <td class="editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
+
             <tr>
               <td><strong>가입일</strong></td>
               <td class="readonly">{{ formatDate(user.createdAt) }}</td>
             </tr>
+
             <tr>
               <td><strong>마지막 접속</strong></td>
               <td class="readonly">{{ formatDate(user.last_login) }}</td>
             </tr>
+
             <tr>
               <td><strong>검색나이</strong></td>
               <td class="readonly">{{ user.search_birthyear1 }} ~ {{ user.search_birthyear2 }}</td>
             </tr>
+
             <tr>
               <td><strong>검색지역</strong></td>
               <td class="readonly">{{ user.search_region1 }} {{ user.search_region2 }}</td>
             </tr>
+
             <tr>
               <td><strong>검색특징</strong></td>
               <td class="readonly">{{ user.search_preference }}</td>
@@ -75,10 +79,12 @@
     <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" />
     <PopupModal_2 v-if="showModal2" :message="popupMessage" @close="showModal2 = false" />
     <PopupModal_3 v-if="showModal3" :message="popupMessage" @close="showModal3 = false" />
-    <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" />
-
-
-
+    <PopupModal_4
+      v-if="showModal4"
+      :message="popupMessage"
+      @close="showModal4 = false"
+      @updated="handleNicknameUpdate"
+    />
   </div>
 </template>
 
@@ -112,7 +118,14 @@ const openPopup = (modalNum, value) => {
   showModal2.value = modalNum === 2
   showModal3.value = modalNum === 3
   showModal4.value = modalNum === 4
+}
 
+// 닉네임 수정 후 업데이트
+const handleNicknameUpdate = (newName) => {
+  if (user.value) {
+    user.value.nickname = newName
+    nickname.value = newName
+  }
 }
 
 // 사용자 정보 로딩
@@ -201,7 +214,6 @@ const logout = async () => {
   text-align: left;
 }
 
-/* ✅ 수정 가능 항목 */
 .editable-row {
   cursor: pointer;
 }
@@ -212,7 +224,6 @@ const logout = async () => {
   background-color: #f5f5f5;
 }
 
-/* ❌ 수정 불가능 항목 */
 .readonly {
   color: #aaa;
 }
