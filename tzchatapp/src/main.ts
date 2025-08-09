@@ -62,7 +62,16 @@ router.isReady().then(async () => {
   // ===== 수화(hydrated) 상태 점검 =====
   await nextTick()
   setTimeout(() => {
-    const ions = Array.from(document.querySelectorAll('[class*="ion-"], ion-content, ion-toggle, ion-item]')) as HTMLElement[]
+    // ✅ FIX: 잘못된 닫는 대괄호(]) 제거
+    //    이전: '[class*="ion-"], ion-content, ion-toggle, ion-item]'
+    //    수정: '[class*="ion-"], ion-content, ion-toggle, ion-item'
+    const ions = Array.from(
+      document.querySelectorAll(
+        '[class*="ion-"], ion-content, ion-toggle, ion-item'
+      )
+    ) as HTMLElement[]
+
+    // 디버그용 샘플(최대 5개) — 태그명/수화여부 로그
     const sample = ions.slice(0, 5).map(el => ({
       tag: el.tagName.toLowerCase(),
       hydrated: el.classList.contains('hydrated')
@@ -71,7 +80,14 @@ router.isReady().then(async () => {
 
     const anyNotHydrated = sample.some(s => !s.hydrated)
     if (anyNotHydrated) {
-      console.warn('⛔ [WARN] 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
+      console.warn(
+        '⛔ [WARN] 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.'
+      )
+    } else {
+      console.log('✅ 모든 샘플 컴포넌트가 hydrated 상태입니다.')
     }
   }, 400)
+}).catch(err => {
+  // 추가 로그: 라우터 준비 실패 시 진단
+  console.error('💥 router.isReady() 실패:', err)
 })
