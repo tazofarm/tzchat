@@ -6,23 +6,25 @@
   </div>
 
   <div class="container">
-
-
+    <!-- ✅ 비밀번호 변경 컴포넌트 삽입 -->
+    <ChangePassword />
   </div>
- 
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from '@/lib/axiosInstance'
-import { IonPage, IonContent, IonList, IonItem, IonLabel, IonText, IonButton } from '@ionic/vue'
+import { IonButton } from '@ionic/vue'
 import { useRouter } from 'vue-router'
+
+// ✅ 비밀번호 변경 컴포넌트 가져오기
+import ChangePassword from '@/components/04710_Page7_detail/ChangePassword.vue'
 
 const router = useRouter()
 const users = ref([])
 const nickname = ref('')
 
-// 유저 목록 불러오기
+// 유저 목록 및 닉네임 불러오기
 onMounted(async () => {
   try {
     const res = await axios.get('/api/users')
@@ -39,7 +41,7 @@ onMounted(async () => {
   }
 })
 
-// 로그아웃
+// 로그아웃 함수
 const logout = async () => {
   try {
     await axios.post('/api/logout', {}, { withCredentials: true })
@@ -59,20 +61,11 @@ const logout = async () => {
   background-color: #f1f1f1;
   font-size: 0.95rem;
   border-bottom: 1px solid #ccc;
-
 }
 
 .welcome-text {
   font-weight: bold;
-}
-
-.black-text {
-  color: black;
-}
-
-.welcome-text {
-  font-weight: bold;
-  color: #000; /* ✅ 글씨를 검은색으로 지정 */
+  color: #000;
 }
 
 .container {

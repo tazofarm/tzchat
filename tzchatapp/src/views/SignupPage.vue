@@ -62,18 +62,18 @@
           />
         </ion-item>
 
-        <!-- 출생년도 (ion-datetime 사용) -->
+        <!-- 출생년도 (ion-select으로 변경) -->
         <ion-item>
           <ion-label position="stacked">출생년도</ion-label>
-          <ion-datetime
-            presentation="year"
-            prefer-wheel="true"
-            :value="birthyear"
-            @ionChange="onBirthYearChange"
-            locale="ko-KR"
-            year-values="1950,1951,...,2020"
-            placeholder="출생년도를 선택하세요"
-          ></ion-datetime>
+          <ion-select v-model="birthyear" placeholder="출생년도를 선택하세요">
+            <ion-select-option
+              v-for="year in birthyearOptions"
+              :key="year"
+              :value="year"
+            >
+              {{ year }}년
+            </ion-select-option>
+          </ion-select>
         </ion-item>
 
         <!-- 성별 -->
@@ -124,7 +124,7 @@ import axios from '@/lib/axiosInstance'
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonItem, IonLabel, IonInput, IonRadio, IonRadioGroup,
-  IonButton, IonText, IonDatetime
+  IonButton, IonText, IonSelect, IonSelectOption
 } from '@ionic/vue'
 
 const router = useRouter()
@@ -137,6 +137,13 @@ const nickname = ref('')
 const gender = ref('')
 const birthyear = ref(null)
 
+// 출생년도 목록 생성 (1950 ~ 올해 - 19세까지)
+const birthyearOptions = ref([])
+const currentYear = new Date().getFullYear()
+for (let y = 1950; y <= currentYear - 19; y++) {
+  birthyearOptions.value.push(String(y))
+}
+
 // 메시지
 const errorMsg = ref('')
 const successMsg = ref('')
@@ -145,15 +152,6 @@ const successMsg = ref('')
 const passwordMismatch = computed(() => {
   return confirmPassword.value !== '' && password.value !== confirmPassword.value
 })
-
-// 출생년도 선택 시 변경
-function onBirthYearChange(event) {
-  const value = event.detail.value // YYYY-MM-DD 형식
-  if (value) {
-    birthyear.value = value.split('-')[0] // '1998-01-01' → '1998'
-    console.log('📅 출생년도 선택됨:', birthyear.value)
-  }
-}
 
 // 필수값 확인
 const isFormValid = () => {

@@ -8,8 +8,8 @@
 
 <script setup>
 import { IonPage } from '@ionic/vue'
-import TopMenu from '@/components/layout/TopMenu.vue'
-import MainPage from '@/components/layout/MainPage.vue'
-import BottomMenu from '@/components/layout/BottomMenu.vue'
+import TopMenu from '@/components/02050_layout/TopMenu.vue'
+import MainPage from '@/components/02050_layout/MainPage.vue'
+import BottomMenu from '@/components/02050_layout/BottomMenu.vue'
 </script>
 

@@ -17,7 +17,15 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
-      vue()  // Vue 플러그인만 사용
+      vue({
+        // ✅ ion- 및 emoji-picker 사용자 정의 엘리먼트 처리
+        template: {
+          compilerOptions: {
+            isCustomElement: (tag) =>
+              tag.startsWith('ion-') || tag === 'emoji-picker'
+          }
+        }
+      })
     ],
     resolve: {
       alias: {
@@ -26,6 +34,14 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 8081, // 개발 서버 포트
+      proxy: {
+        '/api': {
+          target: 'http://localhost:2000', // 백엔드 서버
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api/, '/api'), // 경로 그대로 유지
+        }
+      }
     },
     build: {
       outDir,  // 모드에 따라 dist 또는 www

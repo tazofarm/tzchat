@@ -1,0 +1,214 @@
+<template>
+  <div class="profile-page">
+    <!-- 🔹 제목 + 뒤로가기 버튼 -->
+    <div class="header-row">
+      <h2>{{ user.nickname }}님의 프로필</h2>
+      <ion-button size="small" color="medium" @click="goBack">뒤로가기</ion-button>
+    </div>
+
+    <!-- 🔍 사용자 정보 테이블 (tbody로 수정됨) -->
+    <table class="info-table">
+      <tbody>
+        <tr><td><strong>아이디</strong></td><td>{{ user.username || '-' }}</td></tr>
+        <tr><td><strong>성별</strong></td><td>{{ user.gender === 'man' ? '남자' : '여자' }}</td></tr>
+        <tr><td><strong>출생년도</strong></td><td>{{ user.birthyear || '-' }}</td></tr>
+        <tr><td><strong>지역</strong></td><td>{{ user.region1 || '' }} {{ user.region2 || '' }}</td></tr>
+        <tr><td><strong>특징</strong></td><td>{{ user.preference || '없음' }}</td></tr>
+        <tr><td><strong>소개</strong></td><td>{{ user.selfintro || '없음' }}</td></tr>
+        <tr><td><strong>가입일</strong></td><td>{{ formatDate(user.createdAt) }}</td></tr>
+        <tr><td><strong>최근 접속</strong></td><td>{{ formatDate(user.last_login) }}</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ✅ 친구 여부 확인 -->
+    <p style="font-weight: bold; color: black">
+      친구 여부: {{ user.isFriend ? '✅ yes' : '❌ no' }} /
+      차단 여부: {{ user.isBlocked ? '🚫 yes' : '⭕ no' }}
+    </p>
+
+    <!-- 💬 대화하기 버튼 -->
+    <div class="chat-button">
+      <ion-button
+        color="success"
+        expand="block"
+        :disabled="!user.isFriend"
+        @click="startChat(user._id)"
+      >
+        대화하기
+      </ion-button>
+    </div>
+
+    <!-- 🙋‍♂️ 액션 버튼 그룹 -->
+    <div class="button-group">
+      <!-- 친구 신청 or 삭제 -->
+      <ion-button
+        v-if="!user.isFriend"
+        color="primary"
+        @click="showRequestModal = true"
+        :disabled="showRequestModal || user.isBlocked"
+      >
+        친구 신청
+      </ion-button>
+      <ion-button
+        v-else
+        color="warning"
+        @click="removeFriend(user._id)"
+      >
+        친구 삭제
+      </ion-button>
+
+      <!-- 차단 or 차단 해제 -->
+      <ion-button
+        v-if="!user.isBlocked"
+        color="medium"
+        @click="blockUser(user._id)"
+      >
+        차단하기
+      </ion-button>
+      <ion-button
+        v-else
+        color="tertiary"
+        @click="unblockUser(user._id)"
+      >
+        차단 해제
+      </ion-button>
+
+      <ion-button color="danger" @click="reportUser(user._id)">
+        신고하기
+      </ion-button>
+    </div>
+
+    <!-- ✅ 친구 신청 모달 -->
+    <FriendRequestModal
+      v-if="showRequestModal"
+      :toUserId="user._id"
+      :toNickname="user.nickname"
+      @close="showRequestModal = false"
+      @request-sent="handleRequestSent"
+    />
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { IonButton } from '@ionic/vue'
+import { useRoute, useRouter } from 'vue-router'
+import axios from 'axios'
+import FriendRequestModal from '@/components/03060_minipage/Modal_FriendRequest.vue'
+
+const route = useRoute()
+const router = useRouter()
+
+const user = ref({})
+const showRequestModal = ref(false)
+
+// ✅ 날짜 형식 포맷 함수
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleString()
+}
+
+// ✅ 사용자 정보 로딩
+onMounted(async () => {
+  try {
+    const res = await axios.get(`/api/users/${route.params.id}`)
+    user.value = res.data
+    console.log('👤 사용자 정보 로드됨:', user.value)
+  } catch (err) {
+    console.error('❌ 사용자 정보 로딩 실패', err)
+  }
+})
+
+// ✅ 친구 신청 완료 후 처리
+function handleRequestSent() {
+  console.log('✅ 친구 신청 완료')
+  showRequestModal.value = false
+}
+
+// ✅ 대화 시작 (채팅방 생성 및 이동)
+async function startChat(userId) {
+  try {
+    const res = await axios.post('/api/chatrooms', { userId })
+    if (res.data && res.data._id) {
+      router.push(`/home/chat/${res.data._id}`)
+    }
+  } catch (err) {
+    console.error('❌ 채팅방 생성 실패:', err)
+  }
+}
+
+// ✅ 친구 삭제 요청
+async function removeFriend(targetId) {
+  try {
+    await axios.delete(`/api/friends/${targetId}`)
+    user.value.isFriend = false
+    console.log('🗑️ 친구 삭제됨:', targetId)
+  } catch (err) {
+    console.error('❌ 친구 삭제 실패:', err)
+  }
+}
+
+// ✅ 사용자 차단
+async function blockUser(targetId) {
+  try {
+    await axios.put(`/api/block/${targetId}`)
+    user.value.isBlocked = true
+    console.log('🚫 차단됨:', targetId)
+  } catch (err) {
+    console.error('❌ 차단 실패:', err)
+  }
+}
+
+// ✅ 차단 해제
+async function unblockUser(targetId) {
+  try {
+    await axios.put(`/api/unblock/${targetId}`)
+    user.value.isBlocked = false
+    console.log('🔓 차단 해제됨:', targetId)
+  } catch (err) {
+    console.error('❌ 차단 해제 실패:', err)
+  }
+}
+
+// ✅ 신고하기 (임시 로그만 출력)
+function reportUser(id) {
+  console.log('⚠️ 신고 요청:', id)
+}
+
+// 🔙 뒤로가기
+function goBack() {
+  router.back()
+}
+</script>
+
+<style scoped>
+.profile-page {
+  padding: 1.5rem;
+  max-width: 500px;
+  margin: auto;
+  color: black;
+}
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.info-table {
+  width: 100%;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+.info-table td {
+  padding: 0.3rem;
+}
+.chat-button {
+  margin-bottom: 1rem;
+}
+.button-group {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+</style>

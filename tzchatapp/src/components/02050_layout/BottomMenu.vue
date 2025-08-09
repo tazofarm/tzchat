@@ -1,3 +1,6 @@
+
+
+
 <template>
   <div class="bottom-menu">
     BottomMenu.vue
