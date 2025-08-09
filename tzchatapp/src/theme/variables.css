@@ -1,13 +1,23 @@
-:root {
-  /* 항상 라이트 모드 스타일 적용 */
-  --ion-background-color: #ffffff; /* 흰 배경 */
-  --ion-text-color: #000000;       /* 검정 글씨 */
+/* src/theme/variables.css
+   -------------------------------------------------------
+   전역 테마 토큰 (라이트 톤 고정, 가독성: 검정 글씨)
+   - Ion 기본 토큰은 :root 에서 선언
+   - iOS/MD 테마별 루트(.ios, .md)에도 한 번 더 고정
+   - 개별 컴포넌트 안전핀(ion-content/item/input 등) 제공
+   ----------------------------------------------------- */
 
-  /* ⬇️ 폼/아이템/버튼이 하얀 바탕에서도 또렷하게 보이도록 핵심 변수 지정 */
+:root {
+  /* 배경/글자 기본 (가독성: 검정) */
+  --ion-background-color: #ffffff;
+  --ion-text-color: #000000;
+  --ion-text-color-rgb: 0, 0, 0;              /* 일부 컴포넌트가 rgb 참조 */
+
+  /* 리스트/아이템 라인 */
   --ion-item-background: #ffffff;
   --ion-item-color: #000000;
   --ion-item-border-color: #e0e0e0;
 
+  /* 입력류 */
   --ion-input-background: #ffffff;
   --ion-input-color: #000000;
   --ion-input-placeholder-color: #666666;
@@ -18,38 +28,59 @@
   --ion-textarea-background: #ffffff;
   --ion-textarea-color: #000000;
 
-  /* 버튼(Primary) 가시성 */
+  /* 프라이머리 버튼 (또렷하게) */
   --ion-color-primary: #3880ff;
   --ion-color-primary-contrast: #ffffff;
 }
 
-/* 다크 모드 감지 시에도 동일한 값으로 유지 */
+/* iOS/MD 테마에서도 동일 값 강제(플랫폼별 차이 최소화) */
+.ios,
+.md {
+  --ion-background-color: #ffffff;
+  --ion-text-color: #000000;
+  --ion-text-color-rgb: 0, 0, 0;
+}
+
+/* OS 다크 선호가 있어도 라이트 변수 유지 (시각 통일) */
 @media (prefers-color-scheme: dark) {
   :root {
     --ion-background-color: #ffffff;
     --ion-text-color: #000000;
+    --ion-text-color-rgb: 0, 0, 0;
   }
 }
 
-/* 컴포넌트별 안전핀 */
+/* ---------------- 컴포넌트 안전핀 ---------------- */
+
+/* 페이지 배경/텍스트 */
 ion-content {
   --background: #ffffff;
   color: #000000;
 }
+
+/* 리스트/아이템 라인 얇게 */
 ion-item {
   --background: #ffffff;
   --color: #000000;
-  --inner-border-width: 0 0 1px 0;
+  --inner-border-width: 0 0 1px 0;   /* 하단 1px */
   --inner-border-color: #e0e0e0;
 }
-ion-input, ion-select, ion-textarea {
+
+/* 입력/선택/텍스트영역 */
+ion-input,
+ion-select,
+ion-textarea {
   --background: #ffffff;
   --color: #000000;
   --placeholder-color: #666666;
 }
+
+/* 라벨은 Light DOM이라 직접 컬러 지정 가능 */
 ion-label {
   color: #000000;
 }
+
+/* 버튼(프라이머리) 대비 강화 */
 ion-button {
   --background: var(--ion-color-primary);
   --color: var(--ion-color-primary-contrast);

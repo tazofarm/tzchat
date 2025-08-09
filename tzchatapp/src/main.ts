@@ -1,4 +1,5 @@
-import { createApp } from 'vue'
+// src/main.ts
+import { createApp, nextTick } from 'vue'
 import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
@@ -22,47 +23,55 @@ import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
 
 /* -------------------------------------------------------
- * ⚠️ 다크 자동 적용 팔레트 (서버에서 새까맣게 보이던 원인)
- * import '@ionic/vue/css/palettes/dark.system.css'
- *
- * 요구사항: "기본 글씨는 검정(가독성)" → 다크 자동 OFF
- * 필요 시, 나중에 토글로 dark.class.css를 동적으로 붙이세요.
+ * ⚠️ 다크 자동 팔레트 제거 (가독성: 글씨 검정 유지)
+ * 필요 시 나중에 토글로 dark.class.css를 동적 주입 권장
  * ----------------------------------------------------- */
-// import '@ionic/vue/css/palettes/dark.system.css'  // ⛔️ 제거
+// import '@ionic/vue/css/palettes/dark.system.css' // ⛔️ 사용안함
 
 /* -------------------------------------------------------
- * 사용자 정의 테마 변수 (여기서 글자색을 검정으로 유지)
+ * 사용자 정의 테마 변수 (글자색 등 전역 토큰)
+ * 항상 마지막에 import (우선순위 보장)
  * ----------------------------------------------------- */
 import './theme/variables.css'
 
 /* -------------------------------------------------------
- * Web Components 등록(ion-modal 등 네이티브 기능)
+ * Web Components 등록(ion-modal 등 네이티브 플러그인)
  * ----------------------------------------------------- */
 import { defineCustomElements } from '@ionic/pwa-elements/loader'
 
-/* 이모지 피커 */
+/* 이모지 피커 (사용시만) */
 import 'emoji-picker-element'
 
 /* ===== 로그(환경/베이스 URL) — 로그분석용 ===== */
 const IS_DEV = import.meta.env.DEV
-const BASE_URL = IS_DEV ? 'http://localhost:2000/' : 'https://tzchat.duckdns.org/'
 console.log('🌐 Environment:', IS_DEV ? 'DEV' : 'PROD')
-console.log('🛰 Axios/Base URL 예상:', BASE_URL)
 
-/* -------------------------------------------------------
- * 라이트 테마 강제 (가독성: 기본 글씨 검정)
- *  - 서버/클라이언트 환경/캐시와 무관하게 항상 라이트
- * ----------------------------------------------------- */
+/* 라이트 테마 강제 (서버/캐시와 무관하게 글씨 검정) */
 document.documentElement.classList.remove('dark')
 document.documentElement.setAttribute('color-scheme', 'light')
 
 const app = createApp(App)
-
-app.use(IonicVue /* , { mode: 'md' } */) // 필요 시 { mode: 'md' } 지정
+app.use(IonicVue /* , { mode: 'md' } */)
 app.use(router)
 
-router.isReady().then(() => {
+router.isReady().then(async () => {
   app.mount('#app')
-  defineCustomElements(window) // ion-modal 등 동작에 필요
+  defineCustomElements(window)
   console.log('🚀 App mounted (Ionic + Vue)')
+
+  // ===== 수화(hydrated) 상태 점검 =====
+  await nextTick()
+  setTimeout(() => {
+    const ions = Array.from(document.querySelectorAll('[class*="ion-"], ion-content, ion-toggle, ion-item]')) as HTMLElement[]
+    const sample = ions.slice(0, 5).map(el => ({
+      tag: el.tagName.toLowerCase(),
+      hydrated: el.classList.contains('hydrated')
+    }))
+    console.log('🔎 [DEBUG] Ionic samples:', sample)
+
+    const anyNotHydrated = sample.some(s => !s.hydrated)
+    if (anyNotHydrated) {
+      console.warn('⛔ [WARN] 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
+    }
+  }, 400)
 })
