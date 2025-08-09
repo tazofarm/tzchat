@@ -1,12 +1,13 @@
-/* For information on how to create your own theme, please see:
-http://ionicframework.com/docs/theming/ */
 :root {
-  --ion-text-color: #000000; /* 기본 글자 색 */
+  /* 항상 라이트 모드 스타일 적용 */
+  --ion-background-color: #ffffff; /* 흰 배경 */
+  --ion-text-color: #000000;       /* 검정 글씨 */
 }
 
+/* 다크 모드 감지 시에도 동일한 값으로 유지 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ion-background-color: #121212; /* 다크 배경 */
-    --ion-text-color: #ffffff;       /* 다크 글자 색 */
+    --ion-background-color: #ffffff;
+    --ion-text-color: #000000;
   }
 }

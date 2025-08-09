@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => {
   console.log(`🔀 Manual chunking for vendor libs enabled`)
 
   return {
+    // ✅ 배포 시 상대 경로로 자산 로드 (CSS/JS 404 방지)
+    base: './',
+
     plugins: [
       vue({
         // ✅ ion- 및 emoji-picker 사용자 정의 엘리먼트 처리
@@ -39,17 +42,16 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:2000', // 백엔드 서버
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path.replace(/^\/api/, '/api'), // 경로 그대로 유지
+          rewrite: (p) => p.replace(/^\/api/, '/api'),
         }
       }
     },
     build: {
       outDir,  // 모드에 따라 dist 또는 www
-      chunkSizeWarningLimit: 1000, // 경고 제한 상향
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
           manualChunks: {
-            // 외부 라이브러리들을 vendor로 분리
             vendor: [
               'vue',
               'vue-router',
