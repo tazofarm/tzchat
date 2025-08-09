@@ -65,4 +65,30 @@ const isActive = (path) => {
   background-color: #007bff;
   color: white;
 }
+
+
+
+.menu-button {
+  flex: 1;
+  margin: 0 0.2rem;
+  padding: 0.6rem 0;
+  font-size: 0.85rem;
+  font-weight: bold;
+  border: none;
+  border-radius: 4px;
+  background-color: #060606;
+  color: #ffffff; /* ✅ 글씨 흰색으로 지정 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-button.active {
+  background-color: #007bff;
+  color: white; /* active 상태도 흰색 유지 */
+}
+
+
+
+
 </style>
