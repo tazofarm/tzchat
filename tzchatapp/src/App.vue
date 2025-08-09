@@ -8,10 +8,10 @@
 import { IonApp } from '@ionic/vue'
 </script>
 
+
 <style>
-/* 혹시 다크테마 클래스가 붙는 경우를 대비해 라이트 우선 */
-ion-app.light {
-  background: #ffffff !important;
-  color: #000000 !important;
+/* 전체 높이 보장 (가끔 검정 화면 원인) */
+html, body, #app, ion-app {
+  height: 100%;
 }
 </style>
