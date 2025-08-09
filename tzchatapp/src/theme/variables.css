@@ -1,2 +1,12 @@
 /* For information on how to create your own theme, please see:
 http://ionicframework.com/docs/theming/ */
+:root {
+  --ion-text-color: #000000; /* 기본 글자 색 */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ion-background-color: #121212; /* 다크 배경 */
+    --ion-text-color: #ffffff;       /* 다크 글자 색 */
+  }
+}

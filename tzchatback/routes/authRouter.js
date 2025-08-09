@@ -174,7 +174,7 @@ router.get('/my-friends', requireLogin, async (req, res) => {
 
 
 // 로그인된 사용자만 접근 가능
-router.put('/api/change-password', async (req, res) => {
+router.put('/change-password', async (req, res) => {
   try {
     const userId = req.session?.user?._id
     if (!userId) return res.status(401).json({ message: '로그인이 필요합니다.' })
