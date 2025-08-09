@@ -1,2 +1,45 @@
-/* For information on how to create your own theme, please see:
-http://ionicframework.com/docs/theming/ */
+/* ===== Base reset: 페이지 전체를 흰 배경 / 검정 글씨로 강제 ===== */
+html, body, #app {
+  height: 100%;
+  background: #ffffff !important;
+  color: #000000 !important; /* 가독성 위해 검정 */
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Helvetica Neue", Arial, "Apple SD Gothic Neo", sans-serif;
+}
+
+/* ===== Ionic 라이트 테마 강제 ===== */
+:root {
+  /* 텍스트/배경 기본값 */
+  --ion-text-color: #000000;
+  --ion-background-color: #ffffff;
+
+  /* card, modal 등도 어둡게 나오지 않게 */
+  --ion-card-background: #ffffff;
+  --ion-item-background: #ffffff;
+  --ion-toolbar-background: #ffffff;
+  --ion-toolbar-color: #000000;
+}
+
+/* ion-content 자체 배경 */
+ion-content {
+  --background: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* 입력/버튼 가독성 */
+ion-input, ion-select, ion-textarea {
+  --color: #000 !important;
+  --placeholder-color: #666 !important;
+  color: #000 !important;
+}
+
+ion-button {
+  --color: #000; /* 텍스트가 흰 배경에서 보이도록 */
+}
+
+/* 데모용 컨테이너(필요 시) */
+.page-container {
+  padding: 16px;
+  color: #000; /* 컨테이너 안 텍스트도 확실히 검정 */
+}
