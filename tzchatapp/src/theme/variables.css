@@ -2,6 +2,25 @@
   /* 항상 라이트 모드 스타일 적용 */
   --ion-background-color: #ffffff; /* 흰 배경 */
   --ion-text-color: #000000;       /* 검정 글씨 */
+
+  /* ⬇️ 폼/아이템/버튼이 하얀 바탕에서도 또렷하게 보이도록 핵심 변수 지정 */
+  --ion-item-background: #ffffff;
+  --ion-item-color: #000000;
+  --ion-item-border-color: #e0e0e0;
+
+  --ion-input-background: #ffffff;
+  --ion-input-color: #000000;
+  --ion-input-placeholder-color: #666666;
+
+  --ion-select-background: #ffffff;
+  --ion-select-color: #000000;
+
+  --ion-textarea-background: #ffffff;
+  --ion-textarea-color: #000000;
+
+  /* 버튼(Primary) 가시성 */
+  --ion-color-primary: #3880ff;
+  --ion-color-primary-contrast: #ffffff;
 }
 
 /* 다크 모드 감지 시에도 동일한 값으로 유지 */
@@ -10,4 +29,28 @@
     --ion-background-color: #ffffff;
     --ion-text-color: #000000;
   }
+}
+
+/* 컴포넌트별 안전핀 */
+ion-content {
+  --background: #ffffff;
+  color: #000000;
+}
+ion-item {
+  --background: #ffffff;
+  --color: #000000;
+  --inner-border-width: 0 0 1px 0;
+  --inner-border-color: #e0e0e0;
+}
+ion-input, ion-select, ion-textarea {
+  --background: #ffffff;
+  --color: #000000;
+  --placeholder-color: #666666;
+}
+ion-label {
+  color: #000000;
+}
+ion-button {
+  --background: var(--ion-color-primary);
+  --color: var(--ion-color-primary-contrast);
 }
