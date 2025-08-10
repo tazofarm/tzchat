@@ -25,10 +25,52 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="tzchat" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <!-- ✅ 추가: index.html 자체 캐시 최소화(서버 헤더가 최우선이지만 보조 차단용) -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <!-- ✅ 추가: 기본 글자색을 검정색으로 고정(가독성) -->
+    <style>
+      /* 전역 텍스트 기본값을 검정으로 (페이지별 CSS가 있으면 그게 우선됨) */
+      html, body { color: black; }
+    </style>
+
+    <!-- ✅ 추가: 배포 확인/로그 분석용 간단 버전 태그(수동 업데이트용) -->
+    <!-- 빌드 후 이 값을 바꾸면 브라우저 개발자도구에서 즉시 버전 확인 가능 -->
+    <meta name="app-version" content="index-250810-1" />
   </head>
 
   <body>
+    <noscript>이 앱을 사용하려면 JavaScript가 필요합니다.</noscript>
+
     <div id="app"></div>
+
+    <!-- 개발 모드에서는 /src/main.ts, 빌드 후에는 Vite가 dist/index.html에 해시된 자산을 주입 -->
     <script type="module" src="/src/main.ts"></script>
+
+    <!-- ✅ 추가: 진단 로그(캐시/로딩 상황 확인) -->
+    <script>
+      (function () {
+        try {
+          const ver = document.querySelector('meta[name="app-version"]')?.content || '(no-version)';
+          console.log('🧭 tzchat index.html loaded');
+          console.log('📌 app-version(meta):', ver);
+          console.log('🌐 location:', window.location.href);
+
+          // link/script 로드 목록(빌드 후 dist에서는 해시된 /assets/* 가 보이는지 체크)
+          const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(l => l.href);
+          const scripts = Array.from(document.querySelectorAll('script')).map(s => s.src || '(inline/module)');
+          console.log('📄 stylesheets (index.html scope):', links);
+          console.log('📜 scripts (index.html scope):', scripts);
+
+          // 캐시 관련 힌트: 응답 헤더는 DevTools Network 탭 Headers에서 확인
+          console.log('ℹ️ Hint: Network 탭에서 index.html의 Cache-Control/ETag 확인하세요.');
+        } catch (e) {
+          console.warn('index.html diagnostics failed:', e);
+        }
+      })();
+    </script>
   </body>
 </html>

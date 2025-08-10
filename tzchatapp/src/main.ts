@@ -40,7 +40,7 @@ console.log(`🚀 Booting tzchat... (env: ${isDev ? 'DEV' : 'PROD'})`)
 console.log('🌐 location:', window.location.href)
 
 // 핵심 CSS가 로드되었는지 간단 체크(ion-button의 display 값을 본다)
-function checkIonicHydration() {
+function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
   document.body.appendChild(probe)
   const cs = window.getComputedStyle(probe)
@@ -54,12 +54,54 @@ function logPrimaryColorVar() {
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
 }
 
-// 로딩된 CSS link/script 개요 출력(배포 시 /assets/*.css 확인용)
+// 로딩된 CSS/JS 개요 출력(배포 시 /assets/*.css 확인용)
 function logLoadedAssets() {
   const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
   const scripts = Array.from(document.querySelectorAll('script'))
   console.log('📄 stylesheets:', links.map(l => (l as HTMLLinkElement).href))
   console.log('📜 scripts:', scripts.map(s => (s as HTMLScriptElement).src || '(inline/module)'))
+}
+
+/* -------------------------------------------------------
+ * (개선) Ionic hydration 체크
+ *  - customElements.whenDefined(...)를 기다린 뒤 검사
+ *  - 너무 이른 타이밍에 검사해서 생기는 거짓 경고를 방지
+ * ----------------------------------------------------- */
+async function checkIonicHydrationSafe() {
+  try {
+    // Ionic 웹컴포넌트 등록 완료 대기
+    await Promise.all([
+      customElements.whenDefined('ion-list'),
+      customElements.whenDefined('ion-item'),
+    ])
+
+    // 한 프레임 쉬어 DOM 반영 기다림
+    await new Promise(requestAnimationFrame)
+    await new Promise(requestAnimationFrame)
+
+    const temp = document.createElement('div')
+    temp.innerHTML = `
+      <ion-list>
+        <ion-item>probe</ion-item>
+      </ion-list>
+    `
+    document.body.appendChild(temp)
+
+    // hydration 여부는 'hydrated' 클래스 유무로 판단
+    const probes = temp.querySelectorAll<HTMLElement>('ion-list, ion-item')
+    const hydrated = Array.from(probes).map(el => el.classList.contains('hydrated'))
+    console.log('🧪 hydrated flags (ion-list, ion-item):', hydrated)
+
+    const anyNotHydrated = hydrated.some(h => !h)
+    if (anyNotHydrated) {
+      console.warn('⚠️ 일부 Ionic 컴포넌트가 아직 수화되지 않았습니다. (로딩 지연일 수 있음) Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
+    } else {
+      console.log('👌 프로브 컴포넌트가 정상적으로 hydrated 상태입니다.')
+    }
+    temp.remove()
+  } catch (e) {
+    console.warn('hydration 체크 중 오류:', e)
+  }
 }
 
 /* -------------------------------------------------------
@@ -76,31 +118,11 @@ router.isReady().then(async () => {
   // DOM이 정착된 뒤 진단
   await nextTick()
   logLoadedAssets()
-  checkIonicHydration()
+  checkIonicBasicStyle()
   logPrimaryColorVar()
 
-  // 샘플 ion 컴포넌트 실제 생성해 hydration 상태 확인(경고 포함)
-  setTimeout(() => {
-    const temp = document.createElement('div')
-    temp.innerHTML = `
-      <ion-list>
-        <ion-item>probe</ion-item>
-      </ion-list>
-    `
-    document.body.appendChild(temp)
-    const probes = temp.querySelectorAll<HTMLElement>('ion-list, ion-item')
-    const hydrated = Array.from(probes).map(el =>
-      el.classList.contains('hydrated')
-    )
-    console.log('🧪 hydrated flags:', hydrated)
-    const anyNotHydrated = hydrated.some(h => !h)
-    if (anyNotHydrated) {
-      console.warn('⛔ 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
-    } else {
-      console.log('👌 모든 샘플 컴포넌트가 hydrated 상태입니다.')
-    }
-    temp.remove()
-  }, 300)
+  // (개선된) Hydration 체크
+  await checkIonicHydrationSafe()
 }).catch(err => {
   console.error('💥 router.isReady() 실패:', err)
 })
