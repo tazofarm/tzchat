@@ -1,6 +1,3 @@
-
-
-
 <template>
   <div class="bottom-menu">
     BottomMenu.vue
@@ -10,7 +7,7 @@
 <style scoped>
 .bottom-menu {
   position: fixed;
-  bottom: 10px;       /* ✅ 바닥에서 60px 띄워서 겹쳐 있음 */
+  bottom: 10px; /* ✅ 바닥에서 10px 띄움 */
   left: 0;
   width: 100%;
   height: 50px;

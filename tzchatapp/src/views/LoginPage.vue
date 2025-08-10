@@ -98,20 +98,24 @@ const login = async () => {
 </script>
 
 <style scoped>
+/* 전체 레이아웃 */
 .login-container {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: #f4f6f9;
+  background: #f4f6f9; /* ✅ backgroun → background */
   padding: 1rem;
+  color: #111; /* 기본 글자색: 검정 */
 }
 
+/* 로그인 카드 */
 .login-box {
-  background: rgb(20, 20, 20);
+  background: #141414;     /* ✅ backgroun → background */
+  color: #ffffff;          /* 어두운 배경에 흰 글씨 */
   padding: 2rem;
   border-radius: 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px #00000026;
   width: 100%;
   max-width: 400px;
   text-align: center;
@@ -120,16 +124,16 @@ const login = async () => {
 .login-box h2 {
   margin-bottom: 1.5rem;
   font-size: 1.8rem;
-  color: #ffffff;
+  color: #ffffff; /* 제목은 흰색 유지 */
 }
 
+/* 폼 */
 .login-form {
-  display: flex;
+  display: flex;           /* ✅ disply → display */
   flex-direction: column;
   gap: 1rem;
 }
 
-/* form-group으로 input과 label 정리 */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -138,7 +142,7 @@ const login = async () => {
 
 .login-box label {
   margin-bottom: 0.25rem;
-  font-size: 0.95rem;
+  font-size: 0.95rem;      /* ✅ font-siz → font-size */
   color: #ffffff;
 }
 
@@ -148,12 +152,19 @@ const login = async () => {
   border: 1px solid #ccc;
   font-size: 1rem;
   width: 100%;
+  background: #fff;
+  color: #111;
 }
 
+.login-box input::placeholder {
+  color: #999;
+}
+
+/* 버튼 */
 .login-box button {
   padding: 0.75rem;
   background: #3498db;
-  color: white;
+  color: #fff;             /* ✅ color#fff → color: #fff */
   border: none;
   border-radius: 0.5rem;
   font-size: 1rem;
@@ -165,12 +176,14 @@ const login = async () => {
   background: #2980b9;
 }
 
+/* 메시지 */
 .error {
   color: red;
   margin-top: 0.75rem;
   font-size: 0.95rem;
 }
 
+/* 하단 링크 */
 .link-container {
   margin-top: 1.5rem;
   font-size: 0.9rem;
@@ -183,6 +196,6 @@ const login = async () => {
 }
 
 .link-container a:hover {
-  text-decoration: underline;
+  text-decoration: underline;  /* ✅ text-decortion → underline */
 }
 </style>

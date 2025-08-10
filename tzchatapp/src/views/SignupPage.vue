@@ -213,28 +213,23 @@ const successMsg = ref('')
 </script>
 
 <style scoped>
-/* -------------------------------------------------------
- * 기본 글자색/배경: 검정/흰색 (가독성 보장)
- * 로그인과 동일한 심플 레이아웃
- * -----------------------------------------------------*/
-:host, * {
-  color: #111111;
-  box-sizing: border-box;
-}
-
+/* 컨테이너 */
 .container {
   width: min(640px, 92vw);
   margin: 16px auto 64px;
   padding: 8px 4px 16px;
+  color: #111; /* 기본 글자색 */
 }
 
+/* 환경 로그 (디버그) */
 .env-log {
-  font-size: 12px;
+  font-size: 12px;         /* ✅ fot-size → font-size */
   opacity: 0.7;
   margin-bottom: 8px;
   line-height: 1.2;
 }
 
+/* 폼 레이아웃 */
 .form {
   display: flex;
   flex-direction: column;
@@ -256,7 +251,7 @@ const successMsg = ref('')
 .form-row input[type="text"],
 .form-row input[type="password"],
 .form-row select {
-  width: 100%;
+  width: 100%;            /* ✅ 00% → 100% */
   height: 44px;
   padding: 0 12px;
   border: 1px solid #d9d9d9;
@@ -270,8 +265,9 @@ const successMsg = ref('')
   color: #999;
 }
 
+/* 라디오 그룹 */
 .radio-group {
-  display: flex;
+  display: flex;          /* ✅ lex → flex */
   gap: 24px;
   align-items: center;
   padding-top: 6px;
@@ -283,6 +279,7 @@ const successMsg = ref('')
   gap: 6px;
 }
 
+/* 버튼 열 */
 .button-col {
   display: flex;
   flex-direction: column;
@@ -290,6 +287,7 @@ const successMsg = ref('')
   margin-top: 6px;
 }
 
+/* 버튼 공통 */
 .btn {
   height: 44px;
   border-radius: 10px;
@@ -300,10 +298,14 @@ const successMsg = ref('')
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  color: #111;
+  background: #fff;
+  border: 1px solid #dcdcdc;
 }
 
+/* 주버튼 */
 .btn.primary {
-  background: #3b82f6;
+  background: #3b82f6;    /* ✅ ackground → background */
   color: #fff;
   border: 1px solid #2e6bd1;
 }
@@ -313,12 +315,14 @@ const successMsg = ref('')
   cursor: not-allowed;
 }
 
+/* 고스트 버튼 */
 .btn.ghost {
   background: #fff;
   color: #111;
   border: 1px solid #dcdcdc;
 }
 
+/* 힌트/메시지 */
 .hint {
   margin: 2px 2px 0;
   font-size: 13px;
