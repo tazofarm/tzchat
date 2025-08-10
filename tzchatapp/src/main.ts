@@ -5,7 +5,8 @@ import { IonicVue } from '@ionic/vue'
 import router from './router'
 
 /* -------------------------------------------------------
- * Ionic 필수/기본 CSS (이게 빠지면 컴포넌트가 민짜로 보임)
+ * 1) Ionic 필수/기본 CSS
+ *    - 이 중 하나라도 빠지면 컴포넌트가 ‘민짜’처럼 보일 수 있음
  * ----------------------------------------------------- */
 import '@ionic/vue/css/core.css'
 import '@ionic/vue/css/normalize.css'
@@ -13,7 +14,8 @@ import '@ionic/vue/css/structure.css'
 import '@ionic/vue/css/typography.css'
 
 /* -------------------------------------------------------
- * 선택 유틸 CSS (여백/정렬/표시 등)
+ * 2) Ionic 유틸 CSS (선택이지만 실제로는 자주 필요)
+ *    - padding/margin/정렬/표시 등 유틸 클래스
  * ----------------------------------------------------- */
 import '@ionic/vue/css/padding.css'
 import '@ionic/vue/css/float-elements.css'
@@ -23,71 +25,91 @@ import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
 
 /* -------------------------------------------------------
- * ⚠️ 다크 자동 팔레트 제거 (가독성: 글씨 검정 유지)
- * 필요 시 나중에 토글로 dark.class.css를 동적 주입 권장
+ * 3) 테마/커스텀 CSS는 "무조건 마지막"에!
+ *    - 페이지별 CSS를 쓰더라도 전역 변수(ion-color 등)는 필요할 수 있음
+ *    - ★ 요청에 따라 3000.css 전역 파일은 더 이상 불러오지 않습니다.
  * ----------------------------------------------------- */
-// import '@ionic/vue/css/palettes/dark.system.css' // ⛔️ 사용안함
+import '@/theme/variables.css'   // 있다면 유지, 없다면 주석 처리하세요.
+// import '@/assets/3000.css'    // ✅ 삭제(과거 백엔드 템플릿용 전역 CSS 미사용)
 
 /* -------------------------------------------------------
- * 사용자 정의 테마 변수 (글자색 등 전역 토큰)
- * 항상 마지막에 import (우선순위 보장)
+ * 4) 진단 로그: CSS/환경 체크
  * ----------------------------------------------------- */
-import './theme/variables.css'
+const isDev = import.meta.env.DEV
+console.log(`🚀 Booting tzchat... (env: ${isDev ? 'DEV' : 'PROD'})`)
+console.log('🌐 location:', window.location.href)
+
+// 핵심 CSS가 로드되었는지 간단 체크(ion-button의 display 값을 본다)
+function checkIonicHydration() {
+  const probe = document.createElement('ion-button')
+  document.body.appendChild(probe)
+  const cs = window.getComputedStyle(probe)
+  console.log('🔎 ion-button display:', cs.display, '(정상 예: inline-block 또는 inline-flex)')
+  probe.remove()
+}
+
+// CSS 변수(테마)가 적용되었는지 확인(주로 variables.css가 먹었는지)
+function logPrimaryColorVar() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
+  console.log('🎨 --ion-color-primary:', v || '(빈 값)')
+}
+
+// 로딩된 CSS link/script 개요 출력(배포 시 /assets/*.css 확인용)
+function logLoadedAssets() {
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+  const scripts = Array.from(document.querySelectorAll('script'))
+  console.log('📄 stylesheets:', links.map(l => (l as HTMLLinkElement).href))
+  console.log('📜 scripts:', scripts.map(s => (s as HTMLScriptElement).src || '(inline/module)'))
+}
 
 /* -------------------------------------------------------
- * Web Components 등록(ion-modal 등 네이티브 플러그인)
+ * 5) 앱 부트스트랩
  * ----------------------------------------------------- */
-import { defineCustomElements } from '@ionic/pwa-elements/loader'
-
-/* 이모지 피커 (사용시만) */
-import 'emoji-picker-element'
-
-/* ===== 로그(환경/베이스 URL) — 로그분석용 ===== */
-const IS_DEV = import.meta.env.DEV
-console.log('🌐 Environment:', IS_DEV ? 'DEV' : 'PROD')
-
-/* 라이트 테마 강제 (서버/캐시와 무관하게 글씨 검정) */
-document.documentElement.classList.remove('dark')
-document.documentElement.setAttribute('color-scheme', 'light')
-
 const app = createApp(App)
-app.use(IonicVue /* , { mode: 'md' } */)
+app.use(IonicVue)
 app.use(router)
 
 router.isReady().then(async () => {
   app.mount('#app')
-  defineCustomElements(window)
-  console.log('🚀 App mounted (Ionic + Vue)')
+  console.log('✅ Vue + Ionic mounted.')
 
-  // ===== 수화(hydrated) 상태 점검 =====
+  // DOM이 정착된 뒤 진단
   await nextTick()
+  logLoadedAssets()
+  checkIonicHydration()
+  logPrimaryColorVar()
+
+  // 샘플 ion 컴포넌트 실제 생성해 hydration 상태 확인(경고 포함)
   setTimeout(() => {
-    // ✅ FIX: 잘못된 닫는 대괄호(]) 제거
-    //    이전: '[class*="ion-"], ion-content, ion-toggle, ion-item]'
-    //    수정: '[class*="ion-"], ion-content, ion-toggle, ion-item'
-    const ions = Array.from(
-      document.querySelectorAll(
-        '[class*="ion-"], ion-content, ion-toggle, ion-item'
-      )
-    ) as HTMLElement[]
-
-    // 디버그용 샘플(최대 5개) — 태그명/수화여부 로그
-    const sample = ions.slice(0, 5).map(el => ({
-      tag: el.tagName.toLowerCase(),
-      hydrated: el.classList.contains('hydrated')
-    }))
-    console.log('🔎 [DEBUG] Ionic samples:', sample)
-
-    const anyNotHydrated = sample.some(s => !s.hydrated)
+    const temp = document.createElement('div')
+    temp.innerHTML = `
+      <ion-list>
+        <ion-item>probe</ion-item>
+      </ion-list>
+    `
+    document.body.appendChild(temp)
+    const probes = temp.querySelectorAll<HTMLElement>('ion-list, ion-item')
+    const hydrated = Array.from(probes).map(el =>
+      el.classList.contains('hydrated')
+    )
+    console.log('🧪 hydrated flags:', hydrated)
+    const anyNotHydrated = hydrated.some(h => !h)
     if (anyNotHydrated) {
-      console.warn(
-        '⛔ [WARN] 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.'
-      )
+      console.warn('⛔ 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
     } else {
-      console.log('✅ 모든 샘플 컴포넌트가 hydrated 상태입니다.')
+      console.log('👌 모든 샘플 컴포넌트가 hydrated 상태입니다.')
     }
-  }, 400)
+    temp.remove()
+  }, 300)
 }).catch(err => {
-  // 추가 로그: 라우터 준비 실패 시 진단
   console.error('💥 router.isReady() 실패:', err)
+})
+
+/* -------------------------------------------------------
+ * 6) 기본 글씨색(가독성 보장)
+ *    - UA/다크모드 영향 방지
+ * ----------------------------------------------------- */
+document.documentElement.style.setProperty('--base-text-color', '#000')
+document.addEventListener('DOMContentLoaded', () => {
+  document.body.style.color = 'black'
 })
