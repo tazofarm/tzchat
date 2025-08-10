@@ -126,7 +126,7 @@ const cancelRequest = async (requestId) => {
     const ok = confirm('정말로 신청을 취소하시겠습니까?')
     if (!ok) return
 
-    await axios.delete(`/api/friend-request/${requestId}`)
+    await axios.delete(`/api/friend-request/${requestId}`, { withCredentials: true })
     sentRequests.value = sentRequests.value.filter(r => r._id !== requestId)
   } catch (err) {
     alert('신청 취소 중 오류가 발생했습니다.')
@@ -136,9 +136,9 @@ const cancelRequest = async (requestId) => {
 // ✅ 수락
 const acceptRequest = async (requestId) => {
   try {
-    await axios.put(`/api/friend-request/${requestId}/accept`)
+    await axios.put(`/api/friend-request/${requestId}/accept`, {}, { withCredentials: true })
     receivedRequests.value = receivedRequests.value.filter(r => r._id !== requestId)
-    const res = await axios.get('/api/friends')
+    const res = await axios.get('/api/friends', { withCredentials: true })
     friends.value = res.data
     selectedRequest.value = null
   } catch (err) {
@@ -149,7 +149,7 @@ const acceptRequest = async (requestId) => {
 // ✅ 거절
 const rejectRequest = async (requestId) => {
   try {
-    await axios.put(`/api/friend-request/${requestId}/reject`)
+    await axios.put(`/api/friend-request/${requestId}/reject`, {}, { withCredentials: true })
     receivedRequests.value = receivedRequests.value.filter(r => r._id !== requestId)
     selectedRequest.value = null
   } catch (err) {
@@ -163,9 +163,9 @@ const blockRequest = async (requestId) => {
     const ok = confirm('정말로 차단하시겠습니까?')
     if (!ok) return
 
-    await axios.put(`/api/friend-request/${requestId}/block`)
+    await axios.put(`/api/friend-request/${requestId}/block`, {}, { withCredentials: true })
     receivedRequests.value = receivedRequests.value.filter(r => r._id !== requestId)
-    const res = await axios.get('/api/blocks')
+    const res = await axios.get('/api/blocks', { withCredentials: true })
     blocks.value = res.data
     selectedRequest.value = null
   } catch (err) {
@@ -179,16 +179,16 @@ onMounted(async () => {
     const res1 = await axios.get('/api/me', { withCredentials: true })
     nickname.value = res1.data.user?.nickname || ''
 
-    const res2 = await axios.get('/api/friend-requests/sent')
+    const res2 = await axios.get('/api/friend-requests/sent', { withCredentials: true })
     sentRequests.value = res2.data
 
-    const res3 = await axios.get('/api/friend-requests/received')
+    const res3 = await axios.get('/api/friend-requests/received', { withCredentials: true })
     receivedRequests.value = res3.data
 
-    const res4 = await axios.get('/api/friends')
+    const res4 = await axios.get('/api/friends', { withCredentials: true })
     friends.value = res4.data
 
-    const res5 = await axios.get('/api/blocks')
+    const res5 = await axios.get('/api/blocks', { withCredentials: true })
     blocks.value = res5.data
   } catch (err) {
     console.error('❌ 데이터 불러오기 오류:', err)

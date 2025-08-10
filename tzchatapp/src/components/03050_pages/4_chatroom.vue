@@ -52,7 +52,7 @@ onMounted(async () => {
     nickname.value = meRes.data.user?.nickname || ''
     myId.value = meRes.data.user?._id || ''
 
-    const roomRes = await axios.get('/api/chatrooms')
+    const roomRes = await axios.get('/api/chatrooms', { withCredentials: true })
     chatRooms.value = roomRes.data
   } catch (err) {
     console.error('❌ 데이터 로드 실패:', err)
