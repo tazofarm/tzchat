@@ -20,7 +20,7 @@
     </div>
 
     <div class="ion-padding ion-text-center">
-      <h2 class="black-text">긴급 사용자 목록</h2>
+      <h2 class="black-text">긴급 사용자 목록250810-1</h2>
     </div>
 
     <ion-list v-if="!isLoading && emergencyUsers.length">
