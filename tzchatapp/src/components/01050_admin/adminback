@@ -1,0 +1,243 @@
+<template>
+  <!-- 🔹 최상단 인사 + (현재 페이지 표시) + 로그아웃 -->
+  <div class="top-bar">
+    <!-- 왼쪽: 인사말 -->
+    <div class="top-left">
+      <span class="welcome-text">{{ nickname }}님 반갑습니다.</span>
+    </div>
+
+    <!-- 가운데: 현재 위치 표시 -->
+    <div class="top-center">
+      <span class="page-tag">관리자 페이지</span>
+    </div>
+
+    <!-- 오른쪽: 로그아웃 -->
+    <div class="top-right">
+      <button class="logout-btn" @click="logout">로그아웃</button>
+    </div>
+  </div>
+
+  <!-- 섹션이 하나라도 있으면 렌더 -->
+<!-- 00100_HeartbeatCard가 올려주는 이벤트 호환 -->
+<!-- 00300_UserSearchBar가 올려주는 이벤트 호환 -->
+<!-- 00400_UserTable가 올려주는 이벤트 호환 -->
+<!-- 00500_UserActionsPanel이 올려주는 이벤트 호환 -->
+<!-- 00200_ServerStatusCard에서 쓰는 props 호환 -->
+ <!-- 00400_UserTable에서 쓰는 props 호환 -->
+<!-- 00500_UserActionsPanel에서 쓰는 props 호환 -->
+<!-- 00600_LogViewer에서 쓰는 props 호환 -->
+
+  <template v-if="sectionsInOrder.length">
+    <component
+      v-for="(Comp, idx) in sectionsInOrder"
+      :key="idx"
+      :is="Comp"
+
+
+
+
+      @latency="onLatency"     
+      @search="onSearch"       
+      @selected="onSelected"   
+      @acted="onActed"         
+      :last-latency="lastLatency"  
+      :filters="userFilters"      
+      :selected-user="selectedUser"
+      :logs="clientLogs"           
+    />
+  </template>
+
+  <!-- 안전망: 섹션이 0개면 원인 추적 메시지 노출 -->
+  <div v-else class="empty-hint">
+    섹션 모듈을 찾지 못했습니다. 경로/파일명을 확인해 주세요.
+    <div class="hint-small">기대 경로: /src/components/04910_Page9_Admin/*.vue (예: 00100_HeartbeatCard.vue)</div>
+  </div>
+</template>
+
+<script setup lang="ts">
+// ------------------------------------------------------
+// AdminDashboard.vue (auto import & order by filename)
+// - 절대경로(/src/...)로 glob → 경로/캐시 이슈 최소화
+// - 파일명(00100_~) 사전순 정렬로 렌더 순서 고정
+// - 풍부한 로그로 로딩/실패 원인 추적
+// - 상단바: 인사/현재페이지/로그아웃
+// - 하위 섹션과의 이벤트/props를 부모에서 중계(선택 유저, 필터, latency, 로그)
+// ------------------------------------------------------
+import type { Component } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+// ✅ 절대경로 glob (eager: true → 즉시 import)
+//   - 00100_HeartbeatCard.vue
+//   - 00200_ServerStatusCard.vue
+//   - 00300_UserSearchBar.vue
+//   - 00400_UserTable.vue
+//   - 00500_UserActionsPanel.vue
+//   - 00600_LogViewer.vue
+//   - 00700_StatsSummary.vue
+const modules = import.meta.glob(
+  '/src/components/04910_Page9_Admin/*.vue',
+  { eager: true }
+) as Record<string, { default: Component }>
+
+// 🔎 로드된 모듈 로그
+console.group('[AdminDashboard] auto-load sections')
+Object.keys(modules).sort().forEach((k) => console.log(' - found:', k))
+console.groupEnd()
+
+// ✅ 파일 경로를 이름순 정렬 → default export만 추출
+const sectionsInOrder: Component[] = Object
+  .entries(modules)
+  .sort(([a], [b]) => a.localeCompare(b))       // '00100_' → '01200_' 순서
+  .map(([key, mod]) => {
+    const comp = mod?.default
+    if (!comp) console.warn('[AdminDashboard] missing default export:', key)
+    else console.log('[AdminDashboard] register component:', key)
+    return comp
+  })
+  .filter(Boolean) as Component[]
+
+// 📌 개수 로그
+console.info('[AdminDashboard] total sections:', sectionsInOrder.length)
+
+// ============================
+// 상단 인사/로그아웃 바 관련
+// ============================
+const router = useRouter()
+const nickname = ref<string>('')        // 화면 표시용 닉네임
+const meRole = ref<string>('')          // 역할(role) (master 확인용)
+
+// NOTE: /api/me는 세션 기반. CORS/프록시 환경에서 쿠키 포함 필요 시 fetch에 credentials: 'include' 권장.
+// 여기서는 단순 fetch 사용 (axios 사용 시 withCredentials: true)
+onMounted(async () => {
+  try {
+    console.time('[AdminDashboard] GET /api/me')
+    const r = await fetch('/api/me', { credentials: 'include' })
+    console.timeEnd('[AdminDashboard] GET /api/me')
+    if (!r.ok) {
+      console.warn('[AdminDashboard] /api/me not ok', r.status)
+      return
+    }
+    const data = await r.json()
+    nickname.value = data?.user?.nickname || ''
+    meRole.value = data?.user?.role || ''
+    console.log('[AdminDashboard] me:', { nickname: nickname.value, role: meRole.value })
+  } catch (err) {
+    console.error('❌ [AdminDashboard] /api/me 실패:', err)
+  }
+})
+
+// 로그아웃
+const logout = async () => {
+  try {
+    console.time('[AdminDashboard] POST /api/logout')
+    const r = await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+    console.timeEnd('[AdminDashboard] POST /api/logout')
+    if (!r.ok) {
+      console.warn('[AdminDashboard] logout not ok', r.status)
+      return
+    }
+    console.info('[AdminDashboard] 로그아웃 성공 → /login 이동')
+    router.push('/login')
+  } catch (err) {
+    console.error('❌ [AdminDashboard] 로그아웃 실패:', err)
+  }
+}
+
+// ============================
+// 섹션 간 상태 중계 (선택)
+// - 00100이 보낸 latency를 00200에 props로 전달
+// - 00300의 검색어를 00400에 props로 전달
+// - 00400의 선택 유저를 00500에 props로 전달
+// - 임의의 로그를 00600에 전달
+// ============================
+const lastLatency = ref<number|null>(null)
+const userFilters = ref<{ q: string }>({ q: '' })
+const selectedUser = ref<any>(null)
+const clientLogs = ref<{ at: string; level: string; msg: string }[]>([])
+
+function pushLog(level: 'INFO'|'WARN'|'ERROR', msg: string) {
+  clientLogs.value.unshift({ at: new Date().toISOString(), level, msg })
+  // 필요 시 길이 제한
+  if (clientLogs.value.length > 200) clientLogs.value.pop()
+}
+
+function onLatency(ms: number) {
+  lastLatency.value = ms
+  pushLog('INFO', `[DASH] heartbeat latency: ${ms}ms`)
+  console.log('[AdminDashboard] onLatency', ms)
+}
+
+function onSearch(filters: { q: string }) {
+  userFilters.value = { ...filters }
+  pushLog('INFO', `[DASH] search filters: ${JSON.stringify(filters)}`)
+  console.log('[AdminDashboard] onSearch', filters)
+}
+
+function onSelected(user: any) {
+  selectedUser.value = user
+  pushLog('INFO', `[DASH] selected user: ${user?.username || '(none)'}`)
+  console.log('[AdminDashboard] onSelected', user)
+}
+
+function onActed(payload: any) {
+  pushLog('INFO', `[DASH] action: ${JSON.stringify(payload)}`)
+  console.log('[AdminDashboard] onActed', payload)
+}
+</script>
+
+<style scoped>
+/* 기본 가독성: 검정 */
+:host { color: #000; }
+
+/* 🔹 최상단 헤더 바: 3분할(왼/가운데/오른쪽) */
+.top-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr; /* 좌/중앙/우 */
+  align-items: center;
+  gap: 12px;
+  padding: 0.5rem 0.75rem;
+  background-color: #f1f1f1;  /* 옅은 회색 배경 */
+  border-bottom: 1px solid #ccc;
+  font-size: 0.95rem;
+  color: #000;                /* 텍스트 검정 */
+}
+.top-left { justify-self: start; }
+.top-center { justify-self: center; }
+.top-right { justify-self: end; }
+
+.welcome-text {
+  font-weight: bold;
+  color: #000;
+}
+.page-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid #333;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #000;
+  background: #fff;
+}
+.logout-btn {
+  background: none;
+  border: 1px solid #333;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: black;
+  cursor: pointer;
+}
+
+/* 섹션 비어있을 때 힌트 */
+.empty-hint {
+  color: #000;
+  padding: 16px;
+  font-size: 14px;
+  opacity: 0.9;
+}
+.hint-small {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #444;
+}
+</style>

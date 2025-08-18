@@ -7,8 +7,9 @@
     <!-- SPA는 루트 기준 로드 (Vite base:'/'와 일치) -->
     <base href="/" />
 
-    <!-- 라이트 고정 (UA 다크 자동 적용 방지) -->
-    <meta name="color-scheme" content="light" />
+    <!-- ✅ 다크 모드 힌트: 시스템/UA에 'dark' 선호 전달 (스크롤바/폼 기본톤) -->
+    <!-- 기존: <meta name="color-scheme" content="light" /> -->
+    <meta name="color-scheme" content="dark" />
 
     <meta
       name="viewport"
@@ -21,24 +22,39 @@
 
     <link rel="icon" type="image/png" href="/favicon.png" />
 
-    <!-- iOS PWA 기본 설정 (라이트 기준) -->
+    <!-- iOS PWA 기본 설정 (다크/투명 상태바 권장) -->
+    <!-- 기존: content="default" -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="tzchat" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-    <!-- ✅ 추가: index.html 자체 캐시 최소화(서버 헤더가 최우선이지만 보조 차단용) -->
+    <!-- ✅ index.html 자체 캐시 최소화(서버 헤더가 최우선이지만 보조 차단용) -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
 
-    <!-- ✅ 추가: 기본 글자색을 검정색으로 고정(가독성) -->
+    <!-- ✅ 초기 깜빡임 방지: 앱 마운트 이전에도 다크톤 유지 -->
     <style>
-      /* 전역 텍스트 기본값을 검정으로 (페이지별 CSS가 있으면 그게 우선됨) */
-      html, body { color: black; }
+      /* 
+        초기 렌더(아직 Vue/Ionic가 마운트되기 전)에서도 
+        배경이 흰색으로 번쩍하지 않도록 다크톤으로 고정.
+        App.vue의 theme-gold 및 theme CSS 로드 후에는 해당 토큰이 덮어씁니다.
+      */
+      html, body {
+        color: #f5f5f5;            /* theme-gold의 --text와 일치 */
+        background-color: #121212; /* theme-gold의 --bg와 일치 */
+        overscroll-behavior: none; /* 뷰포트 바운스 방지 */
+        margin: 0;
+        height: 100%;
+        min-height: 100dvh;
+      }
+      /* 데스크톱 보조용 스크롤바(다크톤) */
+      * { scrollbar-width: thin; scrollbar-color: #666 transparent; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
     </style>
 
-    <!-- ✅ 추가: 배포 확인/로그 분석용 간단 버전 태그(수동 업데이트용) -->
-    <!-- 빌드 후 이 값을 바꾸면 브라우저 개발자도구에서 즉시 버전 확인 가능 -->
+    <!-- ✅ 빌드/배포 버전 태그(로그 분석/버전 식별용) -->
     <meta name="app-version" content="index-250810-1" />
   </head>
 
@@ -50,12 +66,12 @@
     <!-- 개발 모드에서는 /src/main.ts, 빌드 후에는 Vite가 dist/index.html에 해시된 자산을 주입 -->
     <script type="module" src="/src/main.ts"></script>
 
-    <!-- ✅ 추가: 진단 로그(캐시/로딩 상황 확인) -->
+    <!-- ✅ 진단 로그(캐시/로딩/자산 주입 확인용) -->
     <script>
       (function () {
         try {
           const ver = document.querySelector('meta[name="app-version"]')?.content || '(no-version)';
-          console.log('🧭 tzchat index.html loaded');
+          console.log('%c🧭 tzchat index.html loaded', 'font-weight:bold');
           console.log('📌 app-version(meta):', ver);
           console.log('🌐 location:', window.location.href);
 
@@ -64,6 +80,12 @@
           const scripts = Array.from(document.querySelectorAll('script')).map(s => s.src || '(inline/module)');
           console.log('📄 stylesheets (index.html scope):', links);
           console.log('📜 scripts (index.html scope):', scripts);
+
+          // color-scheme / 상태바 스타일 확인
+          const colorScheme = document.querySelector('meta[name="color-scheme"]')?.content;
+          const iosBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content;
+          console.log('🌓 color-scheme:', colorScheme);
+          console.log('📱 iOS status bar style:', iosBar);
 
           // 캐시 관련 힌트: 응답 헤더는 DevTools Network 탭 Headers에서 확인
           console.log('ℹ️ Hint: Network 탭에서 index.html의 Cache-Control/ETag 확인하세요.');

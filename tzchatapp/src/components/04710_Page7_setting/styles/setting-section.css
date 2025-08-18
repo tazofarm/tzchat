@@ -1,0 +1,127 @@
+/* -----------------------------------------------------
+  setting-section.css (공용)
+  - 설정 화면(세팅)의 섹션/아이템을 한 번에 관리하는 공용 스타일
+  - 모든 수치를 CSS 변수로 추상화 → 섹션/페이지별로 손쉽게 오버라이드
+  - 글씨는 기본 검정(#000) 유지 (다크모드/테마는 추후 변수만 교체)
+  - Ionic 컴포넌트 고유 CSS 변수(IonItem의 --padding-start 등)를 그대로 활용
+  - ✅ 이번 요청: 헤더를 더 얇게 보이도록 기본 높이/패딩 축소, 아이템 높이 34px
+------------------------------------------------------*/
+
+/* =====================================================
+  [전역 기본값] :root
+  - 프로젝트 전반에서 통일하고 싶은 디폴트 수치
+  - 특정 섹션/페이지에서 다른 값을 쓰고 싶으면
+    .settings-section {} 또는 부모 래퍼에서 변수만 덮어쓰기 하면 됨
+===================================================== */
+:root {
+  /* ────────────────────────────────────────────────
+     헤더(섹션 제목) 공통 변수
+     - "계정", "회원" 같은 섹션 타이틀 바 영역
+     - 높이/패딩을 줄이면 전체적으로 "얇게" 보임
+  ──────────────────────────────────────────────── */
+  --set-header-font-size: 16px;   /* 헤더 글씨 크기(가독성 위해 14px 유지) */
+  --set-header-height: 20px;      /* 헤더 바 높이 (auto 또는 px) */
+  --set-header-padding: 0px 12px; /* 헤더 내부 패딩(상하 좌우) */
+  --set-header-align: center;     /* 수직 정렬: start|center|end */
+  --set-header-justify: start;    /* 수평 정렬: start|center|end */
+  --set-header-margin-x: 0px;     /* 헤더 좌우 바깥 여백 */
+
+  /* ────────────────────────────────────────────────
+     아이템(행) 공통 변수
+     - IonItem의 행 높이 및 좌우 패딩
+     - 이번 요청에 따라 기본 높이를 34px로 "콤팩트"화
+  ──────────────────────────────────────────────── */
+  --set-item-min-height: 34px;    /* 행 높이(기본 44px → 34px로 축소) */
+  --set-item-padding-start: 12px; /* 행 좌측 패딩 */
+  --set-item-padding-end: 8px;    /* 행 우측 패딩 */
+
+  /* ────────────────────────────────────────────────
+     아이콘/라벨 공통 변수
+     - 리스트 좌측 아이콘 크기와 라벨(텍스트) 크기/여백
+  ──────────────────────────────────────────────── */
+  --set-icon-size: 20px;          /* 아이콘 크기 */
+  --set-label-font-size: 16px;    /* 아이템 라벨 글씨 크기 */
+  --set-label-ml: 4px;            /* 라벨 좌측 여백 */
+  --set-label-mr: 0px;            /* 라벨 우측 여백 */
+  --set-label-mt: 0px;            /* 라벨 상단 여백 */
+  --set-label-mb: 0px;            /* 라벨 하단 여백 */
+  --set-label-line: normal;       /* 라벨 line-height(수직정렬용, 필요 시 px) */
+
+  /* ────────────────────────────────────────────────
+     색상
+     - 텍스트/아이콘 색상
+     - danger(빨강) 행에서 아이콘이 묻히지 않도록 대비 색 지정
+  ──────────────────────────────────────────────── */
+  --set-text-color: #000;         /* 기본 텍스트 색상(검정) */
+  --set-icon-color-on-danger: #fff; /* danger 행 아이콘 대비(흰색) */
+}
+
+/* =====================================================
+  [공용 클래스] — 레이아웃/간격/타이포만 담당
+  - 실제 색상 테마는 Ionic의 color="..."로 제어
+===================================================== */
+
+/* 섹션 래퍼(리스트 전체) */
+.settings-section {
+  color: var(--set-text-color);   /* 텍스트 컬러를 변수로 통일 */
+}
+
+/* 섹션 헤더(“계정”, “회원” 같은 제목 줄) */
+.settings-header {
+  /* 크기·공간 (얇고 컴팩트하게 보이도록 기본값 축소됨) */
+  font-size: var(--set-header-font-size);
+  height: var(--set-header-height);
+  padding: var(--set-header-padding);
+  margin-left: var(--set-header-margin-x);
+  margin-right: var(--set-header-margin-x);
+
+  /* 정렬 (flex로 중앙정렬/좌우정렬 모두 커버) */
+  display: flex;
+  align-items: var(--set-header-align);
+  justify-content: var(--set-header-justify);
+}
+
+/* 헤더 라벨 색 (가독성 유지) */
+.settings-header ion-label {
+  color: var(--set-text-color);
+}
+
+/* 아이템(각 행: 비밀번호 변경, 친구 신청 허용, 회원 탈퇴 등) */
+.settings-item {
+  /* IonItem 고유 CSS 변수를 통해 내부 패딩/높이 지정 */
+  --padding-start: var(--set-item-padding-start);
+  --inner-padding-end: var(--set-item-padding-end);
+  --min-height: var(--set-item-min-height);
+
+  /* 기본 텍스트 컬러 (Ionic color="danger" 등의 대비색은 Ionic이 관리) */
+  --color: var(--set-text-color);
+}
+
+/* 좌측 아이콘 공통 */
+.settings-icon {
+  font-size: var(--set-icon-size);
+}
+
+/* danger 행에서 아이콘 대비(흰색) 보장 — 배경이 빨강일 때 가독성 ↑ */
+.settings-item[color="danger"] .settings-icon {
+  color: var(--set-icon-color-on-danger);
+}
+
+/* 아이템 라벨(행 텍스트) 공통 */
+.settings-label {
+  font-size: var(--set-label-font-size);
+  line-height: var(--set-label-line);
+  margin-left: var(--set-label-ml);
+  margin-right: var(--set-label-mr);
+  margin-top: var(--set-label-mt);
+  margin-bottom: var(--set-label-mb);
+  color: var(--set-text-color);
+}
+
+/* =====================================================
+  [사용 팁]
+  - 전역(:root) 값을 바꾸면 전체 화면 일괄 변경
+  - 특정 섹션에서만 다르게: .settings-section {} 안에 변수 오버라이드
+  - 더 타이트하게: --set-header-height, --set-header-padding만 줄여도 체감 큼
+  - 더 큰 터치 타겟: --set-item-min-height를 44~52px로 확장
+===================================================== */

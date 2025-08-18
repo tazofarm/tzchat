@@ -1,11 +1,18 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const sharp = require('sharp'); // ✅ 이미지 압축용
+const bcrypt = require('bcrypt'); // ✅ [추가] 비밀번호 해시/검증용 (아래에서 사용함)
 const User = require('../models/User');
+const FriendRequest = require('../models/FriendRequest'); // ✅ 누락된 import 추가
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
-const FriendRequest = require('../models/friendRequest');
-const requireLogin = require('../middlewares/authMiddleware'); // 🔐 로그인 확인 미들웨어
+const requireLogin = require('../middlewares/authMiddleware');
+const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency');
 const router = express.Router();
+
+
 
 /**
  * 🔧 닉네임 업데이트 API (로그인 필요)

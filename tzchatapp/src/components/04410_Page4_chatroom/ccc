@@ -1,0 +1,456 @@
+<template>
+  <div class="chatroom-container">
+    <!-- ▒▒ 상단바 ▒▒ -->
+    <div class="chatroom-header">
+      <!-- 뒤로가기: 아이콘 버튼 -->
+      <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">
+        <ion-icon :icon="icons.chevronBackOutline" />
+      </ion-button>
+
+      <!-- 상대 닉네임(프로필 이동 가능) -->
+      <div class="chat-title" @click="goToPartnerProfile" role="button" tabindex="0">
+        <ion-icon :icon="icons.personCircleOutline" class="title-avatar" aria-hidden="true" />
+        <span class="title-text">{{ partnerNickname }}</span>
+      </div>
+    </div>
+
+    <!-- ▒▒ 메시지 리스트 ▒▒ -->
+    <div class="chat-messages" ref="chatScroll">
+      <div
+        v-for="msg in messages"
+        :key="msg._id"
+        class="message-row"
+        :class="{ mine: msg.sender && msg.sender._id === myId }"
+      >
+        <!-- 나의 메시지 -->
+        <template v-if="msg.sender && msg.sender._id === myId">
+          <div class="my-message">
+            <span class="time">
+              <ion-icon :icon="icons.timeOutline" class="time-icon" aria-hidden="true" />
+              {{ formatTime(msg.createdAt) }}
+            </span>
+            <div class="bubble">
+              <template v-if="msg.imageUrl">
+                <img
+                  :src="getImageUrl(msg.imageUrl)"
+                  class="chat-image"
+                  @click="openImage(getImageUrl(msg.imageUrl))"
+                  alt="보낸 이미지"
+                />
+              </template>
+              <template v-else>
+                {{ msg.content }}
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- 상대 메시지 -->
+        <template v-else>
+          <div class="other-message">
+            <div class="bubble">
+              <template v-if="msg.imageUrl">
+                <img
+                  :src="getImageUrl(msg.imageUrl)"
+                  class="chat-image"
+                  @click="openImage(getImageUrl(msg.imageUrl))"
+                  alt="수신 이미지"
+                />
+              </template>
+              <template v-else>
+                {{ msg.content }}
+              </template>
+            </div>
+            <span class="time">
+              <ion-icon :icon="icons.timeOutline" class="time-icon" aria-hidden="true" />
+              {{ formatTime(msg.createdAt) }}
+            </span>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ▒▒ 입력창 ▒▒ -->
+    <div class="chat-input-wrapper">
+      <!-- 이모지 피커 -->
+      <div v-if="showEmoji" class="emoji-picker-wrapper">
+        <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
+      </div>
+
+      <div class="chat-input">
+        <!-- 파일 첨부 -->
+        <ion-button size="small" fill="outline" @click="triggerFileInput" aria-label="파일 첨부">
+          <ion-icon :icon="icons.attachOutline" />
+        </ion-button>
+        <input
+          type="file"
+          accept="image/*"
+          ref="fileInput"
+          style="display: none"
+          @change="uploadImage"
+        />
+
+        <!-- 이모지 토글 -->
+        <ion-button size="small" fill="outline" @click="toggleEmoji" aria-label="이모지 열기">
+          <ion-icon :icon="icons.happyOutline" />
+        </ion-button>
+
+        <!-- 텍스트 입력 -->
+        <textarea
+          v-model="newMessage"
+          placeholder="메시지를 입력하세요"
+          @keydown="handleKeydown"
+          rows="1"
+        ></textarea>
+
+        <!-- 전송 -->
+        <ion-button size="small" color="primary" @click="sendMessage" aria-label="전송">
+          <ion-icon :icon="icons.sendOutline" />
+        </ion-button>
+      </div>
+    </div>
+
+    <!-- ▒▒ 이미지 확대 팝업 ▒▒ -->
+    <transition name="fade">
+      <div v-if="enlargedImage" class="image-modal" @click.self="enlargedImage = ''">
+        <div class="image-wrapper">
+          <button class="close-button" @click="enlargedImage = ''" aria-label="닫기">×</button>
+          <img :src="enlargedImage" class="modal-image" @click.stop alt="확대 이미지" />
+        </div>
+      </div>
+    </transition>
+  </div>
+</template>
+
+<script setup>
+// ====================================================================
+// ChatRoom
+// - 기존 로직 유지: 메시지 로딩/전송, 이미지 업로드, 소켓 통신
+// - UI 정리 + Ionicons 아이콘 적용
+// - 글자색: 검정(#000) 고정 / 주석&로그 강화
+// ====================================================================
+import { ref, onMounted, nextTick, onBeforeUnmount } from 'vue'
+import { IonButton, IonIcon } from '@ionic/vue'
+import { useRoute, useRouter } from 'vue-router'
+import axios from '@/lib/axiosInstance'
+import { io } from 'socket.io-client'
+import 'emoji-picker-element'
+
+// Ionicons
+import {
+  chevronBackOutline,
+  personCircleOutline,
+  attachOutline,
+  happyOutline,
+  sendOutline,
+  timeOutline,
+} from 'ionicons/icons'
+
+const icons = {
+  chevronBackOutline,
+  personCircleOutline,
+  attachOutline,
+  happyOutline,
+  sendOutline,
+  timeOutline,
+}
+
+// ▒ 소켓 연결
+const socket = io('http://localhost:2000', { withCredentials: true })
+
+// ▒ 라우팅
+const route = useRoute()
+const router = useRouter()
+const roomId = route.params.id
+
+// ▒ 상태
+const myId = ref('')
+const partnerId = ref('')
+const partnerNickname = ref('상대방')
+const messages = ref([])
+const newMessage = ref('')
+const chatScroll = ref(null)
+const showEmoji = ref(false)
+const fileInput = ref(null)
+const enlargedImage = ref('')
+
+// ▒ 유틸
+const openImage = (url) => { enlargedImage.value = url }
+const getImageUrl = (path) => (path?.startsWith('http') ? path : `http://localhost:2000${path}`)
+
+const formatTime = (isoString) =>
+  new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+const scrollToBottom = async () => {
+  await nextTick()
+  if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight
+}
+
+// ▒ 데이터 로드
+const loadMessages = async () => {
+  console.time('[LOAD] GET /api/chatrooms/:id')
+  try {
+    const res = await axios.get(`/api/chatrooms/${roomId}`)
+    messages.value = res.data.messages || []
+    myId.value = res.data.myId
+    const partner = res.data.participants.find((p) => p._id !== myId.value)
+    partnerNickname.value = partner?.nickname || '상대방'
+    partnerId.value = partner?._id || ''
+    console.log('✅ 채팅방 로드:', { roomId, myId: myId.value, partnerId: partnerId.value })
+    scrollToBottom()
+  } catch (err) {
+    console.error('❌ 메시지 불러오기 실패:', err)
+  } finally {
+    console.timeEnd('[LOAD] GET /api/chatrooms/:id')
+  }
+}
+
+// ▒ 전송(텍스트)
+const sendMessage = async () => {
+  if (!newMessage.value.trim()) return
+  try {
+    const res = await axios.post(`/api/chatrooms/${roomId}/message`, {
+      content: newMessage.value,
+      type: 'text',
+    })
+    newMessage.value = ''
+    socket.emit('chatMessage', { roomId, message: res.data })
+  } catch (err) {
+    console.error('❌ 텍스트 메시지 전송 실패:', err)
+  }
+}
+
+// ▒ 이미지 업로드 + 전송
+const uploadImage = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  const formData = new FormData()
+  formData.append('image', file)
+
+  try {
+    console.time('[UPLOAD] /api/chatrooms/upload-image')
+    const uploadRes = await axios.post('/api/chatrooms/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      withCredentials: true,
+    })
+    console.timeEnd('[UPLOAD] /api/chatrooms/upload-image')
+
+    const imageUrl = uploadRes.data.imageUrl
+    const messageRes = await axios.post(
+      `/api/chatrooms/${roomId}/message`,
+      { content: imageUrl, type: 'image' },
+      { withCredentials: true }
+    )
+    socket.emit('chatMessage', { roomId, message: messageRes.data })
+  } catch (err) {
+    console.error('❌ 이미지 업로드 실패:', err)
+  } finally {
+    // 같은 파일을 다시 선택할 수 있도록 값 초기화
+    if (fileInput.value) fileInput.value.value = ''
+  }
+}
+
+// ▒ 입력 편의
+const handleKeydown = (e) => {
+  if (e.key === 'Enter') {
+    if (e.shiftKey) return
+    e.preventDefault()
+    sendMessage()
+  }
+}
+const triggerFileInput = () => fileInput.value?.click()
+const insertEmoji = (event) => (newMessage.value += event.detail.unicode)
+const toggleEmoji = () => (showEmoji.value = !showEmoji.value)
+
+// ▒ 생명주기
+onMounted(async () => {
+  await loadMessages()
+  socket.emit('joinRoom', roomId)
+  socket.on('chatMessage', (msg) => {
+    const message = msg.message || msg
+    const targetId = msg.chatRoom?._id || msg.chatRoom
+    if (targetId === roomId) {
+      messages.value.push(message)
+      scrollToBottom()
+    }
+  })
+})
+onBeforeUnmount(() => {
+  socket.emit('leaveRoom', roomId)
+  socket.off('chatMessage')
+  socket.disconnect()
+})
+
+// ▒ 내비게이션
+const goBack = () => router.push('/home/4page')
+const goToPartnerProfile = () => {
+  if (partnerId.value) router.push(`/home/user/${partnerId.value}`)
+}
+</script>
+
+<style scoped>
+/* ==========================================================
+   ChatRoom - 깔끔/컴팩트 스타일
+   - 기본 글자색: #000
+   - 여백/라인/아이콘 크기 표준화
+   ========================================================== */
+
+/* 전체 래퍼 */
+.chatroom-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  background: #fefefe;
+  color: #000;
+  overscroll-behavior: contain;
+}
+
+/* 상단바 */
+.chatroom-header {
+  display: grid;
+  grid-template-columns: auto 1fr;   /* ← 버튼 | 제목 */
+  align-items: center;
+  gap: 8px;
+  height: 50px;
+  padding: 0 12px;
+  background: #f1f1f1;
+  border-bottom: 1px solid #ddd;
+  color: #000;
+  box-sizing: border-box;
+}
+.chatroom-header ion-button {
+  --padding-start: 8px;
+  --padding-end: 8px;
+  min-height: 36px;
+  --border-radius: 10px;
+}
+
+/* 제목(아이콘 + 텍스트) */
+.chat-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  cursor: pointer;
+  outline: none;
+}
+.chat-title:focus-visible {
+  box-shadow: 0 0 0 3px rgba(59,130,246,.35);
+  border-radius: 8px;
+}
+.title-avatar { font-size: 18px; color: #111; }
+.title-text {
+  font-weight: 700;
+  font-size: clamp(15px, 2.6vw, 16px);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: underline;
+}
+
+/* 메시지 리스트 */
+.chat-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  background: #fafafa;
+  scrollbar-gutter: stable;
+}
+
+/* 메시지 행 */
+.message-row { margin-bottom: 8px; }
+.other-message,
+.my-message {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px; /* 시간/말풍선 간격 */
+}
+.other-message { justify-content: flex-start; }
+.my-message    { justify-content: flex-end; }
+
+/* 말풍선 */
+.bubble {
+  max-width: min(75%, 640px);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background-color: #e0e0e0; /* 상대 */
+  color: #000;
+  word-break: break-word;
+  white-space: pre-wrap;
+  font-size: clamp(14px, 2.6vw, 15px);
+  line-height: 1.4;
+  box-shadow: 0 1px 0 rgba(0,0,0,.05);
+}
+.my-message .bubble { background-color: #d2f1ff; } /* 내 메시지 */
+
+/* 시간 */
+.time {
+  font-size: 12px;
+  color: #7a7a7a;
+  white-space: nowrap;
+  margin: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.time-icon { font-size: 14px; color: #7a7a7a; }
+
+/* 이미지 메시지 */
+.chat-image {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: block;
+}
+
+/* 입력 래퍼 */
+.chat-input-wrapper {
+  position: relative;
+  background: #fff;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid #ccc;
+}
+
+/* 입력 바: 📎 | 😊 | 입력 | 전송 */
+.chat-input {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: end;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.chat-input ion-button {
+  --border-radius: 10px;
+  min-height: 36px;
+}
+
+/* textarea */
+.chat-input textarea {
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  margin: 0;
+  font-size: clamp(14px, 2.6vw, 15px);
+  background: #fff;
+  color: #000;
+  resize: none;
+  line-height: 1.4;
+  min-height: 36px;
+  max-height: 120px;
+}
+.chat-input textarea::placeholder { color: #999; }
+
+/* 이모지 피커 */
+.emoji-picker-wrapper {
+  position: absolute;
+  left: 12px;
+  bottom: calc(48px + env(safe-area-inset-bottom,

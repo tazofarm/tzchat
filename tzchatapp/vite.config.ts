@@ -3,6 +3,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import { fileURLToPath, URL } from 'node:url'
 
 // dev/build/preview 모두 "같은 경로/같은 API 경로"를 쓰게 정렬
 export default defineConfig(({ command, mode }) => {
@@ -16,6 +17,7 @@ export default defineConfig(({ command, mode }) => {
   console.log('outDir:', outDir)
   console.log('dev port:', 8081, '| preview port:', 4173)
   console.log('API in dev -> proxy to http://localhost:2000 via /api')
+  console.log('✅ Vue template will treat <emoji-picker> as custom element (build-time)')
   console.log('================================================')
 
   return {
@@ -23,13 +25,24 @@ export default defineConfig(({ command, mode }) => {
     base: '/',
 
     plugins: [
-      vue(),
+      vue({
+        // ✅ 핵심: SFC 템플릿 컴파일 단계에서 커스텀 엘리먼트로 인식
+        template: {
+          compilerOptions: {
+            // 필요한 커스텀 엘리먼트가 더 있다면 배열 includes 로 확장 가능
+            // isCustomElement: (tag) => ['emoji-picker','my-web-el'].includes(tag),
+            isCustomElement: (tag) => tag === 'emoji-picker',
+          },
+        },
+      }),
     ],
 
     // 경로 별칭: @ -> src (tsconfig.paths와 일치)
     resolve: {
       alias: {
-        '@': path.resolve(process.cwd(), 'src'),
+        // ✅ OS/경로 차이 안전한 표준 방식
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        // (참고) 기존 방식도 동작: path.resolve(process.cwd(), 'src')
       },
     },
 

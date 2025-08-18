@@ -1,11 +1,18 @@
 // main.js
-// 🌐 Express 기반 tzchat 서버 초기화
+// 🌐 Express 기반 tzchat 서버 초기화 (Socket.IO 포함)
 const express = require('express');
 const app = express();
 const http = require('http');
 const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
 const PORT = 2000;
 const path = require('path'); // 파일 경로 관련 내장 모듈
+
+// ⚠️ (신규) 채팅방 참여자 조회용 모델 로드
+const ChatRoom = require('./models/ChatRoom');
+
+// =======================================
+// 0) 파서 & 정적 경로 & 기본 로깅/CORS
+// =======================================
 
 // ✅ JSON 파서 등록 (imageUrl 전달용)
 app.use(express.json());
@@ -23,35 +30,53 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ CORS 설정
+// ✅ CORS 설정 (개발용: localhost:8081, 192.168.0.7:8081 허용)
 const cors = require('cors');
 const corsOptions = {
-  origin: ['http://localhost:8081', 'https://tzchat.duckdns.org'], // 프론트 도메인
+  origin: ['http://localhost:8081', 'http://192.168.0.7:8081'], // ← 필요 시 도메인 추가
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
-console.log('🛡️  CORS 설정 완료');
+console.log('🛡️  CORS 설정 완료 (허용: localhost:8081, 192.168.0.7:8081)');
+
+// ✅ 헬스체크
+app.get('/api/ping', (req, res) => {
+  console.log('🩺 /api/ping', {
+    ip: req.ip,
+    origin: req.headers.origin,
+    ua: req.headers['user-agent']
+  });
+  res.json({ ok: true, at: new Date().toISOString() });
+});
+
+// =======================================
+// 1) DB, 세션 설정
+// =======================================
 
 // ✅ MongoDB 연결
 const mongoose = require('mongoose');
-mongoose.connect('mongodb://localhost:27017/tzchat')
+const mongoUrl = 'mongodb://localhost:27017/tzchat';
+
+mongoose.connect(mongoUrl)
   .then(() => console.log('✅ MongoDB 연결 성공'))
   .catch(err => console.error('❌ MongoDB 연결 실패:', err));
 
-// ✅ 세션 설정
+// ✅ 세션 설정 (connect-mongo)
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
+const sessionStore = MongoStore.create({
+  mongoUrl,
+  ttl: 60 * 60 * 24 // 1일
+});
+
 const sessionMiddleware = session({
-  secret: 'tzchatsecret', // 환경변수로 분리 권장
+  secret: 'tzchatsecret', // ⚠️ 운영 시 환경변수로 분리 권장
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: 'mongodb://localhost:27017/tzchat',
-    ttl: 60 * 60 * 24 // 1일
-  }),
+  store: sessionStore,
   cookie: {
     httpOnly: true,
     maxAge: 1000 * 60 * 60 * 24, // 1일
@@ -59,10 +84,14 @@ const sessionMiddleware = session({
     secure: false
   }
 });
+
 app.use(sessionMiddleware);
+app.set('sessionStore', sessionStore);
 console.log('🔐 세션 설정 완료');
 
-// ✅ 라우터 등록
+// =======================================
+// 2) 라우터 등록
+// =======================================
 const userRouter = require('./routes/userRouter');
 app.use('/api', userRouter);
 console.log('📡 /api → userRouter 등록 완료');
@@ -87,43 +116,257 @@ const emergencyRouter = require('./routes/emergencyRouter');
 app.use('/api', emergencyRouter);
 console.log('📡 /api → emergencyRouter 등록 완료');
 
-// ✅ Socket.IO 설정
+
+const pushRouter = require('./routes/pushRouter');
+app.use('/api/push', pushRouter);
+console.log('📡 /api/push → pushRouter 등록 완료');
+
+let adminRouter; // 아래서 등록
+
+// =======================================
+// 3) Socket.IO 설정 (+온라인유저/방현황 트래킹)
+// =======================================
 const { Server } = require('socket.io');
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:8081', 'https://tzchat.duckdns.org'],
+    origin: ['http://localhost:8081', 'http://192.168.0.7:8081'], // Socket.IO CORS
     credentials: true
   }
 });
 
-// ✅ 세션 공유 설정
+// ✅ 세션 공유 (Socket.IO → req.session 사용 가능)
 io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
 });
 
-// ✅ 소켓 이벤트 처리
-io.on('connection', (socket) => {
-  const session = socket.request.session;
-  const userId = session?.user?._id;
+// ✅ 온라인 유저/방 현황
+const onlineUsers = new Set();
+const roomMembers = new Map();
 
-  console.log(`📡 소켓 연결됨: ${socket.id} | 유저: ${userId}`);
+// ✅ 유저별 룸 이름 규칙
+const userRoom = (userId) => `user:${userId}`;
 
-  socket.on('joinRoom', (roomId) => {
-    socket.join(roomId);
-    console.log(`🚪 ${userId} → 방 참여: ${roomId}`);
-  });
+// ✅ app에 공유
+app.set('io', io);
+app.set('onlineUsers', onlineUsers);
+app.set('roomMembers', roomMembers);
 
-  socket.on('chatMessage', ({ roomId, message }) => {
-    console.log(`📨 소켓 메시지: ${message.content || '[이미지]'} → ${roomId}`);
-    io.to(roomId).emit('chatMessage', message);
-  });
+// ✅ (신규) 채팅 리스트/TopMenu 갱신용 헬퍼
+async function notifyRoomParticipantsForList(roomId, lastMessagePayload) {
+  try {
+    const room = await ChatRoom.findById(roomId).select('participants').lean();
+    const ids = room?.participants?.map(id => String(id)) || [];
+    ids.forEach((pid) => {
+      // ⓐ TopMenu 합계/리스트 배지 재계산 신호
+      io.to(userRoom(pid)).emit('chatrooms:badge', { changedRoomId: roomId });
+      // ⓑ 리스트의 마지막 메시지 미리보기 갱신(옵션)
+      io.to(userRoom(pid)).emit('chatrooms:updated', {
+        changedRoomId: roomId,
+        lastMessage: lastMessagePayload || null
+      });
+    });
+    console.log(`[notifyRoomParticipantsForList] room=${roomId} -> users=${ids.join(',')}`);
+  } catch (err) {
+    console.error('[notifyRoomParticipantsForList] ❌', err);
+  }
+}
 
-  socket.on('disconnect', () => {
-    console.log(`❌ 소켓 연결 종료: ${socket.id}`);
-  });
+async function notifyRoomParticipantsBadgeOnly(roomId) {
+  try {
+    const room = await ChatRoom.findById(roomId).select('participants').lean();
+    const ids = room?.participants?.map(id => String(id)) || [];
+    ids.forEach((pid) => {
+      io.to(userRoom(pid)).emit('chatrooms:badge', { changedRoomId: roomId });
+    });
+    console.log(`[notifyRoomParticipantsBadgeOnly] room=${roomId} -> users=${ids.join(',')}`);
+  } catch (err) {
+    console.error('[notifyRoomParticipantsBadgeOnly] ❌', err);
+  }
+}
+
+// ✅ 라우터에서 편하게 쏘도록 헬퍼 제공
+app.set('emit', {
+  // 특정 유저에게 임의 이벤트
+  toUser(userId, event, payload) {
+    if (!userId) return;
+    io.to(userRoom(userId)).emit(event, payload);
+  },
+  // 친구 요청 관련 표준 이벤트들
+  friendRequestCreated(reqObj) {
+    const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
+    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    if (fromId) io.to(userRoom(fromId)).emit('friendRequest:created', reqObj);
+    if (toId)   io.to(userRoom(toId)).emit('friendRequest:created', reqObj);
+  },
+  friendRequestAccepted(reqObj) {
+    const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
+    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    if (fromId) io.to(userRoom(fromId)).emit('friendRequest:accepted', reqObj);
+    if (toId)   io.to(userRoom(toId)).emit('friendRequest:accepted', reqObj);
+  },
+  friendRequestRejected(reqObj) {
+    const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
+    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    if (fromId) io.to(userRoom(fromId)).emit('friendRequest:rejected', reqObj);
+    if (toId)   io.to(userRoom(toId)).emit('friendRequest:rejected', reqObj);
+  },
+  friendRequestCancelled(reqObj) {
+    const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
+    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    if (fromId) io.to(userRoom(fromId)).emit('friendRequest:cancelled', reqObj);
+    if (toId)   io.to(userRoom(toId)).emit('friendRequest:cancelled', reqObj);
+  },
+  blockCreated(blockObj) {
+    const { blockerId, blockedId } = blockObj || {};
+    if (blockerId) io.to(userRoom(blockerId)).emit('block:created', blockObj);
+    if (blockedId) io.to(userRoom(blockedId)).emit('block:created', blockObj);
+  },
+  // 🆕 채팅 관련 헬퍼 (원하시면 chatRouter에서 직접 호출 가능)
+  async chatMessageNew(roomId, message) {
+    try {
+      io.to(roomId).emit('chatMessage', message);
+      await notifyRoomParticipantsForList(roomId, {
+        _id: message?._id,
+        content: message?.content || '',
+        imageUrl: message?.imageUrl || '',
+        sender: message?.sender || null,
+        createdAt: message?.createdAt || new Date()
+      });
+      console.log('[emit.chatMessageNew] ✅ room=', roomId);
+    } catch (err) {
+      console.error('[emit.chatMessageNew] ❌', err);
+    }
+  },
+  async chatMessagesRead(roomId, readerId, messageIds) {
+    try {
+      io.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
+      await notifyRoomParticipantsBadgeOnly(roomId);
+      console.log('[emit.chatMessagesRead] ✅ room=', roomId, 'count=', messageIds?.length || 0);
+    } catch (err) {
+      console.error('[emit.chatMessagesRead] ❌', err);
+    }
+  }
 });
 
-// ✅ 서버 실행 (socket.io 포함)
-server.listen(PORT, () => {
-  console.log(`🚀 서버 실행 중: http://localhost:${PORT}`);
+io.on('connection', (socket) => {
+  try {
+    const session = socket.request.session;
+    const userId = session?.user?._id ? String(session.user._id) : null;
+
+    console.log(`📡 소켓 연결됨: ${socket.id} | 유저: ${userId || '(anon)'}`);
+
+    if (userId) {
+      onlineUsers.add(userId);
+      // 자동 개인룸 조인(세션이 있으면)
+      socket.join(userRoom(userId));
+      console.log(`👤 자동 개인룸 조인: ${userRoom(userId)}`);
+    }
+
+    // ==== 클라이언트에서 명시적으로 개인룸 조인 (프론트: socket.emit('join', { userId })) ====
+    socket.on('join', (payload = {}) => {
+      try {
+        const uid = String(payload.userId || userId || '');
+        if (!uid) return;
+        socket.join(userRoom(uid));
+        console.log(`🚪 사용자 조인: ${uid} → ${userRoom(uid)}`);
+      } catch (err) {
+        console.error('❌ join 처리 오류:', err);
+      }
+    });
+
+    // ==== 채팅방 조인 (기존) ====
+    socket.on('joinRoom', (roomId) => {
+      try {
+        socket.join(roomId);
+        console.log(`🚪 ${userId || '(anon)'} → 방 참여: ${roomId}`);
+        if (!roomMembers.has(roomId)) roomMembers.set(roomId, new Set());
+        if (userId) roomMembers.get(roomId).add(userId);
+      } catch (err) {
+        console.error('❌ joinRoom 처리 오류:', err);
+      }
+    });
+
+    // (선택) 방 나가기 이벤트가 필요한 경우
+    socket.on('leaveRoom', (roomId) => {
+      try {
+        socket.leave(roomId);
+        console.log(`🚪 ${userId || '(anon)'} → 방 나가기: ${roomId}`);
+        if (roomMembers.has(roomId) && userId) {
+          roomMembers.get(roomId).delete(userId);
+        }
+      } catch (err) {
+        console.error('❌ leaveRoom 처리 오류:', err);
+      }
+    });
+
+    // ==== 채팅 메시지 포워딩 (기존) ====
+    // ⚠️ 프론트에서 POST로 메시지 저장 후, 아래 이벤트를 emit하고 있음
+    //    → 서버는 같은 방으로 재전파 + 참여자 개인룸에 리스트/TopMenu 갱신 신호 발송
+    socket.on('chatMessage', async ({ roomId, message }) => {
+      try {
+        console.log(`📨 소켓 메시지: ${message?.content ? message.content : '[이미지]'} → ${roomId}`);
+        io.to(roomId).emit('chatMessage', message); // 방 내 전파
+
+        // ✅ 리스트/TopMenu 갱신 신호(개인룸으로)
+        await notifyRoomParticipantsForList(roomId, {
+          _id: message?._id,
+          content: message?.content || '',
+          imageUrl: message?.imageUrl || '',
+          sender: message?.sender || null,
+          createdAt: message?.createdAt || new Date()
+        });
+      } catch (err) {
+        console.error('❌ chatMessage 처리 오류:', err);
+      }
+    });
+
+    // ✅ (신규) 읽음 처리 브로드캐스트
+    // - 클라이언트가 읽음 처리 API 호출(서버 DB 업데이트) 후, 이 이벤트를 emit
+    // - payload: { roomId, readerId, messageIds }
+    socket.on('messagesRead', async (payload = {}) => {
+      try {
+        const { roomId, readerId, messageIds } = payload;
+        console.log(`👀 messagesRead 브로드캐스트: room=${roomId} reader=${readerId} count=${messageIds?.length || 0}`);
+
+        // 같은 방의 "다른" 소켓들에게만 전파(읽음 뷰 반영)
+        socket.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
+
+        // ✅ TopMenu/리스트 배지 갱신 신호(개인룸)
+        await notifyRoomParticipantsBadgeOnly(roomId);
+      } catch (err) {
+        console.error('❌ messagesRead 처리 오류:', err);
+      }
+    });
+
+    // 연결 종료
+    socket.on('disconnect', () => {
+      try {
+        console.log(`❌ 소켓 연결 종료: ${socket.id}`);
+        if (userId) {
+          onlineUsers.delete(userId);
+          for (const set of roomMembers.values()) set.delete(userId);
+        }
+      } catch (err) {
+        console.error('❌ disconnect 처리 오류:', err);
+      }
+    });
+  } catch (err) {
+    console.error('❌ 소켓 connection 핸들러 오류:', err);
+  }
+});
+
+// =======================================
+// 4) (마지막) Admin Router 등록
+// =======================================
+adminRouter = require('./routes/adminRouter');
+app.use('/api/admin', adminRouter);
+console.log('📡 /api → adminRouter 등록 완료');
+
+// =======================================
+// 5) 서버 실행
+// =======================================
+server.listen(PORT, '0.0.0.0', () => { // ★ 모든 인터페이스에서 수신
+  const addr = server.address();
+  console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
+  console.log(`🔭 휴대폰 테스트: http://192.168.0.7:${PORT}`);
 });

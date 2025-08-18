@@ -1,179 +1,447 @@
 <template>
   <div class="page-wrapper">
-    <div class="top-bar">
-      <span class="welcome-text">{{ nickname }}님 반갑습니다.</span>
-      <ion-button size="small" color="danger" @click="logout">로그아웃</ion-button>
-    </div>
-
     <div class="container">
-      <div v-if="user" class="card">
-        <h3>{{ user.nickname }} ({{ user.username }})</h3>
+      <!-- ✅ 내 프로필 카드 -->
+      <!-- ★ 변경지점: 공통코드 충돌을 막기 위한 스코프 클래스 pf-scope 추가 -->
+      <div v-if="user" class="card pf-scope">
+        <h3 class="card-title">
+          <ion-icon :icon="icons.personCircleOutline" class="title-icon" />
+          {{ user.nickname }} 님의 프로필
+        </h3>
+
         <table class="info-table">
+          <!-- ★ 변경지점: 열 너비 클래스도 네임스페이스로 교체 -->
+          <colgroup>
+            <col class="pf-col-th" />
+            <col class="pf-col-td" />
+          </colgroup>
           <tbody>
             <tr>
-              <td><strong>출생년도</strong></td>
-              <td class="readonly">{{ user.birthyear || '미입력' }}</td>
+              <!-- ★ 변경지점: th → pf-th -->
+              <td class="pf-th">
+                <ion-icon :icon="icons.calendarOutline" class="row-icon" />
+                <strong class="label">출생년도</strong>
+              </td>
+              <!-- ★ 변경지점: td → pf-td -->
+              <td class="pf-td readonly">{{ user.birthyear || '미입력' }}</td>
             </tr>
+
             <tr>
-              <td><strong>성별</strong></td>
-              <td class="readonly">
+              <td class="pf-th">
+                <ion-icon :icon="icons.maleFemaleOutline" class="row-icon" />
+                <strong class="label">성별</strong>
+              </td>
+              <td class="pf-td readonly">
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
               </td>
             </tr>
 
-            <tr @click="openPopup(4, user.nickname)" class="editable-row">
-              <td><strong>닉네임</strong></td>
-              <td class="editable-text">{{ user.nickname }}</td>
-            </tr>
-
-            <tr @click="openPopup(1, user.region1 + ' ' + user.region2)" class="editable-row">
-              <td><strong>지역</strong></td>
-              <td class="editable-text">{{ user.region1 }} {{ user.region2 }}</td>
-            </tr>
-
-            <tr @click="openPopup(2, user.preference)" class="editable-row">
-              <td><strong>특징</strong></td>
-              <td class="editable-text">{{ user.preference }}</td>
-            </tr>
-
-            <tr @click="openPopup(3, user.selfintro || '소개 없음')" class="editable-row">
-              <td><strong>소개</strong></td>
-              <td class="editable-text">{{ user.selfintro || '소개 없음' }}</td>
-            </tr>
-
-            <tr>
-              <td><strong>가입일</strong></td>
-              <td class="readonly">{{ formatDate(user.createdAt) }}</td>
-            </tr>
-            <tr>
-              <td><strong>마지막 접속</strong></td>
-              <td class="readonly">{{ formatDate(user.last_login) }}</td>
-            </tr>
-            <tr>
-              <td><strong>검색나이</strong></td>
-              <td class="readonly">{{ user.search_birthyear1 }} ~ {{ user.search_birthyear2 }}</td>
-            </tr>
-            <tr>
-              <td><strong>검색지역</strong></td>
-              <td class="readonly">{{ user.search_region1 }} {{ user.search_region2 }}</td>
-            </tr>
-            <tr>
-              <td><strong>검색특징</strong></td>
-              <td class="readonly">{{ user.search_preference }}</td>
-            </tr>
-
-            <!-- ✅ 친구 목록 표시 -->
-            <tr>
-              <td><strong>친구목록</strong></td>
-              <td>
-                <div v-if="user.friendlist.length === 0">친구 없음</div>
-                <ul>
-                  <li v-for="f in user.friendlist" :key="f._id">
-                    {{ f.nickname }} ({{ f.username }}) - {{ f.birthyear }}년생 / {{ f.gender === 'man' ? '남자' : f.gender === 'woman' ? '여자' : '' }}
-                  </li>
-                </ul>
+            <tr @click="openPopup(4, user.nickname)" class="editable-row" tabindex="0" @keydown.enter="openPopup(4, user.nickname)">
+              <td class="pf-th">
+                <ion-icon :icon="icons.personCircleOutline" class="row-icon" />
+                <strong class="label">닉네임</strong>
               </td>
+              <td class="pf-td editable-text">{{ user.nickname }}</td>
             </tr>
 
-            <!-- ✅ 차단 목록 표시 -->
-            <tr>
-              <td><strong>차단목록</strong></td>
-              <td>
-                <div v-if="user.blocklist.length === 0">차단 없음</div>
-                <ul>
-                  <li v-for="b in user.blocklist" :key="b._id">
-                    {{ b.nickname }} ({{ b.username }}) - {{ b.birthyear }}년생 / {{ b.gender === 'man' ? '남자' : b.gender === 'woman' ? '여자' : '' }}
-                  </li>
-                </ul>
+            <tr @click="openPopup(1, user.region1 + ' ' + user.region2)" class="editable-row" tabindex="0" @keydown.enter="openPopup(1, user.region1 + ' ' + user.region2)">
+              <td class="pf-th">
+                <ion-icon :icon="icons.locationOutline" class="row-icon" />
+                <strong class="label">지역</strong>
               </td>
+              <td class="pf-td editable-text">{{ user.region1 }} {{ user.region2 }}</td>
             </tr>
 
+            <tr @click="openPopup(2, user.preference)" class="editable-row" tabindex="0" @keydown.enter="openPopup(2, user.preference)">
+              <td class="pf-th">
+                <ion-icon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">성향</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.preference }}</td>
+            </tr>
+
+            <tr @click="openPopup(3, user.selfintro || '소개 없음')" class="editable-row" tabindex="0" @keydown.enter="openPopup(3, user.selfintro || '소개 없음')">
+              <td class="pf-th">
+                <ion-icon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" />
+                <strong class="label">소개</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
+            </tr>
+
+            <tr>
+              <td class="pf-th">
+                <ion-icon :icon="icons.logInOutline" class="row-icon" />
+                <strong class="label">가입일</strong>
+              </td>
+              <td class="pf-td readonly">{{ formatDate(user.createdAt) }}</td>
+            </tr>
+
+            <tr>
+              <td class="pf-th">
+                <ion-icon :icon="icons.timeOutline" class="row-icon" />
+                <strong class="label">마지막 접속</strong>
+              </td>
+              <td class="pf-td readonly">{{ formatDate(user.last_login) }}</td>
+            </tr>
           </tbody>
         </table>
       </div>
+
+      <br />
+
+      <!-- ✅ 친구 찾기 설정 카드 -->
+      <!-- ★ 변경지점: pf-scope 추가 -->
+      <div v-if="user" class="card pf-scope">
+        <h3 class="card-title">
+          <ion-icon :icon="icons.optionsOutline" class="title-icon" />
+          친구 찾기 설정
+        </h3>
+
+        <table class="info-table">
+          <!-- ★ colgroup 네임스페이스 동일 적용 -->
+          <colgroup>
+            <col class="pf-col-th" />
+            <col class="pf-col-td" />
+          </colgroup>
+          <tbody>
+            <tr class="editable-row" @click="openSearchYearModal" tabindex="0" @keydown.enter="openSearchYearModal">
+              <td class="pf-th">
+                <ion-icon :icon="icons.calendarNumberOutline" class="row-icon" />
+                <strong class="label">검색나이</strong>
+              </td>
+              <td class="pf-td editable-text">
+                {{ toAll(user.search_birthyear1) }} ~ {{ toAll(user.search_birthyear2) }}
+              </td>
+            </tr>
+
+            <tr class="editable-row" @click="openSearchPreferenceModal" tabindex="0" @keydown.enter="openSearchPreferenceModal">
+              <td class="pf-th">
+                <ion-icon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">검색특징</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+            </tr>
+
+            <tr class="editable-row" @click="openSearchRegionModal" tabindex="0" @keydown.enter="openSearchRegionModal">
+              <td class="pf-th">
+                <ion-icon :icon="icons.locationOutline" class="row-icon" />
+                <strong class="label">검색지역</strong>
+              </td>
+              <td class="pf-td editable-text">
+                {{ searchRegionDisplay }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
 
-    <!-- 모달 -->
+    <!-- 모달들은 그대로 -->
     <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" @updated="handleRegionUpdate" />
     <PopupModal_2 v-if="showModal2" :message="popupMessage" @close="showModal2 = false" @updated="handlePreferenceUpdate" />
     <PopupModal_3 v-if="showModal3" :message="popupMessage" @close="showModal3 = false" @updated="handleIntroUpdate" />
     <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" @updated="handleNicknameUpdate" />
+
+    <Search_Year_Modal v-if="showSearchYear" :initial-from="user?.search_birthyear1 ?? ''" :initial-to="user?.search_birthyear2 ?? ''" :from="user?.search_birthyear1 ?? ''" :to="user?.search_birthyear2 ?? ''" @close="showSearchYear = false" @updated="onSearchYearUpdated" />
+    <Search_Region_Modal v-if="showSearchRegion" :regions="regionsForModal" @close="showSearchRegion = false" @updated="onSearchRegionUpdated" />
+    <Search_Preference_Modal v-if="showSearchPreference" :message="user?.search_preference ?? ''" @close="showSearchPreference = false" @updated="onSearchPreferenceUpdated" />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+/* ===========================================================
+   6_profile.vue
+   - UI만 정리, 로직/흐름 최대 유지
+   - 기본 글자색 검정, 주석/로그 강화
+   =========================================================== */
+import { ref, computed, onMounted } from 'vue'
+import { toastController, IonIcon } from '@ionic/vue'
 import axios from '@/lib/axiosInstance'
-import { IonButton } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 
-import PopupModal_1 from '@/components/04610_Page6_detail/Modal_region.vue'
-import PopupModal_2 from '@/components/04610_Page6_detail/Modal_preference.vue'
-import PopupModal_3 from '@/components/04610_Page6_detail/Modal_mention.vue'
-import PopupModal_4 from '@/components/04610_Page6_detail/Modal_nickname.vue'
+/* (유지) 프로필 편집 모달 4종 */
+import PopupModal_1 from '@/components/04610_Page6_profile/Modal_region.vue'
+import PopupModal_2 from '@/components/04610_Page6_profile/Modal_preference.vue'
+import PopupModal_3 from '@/components/04610_Page6_profile/Modal_mention.vue'
+import PopupModal_4 from '@/components/04610_Page6_profile/Modal_nickname.vue'
+
+/* (유지) 검색 설정 모달 3종 */
+import Search_Year_Modal from '@/components/04610_Page6_profile/Search_Year_Modal.vue'
+import Search_Region_Modal from '@/components/04610_Page6_profile/Search_Region_Modal.vue'
+import Search_Preference_Modal from '@/components/04610_Page6_profile/Search_Preference_Modal.vue'
+
+/* Ionicons */
+import {
+  personCircleOutline,
+  calendarOutline,
+  calendarNumberOutline,
+  maleFemaleOutline,
+  locationOutline,
+  sparklesOutline,
+  chatbubbleEllipsesOutline,
+  logInOutline,
+  timeOutline,
+  optionsOutline
+} from 'ionicons/icons'
+
+const icons = {
+  personCircleOutline,
+  calendarOutline,
+  calendarNumberOutline,
+  maleFemaleOutline,
+  locationOutline,
+  sparklesOutline,
+  chatbubbleEllipsesOutline,
+  logInOutline,
+  timeOutline,
+  optionsOutline
+}
 
 const router = useRouter()
 const nickname = ref('')
 const user = ref(null)
 
+/* (유지) 프로필 모달 on/off */
 const showModal1 = ref(false)
 const showModal2 = ref(false)
 const showModal3 = ref(false)
 const showModal4 = ref(false)
 const popupMessage = ref('')
 
-// 팝업 열기
+/* (유지) 검색 모달 on/off */
+const showSearchYear = ref(false)
+const showSearchRegion = ref(false)
+const showSearchPreference = ref(false)
+
+/* null, '', undefined → '전체' */
+const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
+
+/* ----- (유지) 프로필 모달 오픈 ----- */
 const openPopup = (modalNum, value) => {
   popupMessage.value = value
   showModal1.value = modalNum === 1
   showModal2.value = modalNum === 2
   showModal3.value = modalNum === 3
   showModal4.value = modalNum === 4
+  console.log('[profile] openPopup:', { modalNum, value })
 }
 
-// 모달 emit 처리
-const handleNicknameUpdate = (newName) => {
-  if (user.value) {
-    user.value.nickname = newName
-    nickname.value = newName
-  }
+/* ----- 5_find 모달 오픈 ----- */
+const openSearchYearModal = () => { console.log('[profile] openSearchYearModal'); showSearchYear.value = true }
+const openSearchRegionModal = () => { console.log('[profile] openSearchRegionModal'); showSearchRegion.value = true }
+const openSearchPreferenceModal = () => { console.log('[profile] openSearchPreferenceModal'); showSearchPreference.value = true }
+
+/* ===========================================================
+   ✅ 화면/모달 복원용 regions 계산
+   =========================================================== */
+const regionsForModal = computed(() => {
+  if (!user.value) return []
+
+  const fromSnake = Array.isArray(user.value.search_regions) ? user.value.search_regions : []
+  const fromCamel = Array.isArray(user.value.searchRegions) ? user.value.searchRegions : []
+
+  const list = (fromSnake.length ? fromSnake : fromCamel).map(r => ({
+    region1: r?.region1 || '',
+    region2: r?.region2 || ''
+  }))
+
+  if (list.length) return list
+
+  const r1 = user.value.search_region1 || ''
+  const r2 = user.value.search_region2 || ''
+  if (!r1 && !r2) return []
+  if (r1 === '전체' && r2 === '전체') return [{ region1: '전체', region2: '전체' }]
+  return [{ region1: r1, region2: r2 }]
+})
+
+/* ===========================================================
+   ✅ “표시에 사용할” 지역 배열
+   =========================================================== */
+const searchRegionsBuffer = ref([])
+
+const effectiveRegions = computed(() => {
+  if (searchRegionsBuffer.value?.length) return searchRegionsBuffer.value
+  const snake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
+  const camel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
+  if (snake.length) return snake
+  if (camel.length) return camel
+  const r1 = user.value?.search_region1 || ''
+  const r2 = user.value?.search_region2 || ''
+  return (r1 || r2) ? [{ region1: r1, region2: r2 }] : []
+})
+
+/* ===========================================================
+   ✅ 카드 표시용 요약 문자열
+   =========================================================== */
+function labelOf(item) {
+  const r1 = (item?.region1 || '').trim()
+  const r2 = (item?.region2 || '').trim()
+  if (!r1 && !r2) return '전체'
+  if (r1 === '전체' && r2 === '전체') return '전체'
+  if (r2 === '전체') return `${r1} 전체`
+  return `${r1} ${r2}`.trim()
 }
-const handleRegionUpdate = (r1, r2) => {
-  if (user.value) {
-    user.value.region1 = r1
-    user.value.region2 = r2
+
+const searchRegionDisplay = computed(() => {
+  const list = effectiveRegions.value
+  if (!list.length) return '전체'
+  if (list.length === 1 && list[0].region1 === '전체' && list[0].region2 === '전체') return '전체'
+  const firstLabel = labelOf(list[0])
+  return list.length === 1 ? firstLabel : `${firstLabel} 외 ${list.length - 1}`
+})
+
+/* ===========================================================
+   ✅ 검색나이 저장
+   =========================================================== */
+async function onSearchYearUpdated(payload) {
+  console.log('[profile] onSearchYearUpdated payload:', payload)
+  let from = '', to = ''
+  if (typeof payload === 'string') {
+    const [f = '', t = ''] = payload.split('~').map(s => s.trim())
+    from = f; to = t
+  } else if (Array.isArray(payload)) {
+    from = payload[0] ?? ''
+    to   = payload[1] ?? ''
+  } else if (payload && typeof payload === 'object') {
+    from = payload.from ?? payload.year1 ?? ''
+    to   = payload.to   ?? payload.year2 ?? ''
   }
-}
-const handlePreferenceUpdate = (newPref) => {
+
   if (user.value) {
-    user.value.preference = newPref
+    user.value.search_birthyear1 = from
+    user.value.search_birthyear2 = to
   }
-}
-const handleIntroUpdate = (newIntro) => {
-  if (user.value) {
-    user.value.selfintro = newIntro
+
+  try {
+    console.log('▶ PATCH /api/search/year:', { year1: from, year2: to })
+    const { data } = await axios.patch('/api/search/year', { year1: from, year2: to }, { withCredentials: true })
+    console.log('✅ saved /search/year:', data)
+    const t = await toastController.create({ message: '검색 나이가 적용되었습니다.', duration: 1500, color: 'success' })
+    await t.present()
+  } catch (err) {
+    console.error('❌ /search/year failed:', err?.response?.data || err)
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    await t.present()
+  } finally {
+    showSearchYear.value = false
   }
 }
 
-// ✅ 유저 정보 로드 (friends, blocks populate 포함)
+/* ===========================================================
+   ✅ 검색지역 저장
+   =========================================================== */
+function normalizeRegionsPayload(payload) {
+  let arr = []
+  if (Array.isArray(payload)) {
+    if (payload.length && typeof payload[0] === 'object') {
+      arr = payload
+    } else {
+      const [r1 = '', r2 = ''] = payload
+      arr = [{ region1: r1, region2: r2 }]
+    }
+  } else if (payload && typeof payload === 'object') {
+    arr = [{ region1: payload.region1 ?? payload.r1 ?? '', region2: payload.region2 ?? payload.r2 ?? '' }]
+  } else if (typeof payload === 'string') {
+    const parts = payload.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)
+    const [r1 = '', r2 = ''] = parts
+    arr = [{ region1: r1, region2: r2 }]
+  }
+
+  // 빈값 제거
+  arr = arr
+    .map(it => ({ region1: (it.region1 || '').trim(), region2: (it.region2 || '').trim() }))
+    .filter(it => it.region1 && it.region2)
+
+  // 전국은 정확히 {전체,전체} 한 건만 유지
+  if (arr.some(it => it.region1 === '전체' && it.region2 === '전체')) {
+    return [{ region1: '전체', region2: '전체' }]
+  }
+  return arr
+}
+
+async function onSearchRegionUpdated(payload) {
+  console.log('[profile] onSearchRegionUpdated raw:', payload)
+  const normalized = normalizeRegionsPayload(payload)
+  console.log('[profile] normalized regions:', normalized)
+
+  if (user.value) {
+    const first = normalized[0] || { region1: '', region2: '' }
+    user.value.search_region1 = first.region1 || ''
+    user.value.search_region2 = first.region2 || ''
+    user.value.search_regions = normalized
+    user.value.searchRegions = normalized
+  }
+  searchRegionsBuffer.value = normalized
+
+  try {
+    console.log('▶ PATCH /api/search/regions:', { regions: normalized })
+    const { data } = await axios.patch('/api/search/regions', { regions: normalized }, { withCredentials: true })
+    console.log('✅ saved /search/regions:', data)
+    const t = await toastController.create({ message: '검색 지역이 적용되었습니다.', duration: 1500, color: 'success' })
+    await t.present()
+  } catch (err) {
+    console.error('❌ /search/regions failed:', err?.response?.data || err)
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    await t.present()
+  } finally {
+    showSearchRegion.value = false
+  }
+}
+
+/* ===========================================================
+   ✅ 검색특징 저장
+   =========================================================== */
+async function onSearchPreferenceUpdated(payload) {
+  console.log('[profile] onSearchPreferenceUpdated payload:', payload)
+  const preference = (typeof payload === 'string') ? payload : (payload?.preference ?? '')
+
+  if (user.value) {
+    user.value.search_preference = preference
+  }
+
+  try {
+    console.log('▶ PATCH /api/search/preference:', { preference })
+    const { data } = await axios.patch('/api/search/preference', { preference }, { withCredentials: true })
+    console.log('✅ saved /search/preference:', data)
+    const t = await toastController.create({ message: '검색 특징이 적용되었습니다.', duration: 1500, color: 'success' })
+    await t.present()
+  } catch (err) {
+    console.error('❌ /search/preference failed:', err?.response?.data || err)
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    await t.present()
+  } finally {
+    showSearchPreference.value = false
+  }
+}
+
+/* (유지) 초기 로딩 */
 onMounted(async () => {
   try {
     const res = await axios.get('/api/me', { withCredentials: true })
     nickname.value = res.data.user?.nickname || ''
     user.value = res.data.user
+    console.log('[profile] loaded me:', user.value)
+
+    // 서버에 다중 지역(snake/camel) 있으면 버퍼에 복원
+    const fromSnake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
+    const fromCamel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
+    const list = fromSnake.length ? fromSnake : fromCamel
+    if (list.length) {
+      searchRegionsBuffer.value = list
+      console.log('[profile] buffer restore (regions):', searchRegionsBuffer.value)
+    }
   } catch (err) {
     console.error('유저 정보 로딩 실패:', err)
   }
 })
 
-// 날짜 포맷
+/* (유지) 유틸 */
 const formatDate = (dateStr) => {
   if (!dateStr) return '없음'
   return new Date(dateStr).toLocaleString()
 }
-
-// 로그아웃 처리
 const logout = async () => {
   try {
     await axios.post('/api/logout', {}, { withCredentials: true })
@@ -185,72 +453,160 @@ const logout = async () => {
 </script>
 
 <style scoped>
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0rem;
-  background-color: #f1f1f1;
-  font-size: 0.95rem;
-  border-bottom: 1px solid #ccc;
+/* ===========================================================
+   블랙+골드 토큰 (변경 없음)
+   =========================================================== */
+:root {
+  --bg: #0b0b0e;
+  --panel: #111215;
+  --panel-2: #15161a;
+  --gold: #d4af37;
+  --gold-2: #b8901e;
+  --gold-3: #8c6f12;
+  --text: #eaeaea;
+  --text-dim: #bdbdbd;
+  --text-muted: #9aa0a6;
+  --divider: rgba(212, 175, 55, 0.18);
+  --shadow: rgba(0, 0, 0, 0.35);
 }
-.welcome-text {
-  font-weight: bold;
-  color: #000;
+
+.page-wrapper {
+  background: radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,0.08), transparent 55%),
+              radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,0.06), transparent 60%),
+              var(--bg);
+  color: var(--text);
+  min-height: 100%;
 }
-.container {
-  width: 100%;
-  max-width: 100%;
-  padding: 1rem;
-  margin: 0 auto;
-}
+.container { padding: 12px; }
+
+/* 카드 */
 .card {
-  border: 1px solid #ccc;
-  border-radius: 8px;
-  padding: 1rem;
-  background-color: #fff;
-  color: #222;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0)), var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow);
+  backdrop-filter: blur(2px);
 }
-.card h3 {
-  margin: 0.3rem 0;
-  font-size: 1rem;
-  font-weight: 500;
-  color: #111;
+
+/* 타이틀 */
+.card-title {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 10px;
+  font-size: clamp(15px, 4.2vw, 18px);
+  font-weight: 800; color: var(--text);
+  position: relative;
+}
+.card-title::after {
+  content: ""; height: 2px; width: 44px;
+  background: linear-gradient(90deg, var(--gold), transparent);
+  position: absolute; left: 0; bottom: -6px;
+}
+.title-icon { font-size: 18px; color: var(--gold); }
+
+/* 표(테이블) 공통 */
+.info-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: clamp(12px, 3.6vw, 14px); }
+.info-table tr { border-bottom: 1px dashed var(--divider); }
+.info-table tr:last-child { border-bottom: 0; }
+
+/* ★ 변경지점: colgroup 네임스페이스(합 100%) */
+.pf-col-th { width: 42%; }
+.pf-col-td { width: 58%; }
+
+/* ★ 교체 후 (안전: 테이블 셀 유지) */
+.pf-scope .pf-th {
+  /* display: grid;  ← 삭제 */
+  /* grid-template-columns: 20px 1fr; ← 삭제 */
+  /* column-gap: 6px; ← 삭제 */
+  padding: 8px 8px;
+  vertical-align: middle;                           /* ★ 셀 수직 정렬 */
+  color: var(--text) !important;
+  font-size: clamp(12.5px, 3.6vw, 14px) !important; /* ★ 글자 크기 강제 복구 */
+  line-height: 1.28;
+  background: transparent !important;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 아이콘/라벨 간격은 margin으로 처리 */
+.pf-scope .pf-th .row-icon {
+  font-size: 14px !important;
+  color: var(--gold) !important;
+  margin-right: 6px;                                 /* ★ 간격 */
+  vertical-align: middle;
+}
+
+/* 라벨은 한 줄 말줄임 */
+.pf-scope .pf-th .label {
+  display: inline-block;
+  max-width: calc(100% - 26px);                      /* 아이콘 폭 고려 */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text) !important;
+  font-weight: 700;
+}
+.pf-scope .pf-td {
+  padding: 8px 8px;
   text-align: left;
-  line-height: 0.2;
+  color: var(--text);
+  background: transparent !important;
 }
-.info-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-  font-size: 0.9rem;
+
+/* 아이콘 */
+.pf-scope .row-icon {
+  font-size: 14px !important;
+  color: var(--gold) !important;
+  opacity: .95;
 }
-.info-table td {
-  padding: 0.5rem;
-  border-bottom: 1px solid #ddd;
+
+/* ★ 변경지점: 라벨 가시성 강제(전역 규칙을 모두 덮음) */
+.pf-scope .label {
+  display: block;
+  min-width: 0;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-weight: 700;
+  font-size: inherit !important;
+  text-indent: 0 !important;
+  filter: none !important;
+  mix-blend-mode: normal !important;
 }
-.info-table td:first-child {
-  font-weight: bold;
-  width: 30%;
-  color: #333;
+
+/* 말줄임 */
+.pf-scope .label,
+.pf-scope .pf-td {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.info-table td:last-child {
-  text-align: left;
+
+/* 상태 텍스트 */
+.pf-scope .readonly { color: var(--text-dim) !important; }
+
+/* 행 hover/focus 배경을 "행 전체"에 동일 적용 */
+.pf-scope .editable-row { cursor: pointer; border-left: 2px solid transparent; }
+.pf-scope .editable-row:hover .pf-th,
+.pf-scope .editable-row:hover .pf-td,
+.pf-scope .editable-row:focus .pf-th,
+.pf-scope .editable-row:focus .pf-td,
+.pf-scope .editable-row:focus-within .pf-th,
+.pf-scope .editable-row:focus-within .pf-td {
+  background-color: var(--panel-2) !important;
 }
-.editable-row {
-  cursor: pointer;
-}
-.editable-text {
-  color: #000;
-}
-.editable-row:hover {
-  background-color: #f5f5f5;
-}
-.readonly {
-  color: #aaa;
-}
-.loading-text {
-  color: #999;
-  text-align: center;
+.pf-scope .editable-row:hover { border-left-color: var(--gold-2); }
+.pf-scope .editable-row:focus,
+.pf-scope .editable-row:focus-within { border-left-color: var(--gold); }
+
+/* 로딩 */
+.loading-text { color: var(--text-muted); text-align: center; font-size: 14px; margin: 14px 0; }
+
+/* 초소형 화면 */
+@media (max-width: 360px) {
+  .container { padding: 10px; }
+  .card { border-radius: 10px; padding: 10px; }
+  .info-table { font-size: 12px; }
+  .pf-col-th { width: 46%; }
+  .pf-col-td { width: 54%; }
+  .pf-scope .pf-th, .pf-scope .pf-td { padding: 6px 6px; }
+  .pf-scope .row-icon { font-size: 13px !important; }
 }
 </style>

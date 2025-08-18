@@ -84,28 +84,77 @@ const goToUserProfile = (userId) => {
 </script>
 
 <style scoped>
-h2 {
-  text-align: center;
-  margin: 1rem 0;
-  color: black;
-}
+/* ── 회원 목록 페이지: CSS 보정 ──
+   - 상단바 높이/간격 통일
+   - 목록 가독성 강화
+   - 공통 톤(검정 텍스트)
+*/
 
+/* 상단바 */
 .top-bar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto; /* 왼쪽 인사말 | 오른쪽 버튼 */
   align-items: center;
-  padding: 0rem;
+  gap: 10px;
+
+  height: 50px;                     /* 고정 높이 */
+  padding: 0 12px;
   background-color: #f1f1f1;
-  font-size: 0.95rem;
   border-bottom: 1px solid #ccc;
+  font-size: 0.95rem;
+  color: #000;
 }
-
 .welcome-text {
-  font-weight: bold;
-  color: black;
+  font-weight: 700;
+  color: #000;
+  font-size: clamp(15px, 2.6vw, 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.top-bar ion-button {
+  --border-radius: 12px;
+  --padding-start: 12px;
+  --padding-end: 12px;
+  min-height: 40px;
 }
 
-.black-text {
-  color: black;
+/* 페이지 제목 */
+h2 {
+  margin: 14px 0;
+  font-size: clamp(18px, 3vw, 20px);
+  font-weight: 700;
+  color: #000;
 }
+
+/* 리스트 아이템 */
+ion-item {
+  --min-height: 60px;
+  --padding-start: 12px;
+  --inner-padding-end: 12px;
+  --background: #fff;
+  border-bottom: 1px solid #eee;
+}
+ion-item:hover {
+  background: #fafafa;
+}
+.black-text h3 {
+  margin: 0 0 4px;
+  font-size: clamp(15px, 2.8vw, 16px);
+  font-weight: 700;
+  color: #000;
+}
+.black-text p {
+  margin: 2px 0;
+  font-size: clamp(13px, 2.5vw, 14px);
+  color: #333;
+}
+
+/* 로딩 텍스트 */
+.ion-text-center {
+  font-size: clamp(14px, 2.5vw, 15px);
+  color: #666;
+  margin-top: 20px;
+}
+
 </style>

@@ -1,78 +1,244 @@
-<!-- src/components/modal/FriendRequestModal.vue -->
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
-      <h3>📩 {{ toNickname }}님에게 친구 신청</h3>
+  <!-- ✅ 단일 루트 엘리먼트 유지 -->
+  <div class="popup-overlay" @click.self="onClose">
+    <div class="popup-modal">
+      <!-- 헤더 -->
+      <div class="modal-header">
+        <h3 class="title">
+          🤝 친구 신청
+          <small class="to-nickname">→ {{ toNickname }}</small>
+        </h3>
+        <!-- 라인형 버튼(테마 클래스) -->
+        <IonButton size="small" class="btn-outline" @click="onClose">닫기</IonButton>
+      </div>
 
-      <ion-textarea
-        v-model="message"
-        placeholder="신청 메시지를 입력하세요"
-        rows="5"
-      ></ion-textarea>
+      <!-- 본문 -->
+      <div class="modal-body">
+        <label class="label" for="friend-msg">인사말 (선택)</label>
+        <textarea
+          id="friend-msg"
+          v-model.trim="message"
+          class="message-input"
+          rows="5"
+          placeholder="예) 안녕하세요! 친하게 지내요 :)"
+        ></textarea>
 
-      <div class="button-group">
-        <ion-button @click="sendRequest" color="primary">신청하기</ion-button>
-        <ion-button @click="$emit('close')" color="medium">취소</ion-button>
+        <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
+        <p v-if="successMsg" class="success-msg">{{ successMsg }}</p>
+      </div>
+
+      <!-- 풋터 -->
+      <div class="modal-footer">
+        <IonButton expand="block" class="btn-muted" @click="onClose">취소</IonButton>
+        <IonButton
+          expand="block"
+          class="btn-primary glow"
+          :disabled="isSubmitting"
+          @click="onSubmit"
+        >
+          {{ isSubmitting ? '전송 중...' : '신청하기' }}
+        </IonButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import axios from '@/lib/axiosInstance'
-import { IonButton, IonTextarea } from '@ionic/vue'
+// --------------------------------------------------------------
+// ModalFriendRequest.vue
+// - 친구 신청 모달
+// - 핵심: fetch body의 key `toUserId` → `to` (백엔드 규격 일치)
+// - 구조 최대 유지, 주석/로그 풍부, 에러 핸들링 보강
+// --------------------------------------------------------------
+import { ref, onMounted } from 'vue'
+import { IonButton } from '@ionic/vue'
 
 const props = defineProps({
-  toUserId: String,
-  toNickname: String
+  toUserId: { type: String, required: true },
+  toNickname: { type: String, required: true }
 })
 
-const emit = defineEmits(['close', 'request-sent'])
+// 커스텀 이벤트 선언
+const emit = defineEmits(['requestSent', 'close'])
 
 const message = ref('')
+const isSubmitting = ref(false)
+const errorMsg = ref('')
+const successMsg = ref('')
 
-const sendRequest = async () => {
+onMounted(() => {
+  console.log('[ModalFriendRequest] mounted', {
+    toUserId: props.toUserId,
+    toNickname: props.toNickname
+  })
+})
+
+function onClose () {
+  console.log('[ModalFriendRequest] close clicked')
+  emit('close')
+}
+
+async function onSubmit () {
+  if (isSubmitting.value) return
+  isSubmitting.value = true
+  errorMsg.value = ''
+  successMsg.value = ''
+
   try {
-    const res = await axios.post('/api/friend-request', {
-      to: props.toUserId,
-      message: message.value
-    }, { withCredentials: true })
+    console.log('[ModalFriendRequest] submit start', {
+      to: props.toUserId, // ✅ 서버가 요구하는 key는 to
+      msgLen: message.value.length
+    })
 
-    alert(res.data.message || '친구 신청 완료!')
-    emit('request-sent') // 부모에게 알림
-    emit('close')         // 팝업 닫기
+    // ⚠️ 프록시(vite.config) 사용 시: '/api/...' 그대로 사용
+    // 프록시 미사용 시: 'http://localhost:2000/api/...' 로 변경
+    const res = await fetch('/api/friend-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        to: props.toUserId,              // ✅ 핵심 수정: toUserId → to
+        message: message.value || ''
+      })
+    })
+
+    const data = await res.json().catch(() => ({}))
+    console.log('[ModalFriendRequest] submit response', { status: res.status, ok: res.ok, data })
+
+    if (!res.ok) {
+      const msg = data?.error || data?.message || '친구 신청에 실패했습니다.'
+      errorMsg.value = msg
+      console.error('[ModalFriendRequest] submit failed:', msg)
+      return
+    }
+
+    successMsg.value = '친구 신청이 전송되었습니다.'
+    emit('requestSent', data)
+    setTimeout(() => emit('close'), 300)
   } catch (err) {
-    console.error('❌ 친구 신청 실패:', err)
-    alert('신청 중 오류가 발생했습니다.')
+    console.error('[ModalFriendRequest] submit error:', err)
+    errorMsg.value = '네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.'
+  } finally {
+    isSubmitting.value = false
   }
 }
 </script>
 
 <style scoped>
-.overlay {
+/* ===========================================================
+   GOLD THEME 적용
+   - 색상 하드코딩 제거 → 테마 변수 사용
+   - 사용 변수: --bg / --panel / --panel-border / --text / --text-dim
+               --gold / --gold-strong / --danger
+   =========================================================== */
+
+/* 오버레이 (반투명 블랙) */
+.popup-overlay {
   position: fixed;
-  top: 0; left: 0;
-  width: 100vw; height: 100vh;
-  background-color: rgba(0,0,0,0.4);
+  inset: 0;
+  background: rgba(0,0,0,.5);              /* 다크 오버레이 */
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 10000;
+  justify-content: center;
+  z-index: 9999;
 }
-.modal {
-  background: white;
-  padding: 1rem;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 400px;
-  box-sizing: border-box;
-  color: black;
+
+/* 모달 박스 */
+.popup-modal {
+  width: min(560px, 92vw);
+  background: var(--panel);                /* ✅ 다크 패널 */
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35),
+              0 0 0 1px rgba(255,213,79,.06) inset; /* 은은한 골드 인셋 */
+  padding: 14px;
+  color: var(--text);                      /* ✅ 텍스트 기본 */
 }
-.button-group {
+
+/* 헤더 */
+.modal-header {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px 10px 2px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.title { margin: 0; font-size: 16px; font-weight: 800; color: var(--text); }
+.to-nickname { margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+
+/* 본문 */
+.modal-body { padding: 12px 2px; }
+.label { display: block; margin-bottom: 6px; font-weight: 700; color: var(--text); }
+.message-input {
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 10px;
+  line-height: 1.4;
+  font-size: 14px;
+  color: var(--text);                      /* ✅ 텍스트 */
+  background: #141414;                    /* 다크 입력 배경 */
+  outline: none;
+}
+.message-input::placeholder { color: var(--text-dim); }
+.message-input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(255,213,79,.20); /* 골드 포커스 링 */
+}
+
+/* 메시지 */
+.error-msg { margin-top: 8px; font-size: 13px; color: var(--danger); }
+.success-msg { margin-top: 8px; font-size: 13px; color: #1db954; } /* 성공 그린톤 */
+
+/* 풋터 */
+.modal-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--panel-border);
+}
+
+/* IonButton 테마 클래스(전역 theme-gold.css와 톤 맞춤) */
+.btn-primary {
+  --background: var(--gold);
+  --background-hover: var(--gold-strong);
+  --background-activated: var(--gold-strong);
+  --color: #1a1a1a;
+  --border-radius: 12px;
+  font-weight: 700;
+}
+.btn-muted {
+  --background: transparent;
+  --color: var(--text-dim);
+  --border-color: var(--panel-border);
+  --border-style: solid;
+  --border-width: 1px;
+  --border-radius: 12px;
+  font-weight: 700;
+}
+.btn-outline {
+  --background: transparent;
+  --color: var(--gold);
+  --border-color: var(--gold);
+  --border-style: solid;
+  --border-width: 1px;
+  --border-radius: 12px;
+  font-weight: 700;
+}
+
+/* 살짝 반짝이는 강조 */
+.glow {
+  box-shadow:
+    0 0 16px rgba(255,213,79,.12),
+    inset 0 0 0 1px rgba(255,213,79,.15);
+}
+
+/* 접근성 포커스 */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255,213,79,.25);
+  border-radius: 10px;
 }
 </style>

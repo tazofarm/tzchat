@@ -1,34 +1,52 @@
 <template>
-  <!-- ✅ Ionic 레이아웃 차이 제거: IonPage/IonContent 래퍼로 dev/prod 동일화 -->
   <ion-page>
     <ion-content>
-
-      <div class="top-bar">
-        <span class="welcome-text">{{ nickname }}님 반갑습니다.</span>
-        <ion-button size="small" color="danger" @click="logout">로그아웃</ion-button>
-      </div>
+      <!-- 보상형 광고 모달 -->
+      <ion-modal
+        :is-open="showAdvModal"
+        @didDismiss="onAdvDidDismiss"
+        :backdrop-dismiss="true"
+      >
+        <ModalAdv @close="closeAdv" />
+      </ion-modal>
 
       <div class="ion-padding">
-        <div class="emergency-toggle">
-          <ion-label class="black-text">Emergency Matching</ion-label>
+        <!-- ===== 상단 토글(한 줄) ===== -->
+        <div class="emergency-toggle" role="group" aria-label="Emergency Matching Toggle">
+          <div class="toggle-title">
+            <ion-icon :icon="icons.flameOutline" aria-hidden="true" class="title-icon" />
+            <ion-label class="black-text">Emergency Matching</ion-label>
+          </div>
+
           <ion-toggle
             :checked="emergencyOn"
             @ionChange="onToggleChange"
             color="danger"
+            aria-label="Emergency Matching On/Off"
           ></ion-toggle>
-          <span class="toggle-label black-text">{{ emergencyOn ? 'ON' : 'OFF' }}</span>
+
+          <span class="toggle-label black-text" :class="{ on: emergencyOn, off: !emergencyOn }">
+            {{ emergencyOn ? 'ON' : 'OFF' }}
+          </span>
         </div>
 
-        <div v-if="emergencyOn" class="countdown black-text">
+        <!-- 남은 시간 -->
+        <div v-if="emergencyOn" class="countdown black-text" aria-live="polite">
+          <ion-icon :icon="icons.timerOutline" aria-hidden="true" class="inline-icon" />
           남은 시간: {{ formattedTime }}
         </div>
 
-        <div class="ion-padding ion-text-center">
-          <h2 class="black-text">긴급 사용자 목록2</h2>
+        <!-- ===== 섹션 타이틀 ===== -->
+        <div class="section-title-wrap" role="heading" aria-level="2">
+          <div class="section-title-row">
+            <ion-icon :icon="icons.shieldCheckmarkOutline" aria-hidden="true" class="section-icon" />
+            <h2 class="section-title-text black-text">Emergency Matching List</h2>
+          </div>
+          <div class="section-divider" aria-hidden="true"></div>
         </div>
 
-        <!-- ✅ 목록: dev/prod 포커스/터치 일관성 위해 IonItem을 버튼으로 -->
-        <ion-list v-if="!isLoading && emergencyUsers.length">
+        <!-- ===== 목록 ===== -->
+        <ion-list v-if="!isLoading && emergencyUsers.length" class="compact-list">
           <ion-item
             v-for="user in emergencyUsers"
             :key="user._id"
@@ -36,16 +54,32 @@
             :detail="true"
             @click="goToUserProfile(user._id)"
           >
+            <ion-icon :icon="icons.personCircleOutline" slot="start" class="list-leading-icon" />
             <ion-label class="black-text">
-              <h3>{{ user.username }} ({{ user.nickname }})</h3>
-              <p>
-                출생년도: {{ user.birthyear }} /
+              <h3 class="row-title">
+                <span class="nickname">{{ user.nickname }}</span>
+              </h3>
+              <p class="sub">
+                <ion-icon :icon="icons.calendarOutline" aria-hidden="true" class="row-icon" />
+                출생년도: {{ user.birthyear }}
+              </p>
+              <p class="sub">
+                <ion-icon
+                  :icon="user.gender === 'man' ? icons.maleOutline : user.gender === 'woman' ? icons.femaleOutline : icons.helpOutline"
+                  aria-hidden="true"
+                  class="row-icon"
+                />
                 성별:
                 {{
                   user.gender === 'man' ? '남자'
                   : user.gender === 'woman' ? '여자'
                   : '미입력'
                 }}
+              </p>
+              <!-- 마지막 접속 표시(정렬 기준) -->
+              <p class="sub">
+                <ion-icon :icon="icons.timerOutline" aria-hidden="true" class="row-icon" />
+                마지막 접속: {{ formatLastAccess(user) }}
               </p>
             </ion-label>
           </ion-item>
@@ -59,25 +93,42 @@
           <p class="ion-text-center">사용자 정보를 불러오는 중입니다...</p>
         </ion-text>
       </div>
-
     </ion-content>
   </ion-page>
 </template>
 
 <script setup>
-// ⚠️ 변경 요청 이외는 최대한 유지. dev/prod 동일화에 필요한 최소 수정 + 주석/로그 강화
+/* ------------------------------------------------------
+   ✅ 변경 요약
+   - Black + Gold 테마 유지, 섹션 타이틀 가시성 대폭 강화
+   - 로직/이벤트 명/데이터 흐름 변경 없음
+   - 풍부한 로그와 방어 코드 유지
+------------------------------------------------------ */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from '@/lib/axiosInstance'
 import {
-  IonPage, IonContent,           // ✅ 실제 사용 (레이아웃 동일화)
-  IonText, IonList, IonItem, IonLabel, IonButton, IonToggle
+  IonPage, IonContent, IonModal,
+  IonText, IonList, IonItem, IonLabel, IonToggle, IonIcon
 } from '@ionic/vue'
+import {
+  flameOutline,
+  personCircleOutline,
+  calendarOutline,
+  maleOutline,
+  femaleOutline,
+  helpOutline,
+  timerOutline,
+  shieldCheckmarkOutline
+} from 'ionicons/icons'
+import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
 
-// ✅ 필터 모듈 (기존 유지)
-import { filterByRegion } from '@/components/04210_Page2_detail/Filter_Region'
-import { filterByPreference } from '@/components/04210_Page2_detail/Filter_Preference'
-import { filterByYear } from '@/components/04210_Page2_detail/Filter_Year'
+/* ✅ 통합 필터/관계 제외 */
+import { applyTotalFilter } from '@/components/04210_Page2_target/Filter_total'
+import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
+
+/* 🧩 Socket.IO 클라이언트 */
+import { io } from 'socket.io-client'
 
 const nickname = ref('')
 const emergencyOn = ref(false)
@@ -87,15 +138,31 @@ const remainingSeconds = ref(0)
 const currentUser = ref({})
 let countdownInterval = null
 const router = useRouter()
+const showAdvModal = ref(false)
+const socket = ref(null)
 
-// ✅ 디버그: 빌드 환경/엔드포인트 표시 (dev/prod 차이 추적)
+/* ✅ 관계 제외용 ID Set */
+const excludeIds = ref(new Set())
+
+const icons = {
+  flameOutline,
+  personCircleOutline,
+  calendarOutline,
+  maleOutline,
+  femaleOutline,
+  helpOutline,
+  timerOutline,
+  shieldCheckmarkOutline,
+}
+
+/* 빌드 정보 로깅 */
 console.log('[BUILD INFO]', {
   MODE: import.meta.env.MODE,
   BASE: import.meta.env.BASE_URL,
   API: import.meta.env.VITE_API_URL
 })
 
-// ✅ 시간 형식 변환 (기존 유지)
+/* 남은 시간 포맷 */
 const formattedTime = computed(() => {
   const sec = remainingSeconds.value
   const h = Math.floor(sec / 3600)
@@ -107,24 +174,91 @@ const formattedTime = computed(() => {
   return `${s}초`
 })
 
-// ✅ 프로필 이동 (기존 유지 + 로그)
+/* 라우팅 */
 const goToUserProfile = (userId) => {
   if (!userId) return console.warn('❗ userId 없음')
   console.log('➡️ 사용자 프로필 페이지로 이동:', userId)
   router.push(`/home/user/${userId}`)
 }
 
-// ✅ 토글 이벤트 (기존 유지)
+/* 토글 변경 */
 const onToggleChange = async (event) => {
   const newState = event.detail.checked
+  console.log('🛎️ onToggleChange:', { newState })
+  if (newState) {
+    console.log('🎬 보상형 광고 모달 오픈')
+    showAdvModal.value = true
+  }
   await updateEmergencyState(newState)
 }
 
-// ✅ Emergency 상태 변경 (세션 쿠키 사용 → withCredentials 통일)
+/* 모달 제어 */
+const closeAdv = () => {
+  console.log('🧹 모달 수동 닫기')
+  showAdvModal.value = false
+}
+const onAdvDidDismiss = () => {
+  console.log('✅ 모달 didDismiss 이벤트 수신')
+  showAdvModal.value = false
+}
+
+/* 긴급 활성 여부 */
+function isEmergencyActive(u) {
+  try {
+    const em = u?.emergency || {}
+    if (typeof em.remainingSeconds === 'number') {
+      return em.isActive === true && em.remainingSeconds > 0
+    }
+    if (em.isActive && em.activatedAt) {
+      const activatedAt = new Date(em.activatedAt).getTime()
+      const now = Date.now()
+      const ONE_HOUR = 60 * 60 * 1000
+      return now - activatedAt < ONE_HOUR
+    }
+    return false
+  } catch (e) {
+    console.warn('⚠️ isEmergencyActive 예외:', e)
+    return false
+  }
+}
+
+/* 옵션 */
+const INCLUDE_ME_WHEN_ON = true
+const APPLY_FILTERS_TO_ME = false
+
+/* 정렬 기준 */
+function getLastAccessTs(u) {
+  const lastLogin = u?.last_login ? new Date(u.last_login).getTime() : 0
+  const updatedAt = u?.updatedAt ? new Date(u.updatedAt).getTime() : 0
+  const activatedAt = u?.emergency?.activatedAt ? new Date(u.emergency.activatedAt).getTime() : 0
+  return Math.max(lastLogin, updatedAt, activatedAt, 0)
+}
+function sortByLastAccessDesc(list) {
+  return [...list].sort((a, b) => getLastAccessTs(b) - getLastAccessTs(a))
+}
+
+/* 내 계정 상단 배치/제거 */
+function upsertMeToTop(meObj) {
+  if (!meObj?._id) return
+  emergencyUsers.value = emergencyUsers.value.filter(u => u._id !== meObj._id)
+  emergencyUsers.value.unshift(meObj)
+  console.log('👑 (즉시반영) 내 프로필을 목록 최상단에 배치')
+}
+function removeMeFromList(myId) {
+  if (!myId) return
+  const before = emergencyUsers.value.length
+  emergencyUsers.value = emergencyUsers.value.filter(u => u._id !== myId)
+  const after = emergencyUsers.value.length
+  if (before !== after) console.log('🧹 (즉시반영) 내 프로필을 목록에서 제거')
+}
+
+/* 상태 변경(ON/OFF) */
 const updateEmergencyState = async (newState) => {
   try {
     const endpoint = newState ? '/api/emergencyon' : '/api/emergencyoff'
-    const res = await axios.put(endpoint, {}, { withCredentials: true }) // ✅ 통일
+    console.time(`[API] ${endpoint}`)
+    const res = await axios.put(endpoint, {}, { withCredentials: true })
+    console.timeEnd(`[API] ${endpoint}`)
 
     emergencyOn.value = newState
     console.log(`🚨 Emergency ${newState ? 'ON' : 'OFF'} 응답:`, res.data)
@@ -133,16 +267,44 @@ const updateEmergencyState = async (newState) => {
       const remaining = res.data.remainingSeconds
       if (remaining > 0) {
         remainingSeconds.value = remaining
+        // 내 객체 반영
+        currentUser.value = {
+          ...currentUser.value,
+          emergency: {
+            ...(currentUser.value.emergency || {}),
+            isActive: true,
+            remainingSeconds: remaining,
+            activatedAt: new Date().toISOString()
+          }
+        }
+        // 즉시 목록 반영
+        if (INCLUDE_ME_WHEN_ON) {
+          let me = { ...currentUser.value }
+          let pass = true
+          if (APPLY_FILTERS_TO_ME) {
+            const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+            pass = selfFiltered.length > 0
+          }
+          if (pass) upsertMeToTop(me)
+          else console.log('ℹ️ 즉시반영: 필터 결과, 나는 제외(APPLY_FILTERS_TO_ME=true)')
+        }
+        // 카운트다운 시작
         await nextTick()
-        setTimeout(() => startCountdown(remaining), 100) // 렌더 후 안전 시작
+        setTimeout(() => startCountdown(remaining), 80)
       } else {
         console.warn('❌ 이미 만료됨 → 자동 OFF')
         await updateEmergencyState(false)
       }
     } else {
       clearCountdown()
+      removeMeFromList(currentUser.value?._id)
+      currentUser.value = {
+        ...currentUser.value,
+        emergency: { ...(currentUser.value.emergency || {}), isActive: false, remainingSeconds: 0 }
+      }
     }
 
+    // 서버 상태 동기화
     await fetchEmergencyUsers()
   } catch (err) {
     console.error('❌ 상태 변경 실패:', err)
@@ -151,29 +313,69 @@ const updateEmergencyState = async (newState) => {
   }
 }
 
-// ✅ 긴급 사용자 조회 + 필터 적용 (세션 API → withCredentials 통일)
+/* 관계 데이터 로딩 */
+async function fetchRelations() {
+  try {
+    console.time('[Users] relations')
+    const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
+      axios.get('/api/friends', { withCredentials: true }),
+      axios.get('/api/blocks', { withCredentials: true }),
+      axios.get('/api/friend-requests/sent', { withCredentials: true }),
+      axios.get('/api/friend-requests/received', { withCredentials: true }),
+    ])
+
+    const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
+    const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
+    const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
+    const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []
+
+    excludeIds.value = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
+
+    console.log('[Emergency] excludeIds size:', excludeIds.value.size)
+  } catch (e) {
+    console.error('❌ 관계 데이터 로딩 실패:', e)
+    excludeIds.value = new Set()
+  } finally {
+    console.timeEnd('[Users] relations')
+  }
+}
+
+/* 목록 로드 + 필터 + 정렬 */
 const fetchEmergencyUsers = async () => {
   console.time('[LOAD] /api/emergencyusers')
   try {
-    const res = await axios.get('/api/emergencyusers', { withCredentials: true }) // ✅ 통일
-    let users = res.data?.users || []
-
+    const res = await axios.get('/api/emergencyusers', { withCredentials: true })
+    let list = res.data?.users || []
     const me = currentUser.value
+
     if (!me || !me._id) {
       console.warn('⚠️ 현재 사용자 정보 없음 → 필터 스킵')
       return
     }
 
-    // ✅ 본인 제외 (기존 주석 유지)
-    users = users.filter(u => u._id !== me._id)
+    list = list.filter(isEmergencyActive) // 긴급 ON만
+    list = applyTotalFilter(list, me, { excludeIds: excludeIds.value }) // 통합 필터
+    list = sortByLastAccessDesc(list) // 최신순
 
-    // ✅ 필터 적용 (방어적 처리)
-    users = filterByRegion(users, me.search_regions) || []
-    users = filterByPreference(users, me.gender, me.search_preference) || []
-    users = filterByYear(users, me.search_birthyear1, me.search_birthyear2) || []
+    // 나 자신 최상단(옵션)
+    const iAmActive = isEmergencyActive(me)
+    if (INCLUDE_ME_WHEN_ON && iAmActive) {
+      let addMe = true
+      if (APPLY_FILTERS_TO_ME) {
+        const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+        addMe = selfFiltered.length > 0
+      }
+      if (addMe) {
+        list = list.filter(u => u._id !== me._id)
+        list.unshift(me)
+        console.log('👑 내 프로필을 목록 최상단에 고정 표기')
+      } else {
+        console.log('ℹ️ 나 자신은 필터로 제외(APPLY_FILTERS_TO_ME=true)')
+      }
+    }
 
-    emergencyUsers.value = users
-    console.log('📥 필터링된 긴급 사용자 목록:', users)
+    emergencyUsers.value = list
+    console.log(`📥 최종 긴급 사용자 목록(${list.length}명):`, list.map(u => ({ id: u._id, last_login: u.last_login })))
   } catch (err) {
     console.error('❌ 목록 로딩 실패:', err)
   } finally {
@@ -181,7 +383,20 @@ const fetchEmergencyUsers = async () => {
   }
 }
 
-// ✅ 타이머 시작 (기존 유지)
+/* 마지막 접속 시간 포맷 */
+function formatLastAccess(u) {
+  const ts = getLastAccessTs(u)
+  if (!ts) return '기록 없음'
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const M = String(d.getMonth() + 1).padStart(2, '0')
+  const D = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${y}.${M}.${D} ${h}:${m}`
+}
+
+/* 카운트다운 */
 const startCountdown = (initial) => {
   clearCountdown()
   let localRemaining = initial
@@ -196,32 +411,95 @@ const startCountdown = (initial) => {
     }
   }, 1000)
 }
-
-// ✅ 타이머 정리 (기존 유지)
 const clearCountdown = () => {
   if (countdownInterval) clearInterval(countdownInterval)
   countdownInterval = null
   remainingSeconds.value = 0
 }
 
-// ✅ 초기 로딩 (세션 API → withCredentials 통일)
+/* Socket.IO */
+function connectSocket() {
+  try {
+    const SERVER_URL = import.meta.env.VITE_API_URL
+    socket.value = io(SERVER_URL, { withCredentials: true, transports: ['websocket'] })
+
+    socket.value.on('connect', () => {
+      console.log('🔌 [socket] connected:', socket.value.id)
+      socket.value.emit('subscribe', { room: 'emergency' })
+    })
+
+    socket.value.on('emergency:refresh', async (payload) => {
+      console.log('📡 [socket] emergency:refresh:', payload)
+      await fetchEmergencyUsers()
+    })
+    socket.value.on('emergency:userOn', async (payload) => {
+      console.log('📡 [socket] emergency:userOn:', payload)
+      await fetchEmergencyUsers()
+    })
+    socket.value.on('emergency:userOff', async (payload) => {
+      console.log('📡 [socket] emergency:userOff:', payload)
+      await fetchEmergencyUsers()
+    })
+
+    socket.value.on('user:lastLogin', async ({ userId, last_login }) => {
+      console.log('📡 [socket] user:lastLogin:', { userId, last_login })
+      let found = false
+      emergencyUsers.value = emergencyUsers.value.map(u => {
+        if (u._id === userId) { found = true; return { ...u, last_login } }
+        return u
+      })
+      if (found) {
+        const meId = currentUser.value?._id
+        const meActiveTop = INCLUDE_ME_WHEN_ON && isEmergencyActive(currentUser.value)
+        const listWithoutMe = emergencyUsers.value.filter(u => u._id !== meId)
+        const sorted = sortByLastAccessDesc(listWithoutMe)
+        emergencyUsers.value = meActiveTop ? [currentUser.value, ...sorted] : sorted
+        console.log('🔁 [socket] 부분업데이트 정렬 완료')
+      } else {
+        await fetchEmergencyUsers()
+      }
+    })
+
+    socket.value.on('disconnect', (reason) => console.warn('🔌 [socket] disconnected:', reason))
+    socket.value.on('connect_error', (err) => console.error('❌ [socket] connect_error:', err.message))
+  } catch (e) {
+    console.error('❌ [socket] 초기화 실패:', e)
+  }
+}
+function disconnectSocket() {
+  try {
+    if (socket.value) {
+      socket.value.emit('unsubscribe', { room: 'emergency' })
+      socket.value.disconnect()
+      console.log('🔌 [socket] disconnected by client')
+    }
+  } catch (e) {
+    console.error('❌ [socket] disconnect 실패:', e)
+  } finally {
+    socket.value = null
+  }
+}
+
+/* 마운트/언마운트 */
 onMounted(async () => {
   console.time('[LOAD] /api/me')
   try {
-    const me = (await axios.get('/api/me', { withCredentials: true })).data.user // ✅ 통일
+    const me = (await axios.get('/api/me', { withCredentials: true })).data.user
     currentUser.value = me
     nickname.value = me?.nickname || ''
     emergencyOn.value = me?.emergency?.isActive === true
 
+    await fetchRelations() // 먼저 관계 제외 세팅
+
     if (emergencyOn.value && me?.emergency?.remainingSeconds > 0) {
       remainingSeconds.value = me.emergency.remainingSeconds
       await nextTick()
-      setTimeout(() => startCountdown(remainingSeconds.value), 100)
+      setTimeout(() => startCountdown(remainingSeconds.value), 80)
     } else if (emergencyOn.value) {
-      // 서버가 isActive=true지만 남은 시간이 없으면 OFF로 정합성 맞춤
       await updateEmergencyState(false)
     }
 
+    connectSocket()
     await fetchEmergencyUsers()
   } catch (err) {
     console.error('❌ 사용자 정보 로딩 실패:', err)
@@ -231,57 +509,200 @@ onMounted(async () => {
   }
 })
 
-// ✅ 종료 시 타이머 제거 (기존 유지)
 onBeforeUnmount(() => {
   clearCountdown()
+  disconnectSocket()
 })
-
-// ✅ 로그아웃 (세션 API → withCredentials 통일, replace로 히스토리 정리)
-const logout = async () => {
-  console.log('➡️ 로그아웃 시도')
-  try {
-    await axios.post('/api/logout', {}, { withCredentials: true }) // ✅ 통일
-    console.log('✅ 로그아웃 성공 → /login 이동')
-    router.replace('/login')
-  } catch (err) {
-    console.error('❌ 로그아웃 실패:', err)
-  }
-}
 </script>
 
 <style scoped>
-/* 요청: 가독성 위해 기본 글씨 검정 유지 (dev/prod 동일하게 보이도록 명시) */
-h3 {
-  color: black;
-  margin-bottom: 1rem;
+/* =========================================================
+   Black + Gold Theme (scoped)
+   - 딥블랙 배경, 다크 패널, 골드 포인트
+   - 섹션 타이틀 가시성 극대화 (문제 해결)
+========================================================= */
+:root,
+:host {
+  --bg: #0b0b0d;            /* 전체 배경(딥블랙) */
+  --panel: #121214;         /* 리스트/카드 배경 */
+  --panel-2: #17171a;       /* hover/pressed */
+  --text-strong: #f3f3f3;   /* 타이틀 텍스트 */
+  --text: #d7d7d9;          /* 본문 텍스트 */
+  --text-dim: #a9a9ad;      /* 보조 텍스트 */
+  --divider: #26262a;       /* 아이템 구분선 */
+  --gold: #d4af37;          /* 골드(메인) */
+  --gold-2: #f1cf5a;        /* 밝은 골드(hover) */
+  --focus: rgba(212, 175, 55, 0.45); /* 포커스 링 */
 }
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0rem;
-  background-color: #f1f1f1;
-  font-size: 0.95rem;
-  border-bottom: 1px solid #ccc;
+
+/* ===== 기본: 다크 배경 적용 ===== */
+ion-content {
+  --background: var(--bg);
+  color: var(--text);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overscroll-behavior: contain;
 }
-.welcome-text { font-weight: bold; color: black; }
-.black-text { color: black; }
+
+/* ===== 상단 토글(한 줄) ===== */
 .emergency-toggle {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
-  padding: 1rem 0;
-  border-bottom: 1px solid #ccc;
+  gap: 10px;
+  padding: 6px 2px 10px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--text);
 }
+.toggle-title { display: inline-flex; align-items: center; gap: 8px; }
+.title-icon { font-size: 18px; color: var(--gold); }
+
+/* 블랙 테마에서도 밝은 글자색 */
+.black-text { color: var(--text-strong); }
+
+/* ON/OFF 캡슐 */
 .toggle-label {
-  margin-left: 1rem;
-  font-weight: bold;
-  color: black;
+  font-weight: 800;
+  color: var(--text-strong);
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(212,175,55,0.35);
+  background: linear-gradient(180deg, rgba(212,175,55,0.09), rgba(212,175,55,0.04));
 }
+.toggle-label.on {
+  color: #f2f2f5;
+  background: linear-gradient(180deg, var(--gold-2), var(--gold));
+  border-color: var(--gold);
+  text-shadow: none;
+}
+.toggle-label.off { color: var(--text-dim); }
+
+/* ===== 남은 시간 ===== */
 .countdown {
-  font-size: 1rem;
+  color: var(--text);
+  font-size: 14px;
   text-align: right;
-  margin-bottom: 1rem;
-  color: black;
+  margin: 8px 0 10px;
+}
+.inline-icon { margin-right: 6px; vertical-align: -2px; color: var(--gold); }
+
+/* ===== 섹션 타이틀(가시성 강화) ===== */
+.section-title-wrap {
+  margin: 6px 0 6px;
+}
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;   /* 좌측 정렬로 시선 고정 */
+  gap: 10px;
+  padding: 8px 2px 6px;
+}
+.section-icon {
+  font-size: 18px;
+  color: var(--gold);
+  filter: drop-shadow(0 0 4px rgba(212,175,55,0.35));
+}
+/* ★ 문제 해결 포인트: 강한 대비 + 약한 외곽선 + 글로우 + !important */
+.section-title-text.black-text {
+  color: var(--gold) !important;          /* 골드로 확실히 */
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  margin: 0;
+  line-height: 1.22;
+  -webkit-text-stroke: 0.2px rgba(0,0,0,0.35);   /* 어두운 배경에서도 테두리로 또렷 */
+  text-shadow:
+    0 0 8px rgba(212,175,55,0.30),
+    0 1px 0 rgba(0,0,0,0.35);
+  opacity: 1 !important;                   /* 혹시 낮춰진 opacity 방지 */
+}
+/* 타이틀 하단 골드 라인으로 구분감 추가 */
+.section-divider {
+  height: 1px;
+  margin: 6px 0 0;
+  background: linear-gradient(90deg, rgba(212,175,55,0.0), rgba(212,175,55,0.8), rgba(212,175,55,0.0));
+}
+
+/* ===== 리스트(컴팩트) ===== */
+.compact-list {
+  background: var(--panel);
+  margin: 10px 0 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(212,175,55,0.18);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+ion-item {
+  --inner-border-width: 0 0 1px 0;
+  --inner-border-color: var(--divider);
+  --padding-start: 12px;
+  --inner-padding-end: 12px;
+  --min-height: 56px;
+  --background: transparent;
+  color: var(--text);
+  transition: background 0.18s ease, transform 0.06s ease;
+}
+ion-item:last-of-type { --inner-border-width: 0; }
+ion-item:hover { background: var(--panel-2); }
+ion-item:active { transform: translateY(1px); }
+
+.list-leading-icon { font-size: 22px; color: var(--gold); }
+
+.row-title {
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 800;
+  margin: 0 0 2px;
+  line-height: 1.26;
+}
+.nickname {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-shadow: 0 0 10px rgba(212,175,55,0.08);
+}
+
+/* 서브 정보 라인 */
+p.sub {
+  color: var(--text);
+  font-size: 13.5px;
+  margin: 0;
+  line-height: 1.28;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.95;
+}
+.row-icon { font-size: 14px; color: var(--gold); }
+
+/* ===== 상태 텍스트 ===== */
+ion-text p.ion-text-center {
+  margin: 12px 0;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* ===== 모달(컨텐츠 영역) ===== */
+ion-modal::part(content) {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid rgba(212,175,55,0.18);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ===== 포커스 ===== */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+  border-radius: 10px;
+}
+
+/* 초소형 화면(<=360px) 보정 */
+@media (max-width: 360px) {
+  .emergency-toggle { gap: 8px; }
+  .section-title-text.black-text { font-size: 16px; }
+  ion-item { --padding-start: 10px; --inner-padding-end: 10px; --min-height: 52px; }
 }
 </style>

@@ -4,20 +4,43 @@
    - Ion 기본 토큰은 :root 에서 선언
    - iOS/MD 테마별 루트(.ios, .md)에도 한 번 더 고정
    - 개별 컴포넌트 안전핀(ion-content/item/input 등) 제공
+   - 모바일 최적화용 크기/간격/라운드/세이프에어리어 토큰 추가
+   - [추가] 폼컨트롤 16px 폰트로 iOS 입력줌 방지
+   - [추가] overscroll-behavior로 스크롤 바운스 최소화
+   - [추가] :focus-visible 접근성 하이라이트
    ----------------------------------------------------- */
 
 :root {
-  /* 배경/글자 기본 (가독성: 검정) */
+  /* ====== 0) 가독성 기본 ====== */
   --ion-background-color: #ffffff;
   --ion-text-color: #000000;
-  --ion-text-color-rgb: 0, 0, 0;              /* 일부 컴포넌트가 rgb 참조 */
+  --ion-text-color-rgb: 0, 0, 0;
 
-  /* 리스트/아이템 라인 */
+  /* ====== 1) 레이아웃/타이포 토큰 ====== */
+  /* 반응형 기본 폰트: 14px ~ 18px */
+  --base-font-size: clamp(14px, 2.5vw, 18px);
+  --line-height-base: 1.5;
+
+  /* 안전 영역(노치/홈 인디케이터) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* 간격/라운드 공통 */
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* ====== 2) 리스트/아이템 라인 ====== */
   --ion-item-background: #ffffff;
   --ion-item-color: #000000;
   --ion-item-border-color: #e0e0e0;
 
-  /* 입력류 */
+  /* ====== 3) 입력류 ====== */
   --ion-input-background: #ffffff;
   --ion-input-color: #000000;
   --ion-input-placeholder-color: #666666;
@@ -28,9 +51,22 @@
   --ion-textarea-background: #ffffff;
   --ion-textarea-color: #000000;
 
-  /* 프라이머리 버튼 (또렷하게) */
+  /* ====== 4) 프라이머리 버튼 ====== */
   --ion-color-primary: #3880ff;
   --ion-color-primary-contrast: #ffffff;
+
+  /* ====== 5) 모바일 최적화용 컴포넌트 사이징(기본값 상향) ====== */
+  /* ion-item / input / button 높이와 패딩을 일관적으로 키워 터치 타깃 44px+ 확보 */
+  --item-min-height: 52px;        /* 목록 가독성 */
+  --ctrl-min-height: 44px;        /* 입력/버튼 공통 최소 높이 */
+  --ctrl-padding-x: 12px;         /* 좌우 패딩 */
+  --btn-radius: 12px;             /* 버튼 라운드 */
+
+  /* ====== 6) 테이블/스크롤 관련 ====== */
+  --table-border: #f0f0f0;
+
+  /* ====== 7) 포커스 하이라이트 ====== */
+  --focus-ring: 0 0 0 3px rgba(56,128,255,0.35);
 }
 
 /* iOS/MD 테마에서도 동일 값 강제(플랫폼별 차이 최소화) */
@@ -50,38 +86,105 @@
   }
 }
 
-/* ---------------- 컴포넌트 안전핀 ---------------- */
+/* ---------------- 8) 글로벌 기본 리셋(ION + Web) ---------------- */
+html, body {
+  font-size: var(--base-font-size);
+  line-height: var(--line-height-base);
+  color: var(--ion-text-color);          /* 글씨: 검정 */
+  background: var(--ion-background-color);
+  -webkit-text-size-adjust: 100%;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior: none;             /* [추가] 뷰포트 바운스 최소화 */
+}
+*,
+*::before,
+*::after { box-sizing: border-box; }
 
-/* 페이지 배경/텍스트 */
+/* 미디어 요소 기본 반응형 */
+img, video, canvas {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* 스크롤바 얇게 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #bbb transparent;
+}
+*::-webkit-scrollbar { height: 6px; width: 6px; }
+*::-webkit-scrollbar-thumb { background: #bbb; border-radius: 4px; }
+
+/* 키보드 포커스 가시성 (접근성) */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+
+/* ---------------- 9) 컴포넌트 안전핀 ---------------- */
+
+/* 페이지 배경/텍스트 + 안전영역 패딩(상/하 기본 여백 포함) */
 ion-content {
   --background: #ffffff;
   color: #000000;
+  padding-top: calc(var(--safe-top) + var(--space-3));
+  padding-bottom: calc(var(--safe-bottom) + var(--space-3));
+  padding-left: calc(var(--safe-left) + var(--space-3));
+  padding-right: calc(var(--safe-right) + var(--space-3));
+  overscroll-behavior: contain; /* 내부 스크롤 바운스 억제 */
 }
 
-/* 리스트/아이템 라인 얇게 */
+/* 리스트/아이템 라인 얇게 + 최소 높이/패딩 */
 ion-item {
   --background: #ffffff;
   --color: #000000;
   --inner-border-width: 0 0 1px 0;   /* 하단 1px */
   --inner-border-color: #e0e0e0;
+  --min-height: var(--item-min-height);
+  --padding-start: var(--ctrl-padding-x);
+  --inner-padding-end: var(--ctrl-padding-x);
 }
 
-/* 입력/선택/텍스트영역 */
+/* 입력/선택/텍스트영역: 색상 + 최소 높이/패딩 */
 ion-input,
 ion-select,
 ion-textarea {
   --background: #ffffff;
   --color: #000000;
   --placeholder-color: #666666;
+  --padding-start: var(--ctrl-padding-x);
+  --padding-end: var(--ctrl-padding-x);
+  --min-height: var(--ctrl-min-height);
 }
 
-/* 라벨은 Light DOM이라 직접 컬러 지정 가능 */
-ion-label {
-  color: #000000;
+/* [추가] iOS 입력줌 방지: 16px 이상 보장 */
+input, select, textarea {
+  font-size: max(16px, 1rem);
+  accent-color: var(--ion-color-primary); /* 체크/라디오 포커스 컬러 */
 }
 
-/* 버튼(프라이머리) 대비 강화 */
+/* 라벨은 Light DOM이라 직접 컬러 지정 */
+ion-label { color: #000000; }
+
+/* 버튼(프라이머리) 대비 강화 + 라운드/패딩 */
 ion-button {
   --background: var(--ion-color-primary);
   --color: var(--ion-color-primary-contrast);
+  --border-radius: var(--btn-radius);
+  --padding-start: 14px;
+  --padding-end: 14px;
+  min-height: var(--ctrl-min-height);
 }
+
+/* 카드류 공통 (ion-card 사용 시 톤 통일) */
+ion-card {
+  background: #fff;
+  color: #000;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+/* 토스트/얼럿 글자색 보정(혹시 다크 테마 잔존 대비) */
+ion-toast, ion-alert { color: #000; }

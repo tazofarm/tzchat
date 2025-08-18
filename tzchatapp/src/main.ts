@@ -4,9 +4,45 @@ import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
 
+// 🔔 Web/PWA 푸시 등록 (신규 추가)
+import { registerWebPush } from './push/webPush'
+
+/* -------------------------------------------------------
+ * ✅ Ionicons: 아이콘 등록 (중요)
+ * ----------------------------------------------------- */
+import { addIcons } from 'ionicons'
+import {
+  warningOutline,
+  locateOutline,        // ✅ bullseyeOutline 대체 아이콘
+  peopleOutline,
+  chatbubblesOutline,
+  personCircleOutline,
+  settingsOutline,
+} from 'ionicons/icons'
+
+// 아이콘 등록(필요한 것만)
+addIcons({
+  warningOutline,
+  locateOutline,        // ✅ 교체 반영
+  peopleOutline,
+  chatbubblesOutline,
+  personCircleOutline,
+  settingsOutline,
+})
+console.log(
+  '🧩 Ionicons registered:',
+  Object.keys({
+    warningOutline,
+    locateOutline,
+    peopleOutline,
+    chatbubblesOutline,
+    personCircleOutline,
+    settingsOutline,
+  })
+)
+
 /* -------------------------------------------------------
  * 1) Ionic 필수/기본 CSS
- *    - 이 중 하나라도 빠지면 컴포넌트가 ‘민짜’처럼 보일 수 있음
  * ----------------------------------------------------- */
 import '@ionic/vue/css/core.css'
 import '@ionic/vue/css/normalize.css'
@@ -14,8 +50,7 @@ import '@ionic/vue/css/structure.css'
 import '@ionic/vue/css/typography.css'
 
 /* -------------------------------------------------------
- * 2) Ionic 유틸 CSS (선택이지만 실제로는 자주 필요)
- *    - padding/margin/정렬/표시 등 유틸 클래스
+ * 2) Ionic 유틸 CSS (선택)
  * ----------------------------------------------------- */
 import '@ionic/vue/css/padding.css'
 import '@ionic/vue/css/float-elements.css'
@@ -25,15 +60,21 @@ import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
 
 /* -------------------------------------------------------
- * 3) 테마/커스텀 CSS는 "무조건 마지막"에!
- *    - 페이지별 CSS를 쓰더라도 전역 변수(ion-color 등)는 필요할 수 있음
- *    - ★ 요청에 따라 3000.css 전역 파일은 더 이상 불러오지 않습니다.
+ * 3) 테마/커스텀 CSS는 마지막
  * ----------------------------------------------------- */
-import '@/theme/variables.css'   // 있다면 유지, 없다면 주석 처리하세요.
-// import '@/assets/3000.css'    // ✅ 삭제(과거 백엔드 템플릿용 전역 CSS 미사용)
+import '@/theme/variables.css'
+import '@/theme/mobile-utilities.css'
+// import '@/assets/3000.css'  // ✅ 사용 안 함
 
 /* -------------------------------------------------------
- * 4) 진단 로그: CSS/환경 체크
+ * 4) (중요) 이모지 픽커 웹컴포넌트 로드
+ *    - 이 한 줄로 <emoji-picker>가 브라우저에 등록됩니다.
+ * ----------------------------------------------------- */
+import 'emoji-picker-element'
+console.log('😀 emoji-picker-element loaded')
+
+/* -------------------------------------------------------
+ * 5) 진단 로그
  * ----------------------------------------------------- */
 const isDev = import.meta.env.DEV
 console.log(`🚀 Booting tzchat... (env: ${isDev ? 'DEV' : 'PROD'})`)
@@ -44,17 +85,17 @@ function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
   document.body.appendChild(probe)
   const cs = window.getComputedStyle(probe)
-  console.log('🔎 ion-button display:', cs.display, '(정상 예: inline-block 또는 inline-flex)')
+  console.log('🔎 ion-button display:', cs.display, '(정상 예: inline-block/inline-flex)')
   probe.remove()
 }
 
-// CSS 변수(테마)가 적용되었는지 확인(주로 variables.css가 먹었는지)
+// CSS 변수(테마)가 적용되었는지 확인
 function logPrimaryColorVar() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
 }
 
-// 로딩된 CSS/JS 개요 출력(배포 시 /assets/*.css 확인용)
+// 로딩된 CSS/JS 개요 출력
 function logLoadedAssets() {
   const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
   const scripts = Array.from(document.querySelectorAll('script'))
@@ -64,72 +105,121 @@ function logLoadedAssets() {
 
 /* -------------------------------------------------------
  * (개선) Ionic hydration 체크
- *  - customElements.whenDefined(...)를 기다린 뒤 검사
- *  - 너무 이른 타이밍에 검사해서 생기는 거짓 경고를 방지
  * ----------------------------------------------------- */
+async function waitForCustomElements(tags: string[]) {
+  await Promise.all(tags.map(tag => customElements.whenDefined(tag)))
+}
+
+async function probeHydration(tags: string[]) {
+  await new Promise(requestAnimationFrame)
+  await new Promise(requestAnimationFrame)
+
+  const temp = document.createElement('div')
+  temp.innerHTML = `
+    <ion-page>
+      <ion-content>
+        <ion-list>
+          <ion-item>probe</ion-item>
+          <ion-button>btn</ion-button>
+        </ion-list>
+      </ion-content>
+    </ion-page>
+  `
+  document.body.appendChild(temp)
+
+  const probes = temp.querySelectorAll<HTMLElement>(tags.join(','))
+  const hydratedFlags = Array.from(probes).map(el => el.classList.contains('hydrated'))
+  console.log(
+    '🧪 hydrated flags:',
+    tags.reduce(
+      (acc, tag, i) => ({ ...acc, [tag]: hydratedFlags[i] ?? false }),
+      {} as Record<string, boolean>
+    )
+  )
+
+  const anyNotHydrated = hydratedFlags.some(f => !f)
+  temp.remove()
+  return !anyNotHydrated
+}
+
 async function checkIonicHydrationSafe() {
+  const TAGS = ['ion-page', 'ion-content', 'ion-list', 'ion-item', 'ion-button']
   try {
-    // Ionic 웹컴포넌트 등록 완료 대기
-    await Promise.all([
-      customElements.whenDefined('ion-list'),
-      customElements.whenDefined('ion-item'),
-    ])
-
-    // 한 프레임 쉬어 DOM 반영 기다림
-    await new Promise(requestAnimationFrame)
-    await new Promise(requestAnimationFrame)
-
-    const temp = document.createElement('div')
-    temp.innerHTML = `
-      <ion-list>
-        <ion-item>probe</ion-item>
-      </ion-list>
-    `
-    document.body.appendChild(temp)
-
-    // hydration 여부는 'hydrated' 클래스 유무로 판단
-    const probes = temp.querySelectorAll<HTMLElement>('ion-list, ion-item')
-    const hydrated = Array.from(probes).map(el => el.classList.contains('hydrated'))
-    console.log('🧪 hydrated flags (ion-list, ion-item):', hydrated)
-
-    const anyNotHydrated = hydrated.some(h => !h)
-    if (anyNotHydrated) {
-      console.warn('⚠️ 일부 Ionic 컴포넌트가 아직 수화되지 않았습니다. (로딩 지연일 수 있음) Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
-    } else {
-      console.log('👌 프로브 컴포넌트가 정상적으로 hydrated 상태입니다.')
+    await waitForCustomElements(TAGS)
+    let ok = await probeHydration(TAGS)
+    if (!ok) {
+      console.warn('⏳ 수화가 아직 완료되지 않음. 300ms 후 재시도합니다...')
+      await new Promise(r => setTimeout(r, 300))
+      ok = await probeHydration(TAGS)
     }
-    temp.remove()
+    if (!ok) {
+      console.warn('⚠️ 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
+    } else {
+      console.log('👌 Ionic 컴포넌트가 정상적으로 hydrated 상태입니다.')
+    }
   } catch (e) {
     console.warn('hydration 체크 중 오류:', e)
   }
 }
 
 /* -------------------------------------------------------
- * 5) 앱 부트스트랩
+ * 6) 앱 부트스트랩
  * ----------------------------------------------------- */
 const app = createApp(App)
-app.use(IonicVue)
+app.use(IonicVue) // 필요 시 옵션: { mode: 'md' } 등
 app.use(router)
 
-router.isReady().then(async () => {
-  app.mount('#app')
-  console.log('✅ Vue + Ionic mounted.')
-
-  // DOM이 정착된 뒤 진단
-  await nextTick()
-  logLoadedAssets()
-  checkIonicBasicStyle()
-  logPrimaryColorVar()
-
-  // (개선된) Hydration 체크
-  await checkIonicHydrationSafe()
-}).catch(err => {
-  console.error('💥 router.isReady() 실패:', err)
-})
+/* -------------------------------------------------------
+ * 6-1) (중요) 커스텀 엘리먼트 인식 설정
+ *  - Vue가 <emoji-picker>를 일반 컴포넌트로 탐색하지 않도록 지정
+ * ----------------------------------------------------- */
+const prevIsCustomElement = app.config.compilerOptions.isCustomElement
+app.config.compilerOptions.isCustomElement = (tag: string) => {
+  const isEmoji = tag === 'emoji-picker'
+  if (isEmoji) {
+    // 디버그 로그: 실제 적용 여부 추적
+    console.log('🔧 Treat as custom element:', tag)
+    return true
+  }
+  // 기존 설정이 있으면 보존
+  return typeof prevIsCustomElement === 'function'
+    ? prevIsCustomElement(tag)
+    : false
+}
 
 /* -------------------------------------------------------
- * 6) 기본 글씨색(가독성 보장)
- *    - UA/다크모드 영향 방지
+ * 6-2) 🔔 WebPush 등록 (신규)
+ *  - 앱 시작 시 1회만 호출
+ *  - 권한 요청 → FCM 토큰 발급 → 서버 /api/push/register 로 전송
+ *  - 실패해도 앱 부트는 계속 진행
+ * ----------------------------------------------------- */
+registerWebPush()
+  .then(() => console.log('🔔 WebPush 등록 플로우 완료(요청/토큰/등록)'))
+  .catch(err => console.error('💥 WebPush 등록 실패:', err))
+
+router.isReady()
+  .then(async () => {
+    app.mount('#app')
+    console.log('✅ Vue + Ionic mounted.')
+
+    // DOM이 정착된 뒤 진단
+    await nextTick()
+    logLoadedAssets()
+    checkIonicBasicStyle()
+    logPrimaryColorVar()
+
+    // (개선된) Hydration 체크
+    await checkIonicHydrationSafe()
+
+    // (검증) 커스텀 엘리먼트 등록 여부 로그
+    console.log('🧩 customElements.has("emoji-picker"):', customElements.get('emoji-picker') ? 'YES' : 'NO')
+  })
+  .catch(err => {
+    console.error('💥 router.isReady() 실패:', err)
+  })
+
+/* -------------------------------------------------------
+ * 7) 기본 글씨색(가독성 보장)
  * ----------------------------------------------------- */
 document.documentElement.style.setProperty('--base-text-color', '#000')
 document.addEventListener('DOMContentLoaded', () => {

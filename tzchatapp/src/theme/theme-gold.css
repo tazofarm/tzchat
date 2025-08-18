@@ -1,0 +1,441 @@
+/* =====================================================================
+   tzchat - GOLD THEME (고급 블랙 + 골드)
+   ---------------------------------------------------------------------
+   • 전역 테마 클래스: .theme-gold  ← 이 블록의 변수만 바꾸면 전체 톤이 바뀜
+   • 팔레트 토큰을 한 곳에서 관리 → 유지보수/확장 용이
+   • Ionic 변수까지 덮어써 전체 톤 일관성 유지
+   • 블랙 배경에서 가독성을 위해 텍스트는 화이트/그레이 사용
+   ===================================================================== */
+
+/* ⛳ 최상위: 테마 변수(팔레트 & Ionic 토큰) */
+.theme-gold {
+  /* ===== Base Palette ===== */
+  --bg: #121212;               /* 전체 배경 */
+  --panel: #1a1a1a;            /* 카드/패널 배경 */
+  --panel-2: #161616;          /* 헤더/글래스 계열 */
+  --panel-border: #2a2a2a;     /* 패널 경계선 */
+
+  --text: #f5f5f5;             /* 기본 텍스트 */
+  --text-dim: #bdbdbd;         /* 보조 텍스트 */
+  --text-faint: #9a9a9a;       /* 더 흐린 텍스트 */
+
+  --gold: #ffd54f;             /* 메인 포인트 골드 */
+  --gold-strong: #ffca28;      /* hover/active 골드 */
+  --gold-soft: rgba(255,213,79,.12); /* 은은한 글로우 */
+
+  --muted: #8e8e8e;            /* 보조 버튼/설명 */
+  --danger: #ef4444;           /* 위험 액션(신고 등) */
+
+  /* ===== Ionic Core Tokens (다크+골드) ===== */
+  --ion-background-color: var(--bg);
+  --ion-text-color: var(--text);
+
+  --ion-color-primary: var(--gold);
+  --ion-color-primary-contrast: #1a1a1a;
+  --ion-color-primary-shade: #e6bf47;
+  --ion-color-primary-tint: #ffe07a;
+
+  --ion-color-medium: var(--text-dim);
+  --ion-color-warning: #f59e0b;   /* 보조 경고색 */
+  --ion-color-danger: var(--danger);
+
+  --ion-item-background: var(--panel);
+  --ion-toolbar-background: var(--panel-2);
+  --ion-tab-bar-background: #131313;
+
+  /* UA/브라우저에게 다크 컨텍스트 힌트 제공 */
+  color-scheme: dark;
+}
+
+/* =====================================================================
+   Global Base
+   ===================================================================== */
+.theme-gold,
+.theme-gold body,
+.theme-gold #app {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* 스크롤바 (선택) - 고급스럽게 얇게 처리 */
+.theme-gold ::-webkit-scrollbar { width: 8px; height: 8px; }
+.theme-gold ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--gold-strong), var(--gold));
+  border-radius: 999px;
+}
+.theme-gold ::-webkit-scrollbar-track { background: #0f0f0f; }
+
+/* =====================================================================
+   Ionic 기본 컴포넌트 다크 고정 (초기 번쩍임/섞임 방지)
+   ===================================================================== */
+.theme-gold ion-content {
+  --background: var(--bg);
+  color: var(--text);
+}
+.theme-gold ion-header,
+.theme-gold ion-toolbar {
+  --background: var(--panel-2);
+  --color: var(--text);
+  color: var(--text);
+  border-bottom: 1px solid var(--panel-border);
+}
+.theme-gold ion-tab-bar {
+  --background: #131313;
+  color: var(--text);
+  border-top: 1px solid var(--panel-border);
+}
+.theme-gold ion-title,
+.theme-gold ion-label { color: var(--text); }
+
+/* =====================================================================
+   Common Surfaces
+   ===================================================================== */
+.theme-gold .card,
+.theme-gold .panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  /* 은은한 VIP 느낌: 안쪽 미세 골드/바깥 그림자 */
+  box-shadow: 0 2px 16px rgba(0,0,0,.25),
+              0 0 0 1px rgba(255,213,79,.06) inset;
+}
+
+/* 글래스 느낌 헤더/바 영역 (예: .header-row) */
+.theme-gold .header-row {
+  background: linear-gradient(180deg, var(--panel-2), var(--bg));
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+}
+
+/* 라벨/보조 텍스트 */
+.theme-gold .muted   { color: var(--text-dim); }
+.theme-gold .mutest  { color: var(--text-faint); }
+.theme-gold .gold    { color: var(--gold); }
+
+/* 뱃지(ⓝ 등) */
+.theme-gold .badge {
+  display: inline-block;
+  min-width: 18px; height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 800;
+  color: #1a1a1a;
+  background: var(--gold);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* 행 호버 하이라이트 (테이블/리스트 공통) */
+.theme-gold .row-clickable { transition: background-color .16s ease; }
+.theme-gold .row-clickable:hover { background: #202020; }
+
+/* 살짝 반짝이는 글로우(선택적 강조) */
+.theme-gold .glow {
+  box-shadow: 0 0 16px var(--gold-soft),
+              inset 0 0 0 1px rgba(255,213,79,.15);
+}
+
+/* =====================================================================
+   Tables (예: .info-table)
+   ===================================================================== */
+.theme-gold .info-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  overflow: hidden; /* 둥근 모서리 내부 자르기 */
+}
+.theme-gold .info-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  vertical-align: top;
+  color: var(--text);
+  word-break: break-word;
+}
+.theme-gold .info-table tr:last-child td { border-bottom: 0; }
+.theme-gold .info-table td:first-child {
+  width: 34%;
+  max-width: 0; /* table-layout:fixed 와 함께 ellipsis 허용 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+.theme-gold .info-table td:first-child strong { color: var(--text); }
+
+/* =====================================================================
+   Buttons (Ionic ion-button 커스텀 클래스 조합)
+   - 페이지에서 class만 붙여 재사용
+   ===================================================================== */
+.theme-gold ion-button {
+  --border-radius: 12px;
+  font-weight: 700;
+}
+
+/* Primary: 메인 호출(대화하기 등) → 풀 골드 */
+.theme-gold .btn-primary {
+  --background: var(--gold);
+  --background-hover: var(--gold-strong);
+  --background-activated: var(--gold-strong);
+  --color: #1a1a1a;
+}
+
+/* Outline: 가벼운 액션(친구 신청 등) */
+.theme-gold .btn-outline {
+  --background: transparent;
+  --color: var(--gold);
+  --border-color: var(--gold);
+  --border-style: solid;
+  --border-width: 1px;
+}
+
+/* Muted: 보조/중립(차단 등) */
+.theme-gold .btn-muted {
+  --background: transparent;
+  --color: var(--muted);
+  --border-color: var(--panel-border);
+  --border-style: solid;
+  --border-width: 1px;
+}
+
+/* Secondary: 보조 강조(차단 해제 등) */
+.theme-gold .btn-secondary {
+  --background: #232323;
+  --color: var(--gold);
+}
+
+/* Warning: 경고성 (친구 삭제 등) */
+.theme-gold .btn-warning {
+  --background: #3a2a0a;
+  --color: var(--gold);
+  --background-hover: #4a3510;
+}
+
+/* Danger: 위험(신고) */
+.theme-gold .btn-danger {
+  --background: var(--danger);
+  --color: #fff;
+}
+
+/* Header용 라인 버튼 (뒤로가기 등) */
+.theme-gold .btn-ghost {
+  --background: transparent;
+  --color: var(--gold);
+  --border-color: var(--gold);
+  --border-style: solid;
+  --border-width: 1px;
+  --padding-start: 12px;
+  --padding-end: 12px;
+}
+
+/* =====================================================================
+   Navigation / Bars (커스텀 상단/하단 바에도 적용)
+   ===================================================================== */
+.theme-gold .tabbar,
+.theme-gold .navbar {
+  background: #131313;
+  border-top: 1px solid var(--panel-border);
+}
+.theme-gold .icon-accent { color: var(--gold); }
+
+/* =====================================================================
+   Accessibility (Focus)
+   ===================================================================== */
+.theme-gold :focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255,213,79,.25);
+  border-radius: 10px;
+}
+
+/* =====================================================================
+   Small Screens (≤360px)
+   ===================================================================== */
+@media (max-width: 360px) {
+  .theme-gold .compact-px { padding-left: 10px; padding-right: 10px; }
+  .theme-gold .info-table td { padding: 10px 8px; }
+}
+
+/* =====================================================================
+   GOLD THEME – Overrides for legacy "mobile-utilities.css"
+   - 기존 유틸에서 background:#fff / color:#000 하드코딩된 것만 상쇄
+   - 삭제/수정 없이 안전하게 테마에서만 덮어씀
+   ===================================================================== */
+
+/* 페이지 루트/컨테이너 */
+.theme-gold .profile-page,
+.theme-gold .container,
+.theme-gold .page,
+.theme-gold .content,
+.theme-gold .section {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+/* 카드/패널/박스 */
+.theme-gold .card,
+.theme-gold .panel,
+.theme-gold .box,
+.theme-gold .block {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--panel-border) !important;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0,0,0,.25),
+              0 0 0 1px rgba(255,213,79,.06) inset;
+}
+
+/* 헤더/탑바/탭바/커스텀 메뉴 */
+.theme-gold .header,
+.theme-gold .header-row,
+.theme-gold .topbar,
+.theme-gold .toolbar,
+.theme-gold .tabbar,
+.theme-gold .navbar,
+.theme-gold .top-menu {
+  background: linear-gradient(180deg, var(--panel-2), var(--bg)) !important;
+  color: var(--text) !important;
+  border-color: var(--panel-border) !important;
+}
+
+/* 리스트/아이템(ion-list/ion-item 대체 유틸 포함) */
+.theme-gold .list,
+.theme-gold .list-group,
+.theme-gold ul.list,
+.theme-gold .list .item,
+.theme-gold .list-item,
+.theme-gold .row,
+.theme-gold .cell {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border-color: var(--panel-border) !important;
+}
+.theme-gold .list .item + .item,
+.theme-gold .list-item + .list-item,
+.theme-gold .row + .row {
+  border-top: 1px solid var(--panel-border) !important;
+}
+
+/* 표(table) */
+.theme-gold table,
+.theme-gold .table {
+  width: 100%;
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--panel-border) !important;
+  border-radius: 12px;
+  border-collapse: collapse;
+  overflow: hidden;
+}
+.theme-gold table th,
+.theme-gold table td,
+.theme-gold .table th,
+.theme-gold .table td {
+  border-bottom: 1px solid var(--panel-border) !important;
+  color: var(--text) !important;
+}
+.theme-gold table th:first-child,
+.theme-gold .table th:first-child,
+.theme-gold table td:first-child,
+.theme-gold .table td:first-child {
+  color: var(--text-dim) !important; /* 라벨 톤 다운 */
+}
+
+/* 폼/입력류 – 유틸 클래스가 강제로 흰색/검정 지정한 경우 대비 */
+.theme-gold input,
+.theme-gold select,
+.theme-gold textarea {
+  background: #141414 !important;
+  color: var(--text) !important;
+  border: 1px solid var(--panel-border) !important;
+}
+.theme-gold input::placeholder,
+.theme-gold textarea::placeholder {
+  color: var(--text-faint) !important;
+}
+
+/* 라벨/보조 텍스트 */
+.theme-gold label,
+.theme-gold .label,
+.theme-gold .muted,
+.theme-gold .text-muted,
+.theme-gold .desc,
+.theme-gold .help {
+  color: var(--text-dim) !important;
+}
+
+/* 버튼 – 유틸에서 밝은 톤 강제 시 */
+.theme-gold .btn,
+.theme-gold button.btn,
+.theme-gold .button {
+  border-radius: 12px;
+  font-weight: 700;
+}
+.theme-gold .btn-primary,
+.theme-gold .button.primary {
+  background: var(--gold) !important;
+  color: #1a1a1a !important;
+  border: none !important;
+}
+.theme-gold .btn-outline,
+.theme-gold .button.outline,
+.theme-gold .btn-ghost {
+  background: transparent !important;
+  color: var(--gold) !important;
+  border: 1px solid var(--gold) !important;
+}
+.theme-gold .btn-muted,
+.theme-gold .button.muted {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--panel-border) !important;
+}
+.theme-gold .btn-secondary,
+.theme-gold .button.secondary {
+  background: #232323 !important;
+  color: var(--gold) !important;
+  border: none !important;
+}
+.theme-gold .btn-warning,
+.theme-gold .button.warning {
+  background: #3a2a0a !important;
+  color: var(--gold) !important;
+}
+.theme-gold .btn-danger,
+.theme-gold .button.danger {
+  background: var(--danger) !important;
+  color: #fff !important;
+}
+
+/* 배지/알림 점 */
+.theme-gold .badge,
+.theme-gold .dot,
+.theme-gold .pill {
+  background: var(--gold) !important;
+  color: #1a1a1a !important;
+  border: none !important;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* 호버/선택 강조 */
+.theme-gold .row-hover:hover,
+.theme-gold .item-hover:hover,
+.theme-gold .highlight,
+.theme-gold .active {
+  background: #202020 !important;
+}
+
+/* 링크/아이콘 강조 */
+.theme-gold a,
+.theme-gold .link,
+.theme-gold .icon-accent {
+  color: var(--gold) !important;
+}
+
+/* 접근성 포커스 */
+.theme-gold :focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(255,213,79,.25) !important;
+  border-radius: 10px;
+}
