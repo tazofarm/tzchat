@@ -30,16 +30,33 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ CORS 설정 (개발용: localhost:8081, 192.168.0.7:8081 허용)
+// ★★★★★ 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
+const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
+console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV');
+
+// ✅ CORS 설정
 const cors = require('cors');
+// ★ 운영: HTTPS 오리진 허용, 개발: 로컬 오리진 허용
+const allowedOrigins = [
+  'http://localhost:8081',
+  'http://192.168.0.7:8081',
+  // ★ 운영 오리진(HTTPS): 프런트/백 동일 도메인 사용 시 필수
+  'https://tzchat.duckdns.org',
+];
 const corsOptions = {
-  origin: ['http://localhost:8081', 'http://192.168.0.7:8081'], // ← 필요 시 도메인 추가
+  origin: (origin, cb) => {
+    // 모바일 앱/webview 등 Origin 없을 수도 있으니 허용
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    console.warn('⚠️ CORS 차단 시도:', origin);
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
-console.log('🛡️  CORS 설정 완료 (허용: localhost:8081, 192.168.0.7:8081)');
+console.log('🛡️  CORS 허용 오리진:', allowedOrigins.join(', '));
 
 // ✅ 헬스체크
 app.get('/api/ping', (req, res) => {
@@ -63,6 +80,10 @@ mongoose.connect(mongoUrl)
   .then(() => console.log('✅ MongoDB 연결 성공'))
   .catch(err => console.error('❌ MongoDB 연결 실패:', err));
 
+// ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 secure 쿠키 인식)
+// ★ 중요: 이 설정이 있어야 sameSite:'none', secure:true 쿠키가 정상 동작
+app.set('trust proxy', 1);
+
 // ✅ 세션 설정 (connect-mongo)
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
@@ -72,22 +93,32 @@ const sessionStore = MongoStore.create({
   ttl: 60 * 60 * 24 // 1일
 });
 
+// ★ 운영/개발 분기된 쿠키 설정
+const cookieConfig = isProd
+  ? {
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24, // 1일
+      sameSite: 'none', // ★ 크로스사이트(HTTPS) 허용 (프런트/백이 동일 도메인이어도 안전)
+      secure: true      // ★ HTTPS에서만
+    }
+  : {
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24, // 1일
+      sameSite: 'lax',
+      secure: false
+    };
+
 const sessionMiddleware = session({
   secret: 'tzchatsecret', // ⚠️ 운영 시 환경변수로 분리 권장
   resave: false,
   saveUninitialized: false,
   store: sessionStore,
-  cookie: {
-    httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24, // 1일
-    sameSite: 'lax',
-    secure: false
-  }
+  cookie: cookieConfig
 });
 
 app.use(sessionMiddleware);
 app.set('sessionStore', sessionStore);
-console.log('🔐 세션 설정 완료');
+console.log('🔐 세션 설정 완료:', cookieConfig);
 
 // =======================================
 // 2) 라우터 등록
@@ -116,7 +147,6 @@ const emergencyRouter = require('./routes/emergencyRouter');
 app.use('/api', emergencyRouter);
 console.log('📡 /api → emergencyRouter 등록 완료');
 
-
 const pushRouter = require('./routes/pushRouter');
 app.use('/api/push', pushRouter);
 console.log('📡 /api/push → pushRouter 등록 완료');
@@ -128,11 +158,14 @@ let adminRouter; // 아래서 등록
 // =======================================
 const { Server } = require('socket.io');
 const io = new Server(server, {
+  // ★ 프론트와 경로 통일 (connectSocket()에서 path:'/socket.io')
+  path: '/socket.io',
   cors: {
-    origin: ['http://localhost:8081', 'http://192.168.0.7:8081'], // Socket.IO CORS
+    origin: allowedOrigins, // ★ CORS 오리진 동일 적용
     credentials: true
   }
 });
+console.log('🔌 Socket.IO 경로(/socket.io) 및 CORS 적용');
 
 // ✅ 세션 공유 (Socket.IO → req.session 사용 가능)
 io.use((socket, next) => {
@@ -221,7 +254,7 @@ app.set('emit', {
     if (blockerId) io.to(userRoom(blockerId)).emit('block:created', blockObj);
     if (blockedId) io.to(userRoom(blockedId)).emit('block:created', blockObj);
   },
-  // 🆕 채팅 관련 헬퍼 (원하시면 chatRouter에서 직접 호출 가능)
+  // 🆕 채팅 관련 헬퍼
   async chatMessageNew(roomId, message) {
     try {
       io.to(roomId).emit('chatMessage', message);
@@ -253,7 +286,7 @@ io.on('connection', (socket) => {
     const session = socket.request.session;
     const userId = session?.user?._id ? String(session.user._id) : null;
 
-    console.log(`📡 소켓 연결됨: ${socket.id} | 유저: ${userId || '(anon)'}`);
+    console.log(`📡 소켓 연결됨: ${socket.id} | 유저: ${userId || '(anon)'} | path=/socket.io`);
 
     if (userId) {
       onlineUsers.add(userId);
@@ -286,7 +319,6 @@ io.on('connection', (socket) => {
       }
     });
 
-    // (선택) 방 나가기 이벤트가 필요한 경우
     socket.on('leaveRoom', (roomId) => {
       try {
         socket.leave(roomId);
@@ -306,8 +338,6 @@ io.on('connection', (socket) => {
       try {
         console.log(`📨 소켓 메시지: ${message?.content ? message.content : '[이미지]'} → ${roomId}`);
         io.to(roomId).emit('chatMessage', message); // 방 내 전파
-
-        // ✅ 리스트/TopMenu 갱신 신호(개인룸으로)
         await notifyRoomParticipantsForList(roomId, {
           _id: message?._id,
           content: message?.content || '',
@@ -321,24 +351,17 @@ io.on('connection', (socket) => {
     });
 
     // ✅ (신규) 읽음 처리 브로드캐스트
-    // - 클라이언트가 읽음 처리 API 호출(서버 DB 업데이트) 후, 이 이벤트를 emit
-    // - payload: { roomId, readerId, messageIds }
     socket.on('messagesRead', async (payload = {}) => {
       try {
         const { roomId, readerId, messageIds } = payload;
         console.log(`👀 messagesRead 브로드캐스트: room=${roomId} reader=${readerId} count=${messageIds?.length || 0}`);
-
-        // 같은 방의 "다른" 소켓들에게만 전파(읽음 뷰 반영)
         socket.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
-
-        // ✅ TopMenu/리스트 배지 갱신 신호(개인룸)
         await notifyRoomParticipantsBadgeOnly(roomId);
       } catch (err) {
         console.error('❌ messagesRead 처리 오류:', err);
       }
     });
 
-    // 연결 종료
     socket.on('disconnect', () => {
       try {
         console.log(`❌ 소켓 연결 종료: ${socket.id}`);
@@ -369,4 +392,9 @@ server.listen(PORT, '0.0.0.0', () => { // ★ 모든 인터페이스에서 수�
   const addr = server.address();
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
   console.log(`🔭 휴대폰 테스트: http://192.168.0.7:${PORT}`);
+  if (isProd) {
+    console.log('🔒 PROD 모드: sameSite=None, secure=true 쿠키 / proxy 신뢰 / wss 프록시 조건 충족 필요');
+  } else {
+    console.log('🧪 DEV 모드: sameSite=lax, secure=false 쿠키 / 로컬 개발 오리진 허용');
+  }
 });

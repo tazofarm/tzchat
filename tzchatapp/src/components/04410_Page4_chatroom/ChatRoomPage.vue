@@ -100,7 +100,12 @@ import { ref, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
 import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/axiosInstance'
-import { io } from 'socket.io-client'
+
+// ❌ (삭제) 개별 컴포넌트에서 직접 io 생성 → 혼성콘텐츠/중복연결 원인
+// import { io } from 'socket.io-client'
+
+// ✅ (추가) 공용 소켓 모듈 사용: 현재 오리진 기반 연결 유지
+import { connectSocket, getSocket } from '@/lib/socket' // ★ 변경
 
 // emoji-picker-element는 main.ts에서 전역 import 권장
 // import 'emoji-picker-element'
@@ -110,15 +115,10 @@ const router = useRouter()
 
 const roomId = String(route.params.id || '')
 
-// ✅ Socket.IO: Mixed Content 방지 (동일 오리진 + 경로 지정)
-//    - 배포(Nginx): /socket.io 프록시가 존재해야 함
-//    - 개발(Vite): vite.config.js에 '/socket.io' ws 프록시를 2000으로 설정
-const socket = io('/', {
-  path: '/socket.io',
-  transports: ['websocket', 'polling'],
-  withCredentials: true
-})
-console.log('[ChatRoom] socket connect init, roomId:', roomId)
+// ✅ 공용 소켓 인스턴스: 페이지 라이프사이클 동안 참조만
+let socket = null // ★ 변경: 전역 disconnect() 지양(앱 전체 1회 연결 유지)
+
+console.log('[ChatRoom] socket module ready, roomId:', roomId)
 
 const myId = ref('')
 const partnerId = ref('')
@@ -137,8 +137,6 @@ const openImage = (url) => {
 }
 
 // ✅ 이미지 URL 보정: http 접두 제거 → 동일 오리진(https)로 강제
-// - 업로드 응답이 '/uploads/xxx.jpg' 형태라면 그대로 사용
-// - 절대 http(s)면 그대로, 상대/루트 경로면 현재 오리진을 붙임
 const getImageUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
@@ -187,7 +185,8 @@ const sendMessage = async () => {
     console.log('[ChatRoom] sendMessage:', content)
     const res = await axios.post(`/api/chatrooms/${roomId}/message`, { content, type: 'text' })
     newMessage.value = ''
-    socket.emit('chatMessage', { roomId, message: res.data })
+    // ✅ 공용 소켓 통해 브로드캐스트
+    getSocket()?.emit('chatMessage', { roomId, message: res.data })
     console.log('[ChatRoom] emit chatMessage:', { roomId, id: res.data?._id })
   } catch (err) {
     console.error('❌ 텍스트 메시지 전송 실패:', err)
@@ -213,7 +212,7 @@ const uploadImage = async (e) => {
       content: imageUrl, type: 'image'
     }, { withCredentials: true })
 
-    socket.emit('chatMessage', { roomId, message: messageRes.data })
+    getSocket()?.emit('chatMessage', { roomId, message: messageRes.data })
     console.log('[ChatRoom] emit chatMessage(image):', { roomId, id: messageRes.data?._id })
   } catch (err) {
     console.error('❌ 이미지 업로드 실패:', err)
@@ -290,7 +289,7 @@ const markAsReadNow = async () => {
       }
     }
     // 소켓 브로드캐스트
-    socket.emit('messagesRead', { roomId, readerId: myId.value, messageIds: updatedIds })
+    getSocket()?.emit('messagesRead', { roomId, readerId: myId.value, messageIds: updatedIds })
   } catch (err) {
     console.error('❌ markAsReadNow error:', err)
   }
@@ -299,6 +298,9 @@ const markAsReadNow = async () => {
 /* ───────── 라이프사이클 ───────── */
 onMounted(async () => {
   console.log('[ChatRoom] onMounted, roomId:', roomId)
+
+  // ✅ 공용 소켓 연결 확보
+  socket = connectSocket() // ★ 변경: 현재 오리진(HTTPS) 기반으로 1회 연결
 
   // 연결 상태 로그 (추적 강화)
   socket.on('connect', () => {
@@ -366,11 +368,15 @@ watch(messages, () => {
 
 onBeforeUnmount(() => {
   try {
-    socket.emit('leaveRoom', roomId)
-    socket.off('chatMessage')
-    socket.off('messagesRead')
-    socket.disconnect()
-    console.log('[ChatRoom] onBeforeUnmount: leave/disconnect done')
+    // ✅ 방만 떠난다(소켓 연결 유지 → 다른 페이지에서도 재사용)
+    getSocket()?.emit('leaveRoom', roomId)
+    getSocket()?.off('chatMessage')
+    getSocket()?.off('messagesRead')
+
+    // ❌ 공용 연결 강제 종료는 지양 (페이지 전환시 재연결 지연/오류 방지)
+    // getSocket()?.disconnect()
+
+    console.log('[ChatRoom] onBeforeUnmount: leaveRoom/off done')
   } catch (e) {
     console.warn('[ChatRoom] onBeforeUnmount error:', e)
   }
@@ -462,10 +468,10 @@ const goToPartnerProfile = () => {
 
 /* ── 말풍선 (밝은 바탕 + 검정 텍스트 / 크기 컴팩트) ─────────── */
 .bubble{
-  max-width:min(72%,560px);           /* ⬅️ 더 넓지 않게 고정 */
-  padding:6px 10px;                   /* 컴팩트 */
+  max-width:min(72%,560px);
+  padding:6px 10px;
   border-radius:var(--radius);
-  background-color:#fff;              /* 안전 기본값 */
+  background-color:#fff;
   color:var(--color-text);
   word-break:break-word; white-space:pre-wrap;
   font-size:var(--fz-base); line-height:1.4;
@@ -476,7 +482,7 @@ const goToPartnerProfile = () => {
 
 /* 이미지 메시지 — ⬇️ 작게 고정 */
 .chat-image{
-  max-width:150px; max-height:150px;  /* ⬅️ 작게 */
+  max-width:150px; max-height:150px;
   border-radius:10px; cursor:pointer; display:block;
   box-shadow:0 1px 0 rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06);
 }
@@ -504,27 +510,17 @@ const goToPartnerProfile = () => {
 
 /* ▶ 아이콘 전용 작은 버튼 (가로폭 축소) */
 .chat-input ion-button.icon-btn {
-  /* 좌우 패딩 줄이기 */
   --padding-start: 4px;
   --padding-end: 4px;
-
-  /* 버튼 자체 폭을 고정(원하는 값으로 조절 가능: 28~40px 권장) */
   width: 34px;
   min-width: 34px;
-
-  /* 폰트(이모지) 크기 살짝 축소 */
   font-size: 16px;
-
-  /* 테두리/배경은 기존 아웃라인 스타일 유지 */
   --border-color: var(--gold-500);
   --background: transparent;
   --background-hover: #1a1a1a;
-
-  /* 높이는 기존 규칙에 맞춰 자동, 필요시 아래 주석 해제 */
-  /* min-height: 26px; */
 }
 
-/* 아이콘 중앙 정렬 보정 (플랫폼별 간헐적 좌우 치우침 방지) */
+/* 아이콘 중앙 정렬 보정 */
 .chat-input ion-button.icon-btn ::slotted(*) {
   margin: 0 auto;
 }

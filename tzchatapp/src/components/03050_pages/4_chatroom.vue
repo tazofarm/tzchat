@@ -55,7 +55,7 @@ import {
   IonIcon,
 } from '@ionic/vue'
 import { useRouter } from 'vue-router'
-import { io } from 'socket.io-client'
+// import { io } from 'socket.io-client' // ❌ (삭제) 절대 URL 연결은 혼성콘텐츠 원인
 
 // ✅ Ionicons
 import { chatbubbleEllipsesOutline } from 'ionicons/icons'
@@ -65,7 +65,8 @@ const router = useRouter()
 
 const myId = ref('')
 const chatRooms = ref([])
-let socket = null
+// let socket = null // ⬇️ ★ 변경: socket.js 공용 모듈 사용
+import { connectSocket, getSocket } from '@/lib/socket' // ★ 추가: 프론트 전용 소켓 모듈
 
 // -------------------------------------------
 // 유틸: 응답 정규화 + 정렬
@@ -127,10 +128,14 @@ const loadChatRooms = async () => {
 // 소켓 초기화
 // -------------------------------------------
 const initSocket = () => {
-  const host = window.location.hostname || 'localhost'
-  const url = `http://${host}:2000`
-  socket = io(url, { withCredentials: true })
-  console.log('🔌 Socket.IO 연결 시도...', url)
+  // const host = window.location.hostname || 'localhost'
+  // const url = `http://${host}:2000`
+  // socket = io(url, { withCredentials: true }) // ❌ (삭제) 절대 URL + http → 혼성콘텐츠 차단
+  // console.log('🔌 Socket.IO 연결 시도...', url)
+
+  // ✅ ★ 변경: 현재 오리진(HTTPS) 상대 연결 + 공용 모듈 사용
+  const socket = connectSocket() // 내부: io("/", { path: "/socket.io", transports:["websocket"], withCredentials:true })
+  console.log('🔌 [Socket] connectSocket 호출 완료 (origin-relative)')
 
   socket.on('connect', () => {
     console.log('🔌 Socket.IO 연결됨:', socket.id)
@@ -203,9 +208,20 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  // ✅ 공용 모듈에서 소켓을 가져와 안전하게 정리
+  const socket = getSocket()
   if (socket) {
-    socket.disconnect()
-    console.log('🔌 Socket.IO 연결 해제')
+    try {
+      // 리스너 정리(선택): 주요 이벤트 해제
+      socket.off('chatrooms:badge')
+      socket.off('chatrooms:updated')
+      socket.off('chatMessage')
+      // 연결 종료
+      socket.disconnect()
+      console.log('🔌 Socket.IO 연결 해제')
+    } catch (e) {
+      console.warn('⚠️ 소켓 해제 중 오류:', e)
+    }
   }
 })
 </script>

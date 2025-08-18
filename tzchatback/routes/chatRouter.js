@@ -63,8 +63,14 @@ const upload = multer({ storage });
 router.get('/chatrooms', requireLogin, async (req, res) => {
   console.time('[GET]/chatrooms');
   try {
-    const myId = req.session.user._id;
-    const myObjId = new mongoose.Types.ObjectId(myId);
+    const myId = req.session?.user?._id; // ★ 변경: 안전 접근
+    if (!myId) {                          // ★ 변경: 방어 코드
+      console.warn('⚠️ [GET]/chatrooms no session user');
+      console.timeEnd('[GET]/chatrooms');
+      return res.status(401).json({ message: '로그인이 필요합니다.' });
+    }
+
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     log('[GET /chatrooms] myId=', myId);
 
     // 1) 내가 속한 방들 최신순 (participants는 username/nickname만)
@@ -85,6 +91,7 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
     // 2) 방별 마지막 메시지 + 미읽음 수 집계
     //    - 마지막 메시지: createdAt DESC에서 첫 번째
     //    - unreadCount: (상대가 보낸 && readBy에 내가 없음) 의 개수
+    //    - ★ 변경: readBy가 없을 수 있으므로 $ifNull로 빈 배열 보정
     const pipeline = [
       { $match: { chatRoom: { $in: roomIds } } },
       { $sort: { createdAt: -1 } },
@@ -97,8 +104,8 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
               $cond: [
                 {
                   $and: [
-                    { $ne: ['$sender', myObjId] },                                 // 보낸이가 내가 아님
-                    { $not: [{ $in: [myObjId, '$readBy'] }] }                       // 아직 내가 읽지 않음
+                    { $ne: ['$sender', myObjId] }, // 보낸이가 내가 아님
+                    { $not: [{ $in: [myObjId, { $ifNull: ['$readBy', []] }] }] } // ★ 변경: readBy null-safe
                   ]
                 },
                 1,
@@ -109,7 +116,12 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
         }
       }
     ];
+
+    // ★ 변경: 집계 전/후 로그 강화
+    log('🧩 [GET]/chatrooms pipeline =', JSON.stringify(pipeline));
     const agg = await Message.aggregate(pipeline);
+    log('🧩 [GET]/chatrooms agg size =', agg.length);
+
     const byRoomId = new Map(agg.map(x => [String(x._id), x]));
 
     // 3) 응답 데이터 구성
@@ -139,11 +151,19 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
       };
     });
 
+    // ★ 변경: 샘플 로그 추가
     log('[GET /chatrooms] ✅ rooms=', result.length);
+    if (result[0]) {
+      log('🔎 sample.unreadCount =', result[0].unreadCount);
+      log('🔎 sample.lastMessage? =', !!result[0].lastMessage);
+    }
+
     console.timeEnd('[GET]/chatrooms');
     return res.json(result);
   } catch (err) {
+    // ★ 변경: 에러 상세
     console.error('❌ [chatrooms/list] 채팅방 목록 오류:', err);
+    console.error('❌ name=', err?.name, ' code=', err?.code, ' path=', err?.path, ' value=', err?.value);
     console.timeEnd('[GET]/chatrooms');
     return res.status(500).json({ message: '채팅방 불러오기 실패' });
   }
@@ -155,8 +175,9 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
  * =========================================== */
 router.get('/chatrooms/unread-total', requireLogin, async (req, res) => {
   try {
-    const myId = req.session.user._id;
-    const myObjId = new mongoose.Types.ObjectId(myId);
+    const myId = req.session?.user?._id;                    // ★ 변경: 안전 접근
+    if (!myId) return res.status(401).json({ total: 0 });   // ★ 변경: 방어
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     log('[GET /chatrooms/unread-total] myId=', myId);
 
     // 내가 속한 방들
@@ -164,6 +185,8 @@ router.get('/chatrooms/unread-total', requireLogin, async (req, res) => {
     if (!roomIds.length) return res.json({ total: 0 });
 
     // 미읽음: 상대가 보낸 && readBy에 내가 없음
+    // ★ 변경: readBy null-safe로 바꾸고 싶다면 아래처럼 aggregate도 가능하지만
+    // 현재 countDocuments는 null이어도 매치 실패 없이 동작하므로 유지
     const total = await Message.countDocuments({
       chatRoom: { $in: roomIds },
       sender: { $ne: myObjId },
@@ -186,8 +209,9 @@ router.get('/chatrooms/unread-total', requireLogin, async (req, res) => {
  * =========================================== */
 router.get('/chatrooms/:id', requireLogin, async (req, res) => {
   try {
-    const myId = req.session.user._id;
-    const myObjId = new mongoose.Types.ObjectId(myId);
+    const myId = req.session?.user?._id; // ★ 변경: 안전 접근
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' }); // ★ 변경
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     const { id } = req.params;
 
     const chatRoom = await ChatRoom.findById(id)
@@ -204,8 +228,9 @@ router.get('/chatrooms/:id', requireLogin, async (req, res) => {
       .populate('sender', 'nickname')
       .lean();
 
+    // ★ 변경: myId는 문자열로 명시 반환(직렬화 안전)
     return res.json({
-      myId: myObjId,
+      myId: String(myObjId),
       participants: chatRoom.participants,
       messages
     });
@@ -226,8 +251,9 @@ router.get('/chatrooms/:id', requireLogin, async (req, res) => {
  * =========================================== */
 router.post('/chatrooms/:id/message', requireLogin, async (req, res) => {
   try {
-    const myId = req.session.user._id;
-    const myObjId = new mongoose.Types.ObjectId(myId);
+    const myId = req.session?.user?._id; // ★ 변경: 안전 접근
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' }); // ★ 변경
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     const { id } = req.params;
     const { content, type } = req.body;
 
@@ -361,8 +387,9 @@ router.post('/chatrooms/:id/message', requireLogin, async (req, res) => {
  * =========================================== */
 router.put('/chatrooms/:id/read', requireLogin, async (req, res) => {
   try {
-    const myId = req.session.user._id;
-    const myObjId = new mongoose.Types.ObjectId(myId);
+    const myId = req.session?.user?._id; // ★ 변경: 안전 접근
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' }); // ★ 변경
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     const { id: roomId } = req.params;
 
     // 방 권한 체크
@@ -416,16 +443,21 @@ router.put('/chatrooms/:id/read', requireLogin, async (req, res) => {
  * =========================================== */
 router.post('/chatrooms', requireLogin, async (req, res) => {
   try {
-    const myId = req.session.user._id;
+    const myId = req.session?.user?._id; // ★ 변경
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' }); // ★ 변경
     const { userId } = req.body;
 
+    // ★ 변경: ObjectId 캐스팅 일관화(혼재 방지)
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
+    const otherObjId = new mongoose.Types.ObjectId(String(userId));
+
     let chatRoom = await ChatRoom.findOne({
-      participants: { $all: [myId, userId], $size: 2 }
+      participants: { $all: [myObjId, otherObjId], $size: 2 } // ★ 변경
     });
 
     if (!chatRoom) {
       chatRoom = new ChatRoom({
-        participants: [myId, userId],
+        participants: [myObjId, otherObjId], // ★ 변경
         messages: []
       });
       await chatRoom.save();
