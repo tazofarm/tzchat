@@ -110,8 +110,14 @@ const router = useRouter()
 
 const roomId = String(route.params.id || '')
 
-// ✅ Socket.IO (withCredentials)
-const socket = io('http://localhost:2000', { withCredentials: true })
+// ✅ Socket.IO: Mixed Content 방지 (동일 오리진 + 경로 지정)
+//    - 배포(Nginx): /socket.io 프록시가 존재해야 함
+//    - 개발(Vite): vite.config.js에 '/socket.io' ws 프록시를 2000으로 설정
+const socket = io('/', {
+  path: '/socket.io',
+  transports: ['websocket', 'polling'],
+  withCredentials: true
+})
 console.log('[ChatRoom] socket connect init, roomId:', roomId)
 
 const myId = ref('')
@@ -130,8 +136,16 @@ const openImage = (url) => {
   console.log('[ChatRoom] openImage:', url)
 }
 
-// 서버 상대경로를 절대경로로 보정
-const getImageUrl = (path) => (path?.startsWith('http') ? path : `http://localhost:2000${path}`)
+// ✅ 이미지 URL 보정: http 접두 제거 → 동일 오리진(https)로 강제
+// - 업로드 응답이 '/uploads/xxx.jpg' 형태라면 그대로 사용
+// - 절대 http(s)면 그대로, 상대/루트 경로면 현재 오리진을 붙임
+const getImageUrl = (path) => {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const base = window.location.origin.replace(/\/+$/, '')         // https://tzchat.duckdns.org
+  const p = String(path).startsWith('/') ? path : `/${path}`
+  return `${base}${p}`
+}
 
 // 내가 보낸 메시지 여부
 const isMine = (msg) => !!(msg?.sender && (msg.sender._id === myId.value || msg.sender === myId.value))
@@ -285,6 +299,18 @@ const markAsReadNow = async () => {
 /* ───────── 라이프사이클 ───────── */
 onMounted(async () => {
   console.log('[ChatRoom] onMounted, roomId:', roomId)
+
+  // 연결 상태 로그 (추적 강화)
+  socket.on('connect', () => {
+    console.log('[ChatRoom] socket connected:', socket.id)
+  })
+  socket.on('connect_error', (err) => {
+    console.error('[ChatRoom] socket connect_error:', err?.message || err)
+  })
+  socket.on('disconnect', (reason) => {
+    console.warn('[ChatRoom] socket disconnected:', reason)
+  })
+
   await loadMessages()
 
   socket.emit('joinRoom', roomId)
