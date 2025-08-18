@@ -1,4 +1,4 @@
-// models/friendRequest.js
+// models/FriendRequest.js
 
 const mongoose = require('mongoose')
 
