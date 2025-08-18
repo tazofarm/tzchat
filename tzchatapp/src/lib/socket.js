@@ -19,10 +19,13 @@ export function connectSocket() {
 
   socket = io("/", {
     path: "/socket.io",
-    transports: ["websocket"],
+    transports: ["websocket"],     // ✅ 폴링 금지 → xhr poll error 자체 차단
     withCredentials: true,
     reconnection: true,
     reconnectionAttempts: 10,
+      // (선택) 성능/연결 안정성
+    rememberUpgrade: true,
+    timeout: 20000,
   });
 
   // ─ 로그 최대화

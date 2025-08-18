@@ -19,7 +19,7 @@ export default defineConfig(({ command, mode }) => {
   console.log('API in dev -> proxy to http://localhost:2000 via /api')
   console.log('✅ Vue template will treat <emoji-picker> as custom element (build-time)')
   console.log('================================================')
-
+ 
   return {
     // 🔒 dev/build 동일 경로 기준
     base: '/',
