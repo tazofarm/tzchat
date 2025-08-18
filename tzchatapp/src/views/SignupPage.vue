@@ -291,7 +291,7 @@ ion-toolbar {
 ion-title {
   font-size: 16px;      /* 기본 약 20px → 줄임 */
   font-weight: 600;     /* 가독성 유지 */
-  color: #111;          /* 검정 글씨 */
+  color: #fcfafa;          /* 검정 글씨 */
 }
 
 
@@ -336,6 +336,7 @@ ion-title {
 .form-row {            /* [MODIFIED] */
   display: grid;
   row-gap: 4px;        /* (8→6) */
+  
 }
 
 /* 라벨/인라인 라벨 */
@@ -344,7 +345,7 @@ ion-title {
   font-weight: 600;
   font-size: 14px;     /* [MODIFIED] 16~17 → 15 (줌 방지 한계선 유지) */
   letter-spacing: 0.1px;
-  color: #111;
+  color: #fcfafa; 
 }
 
 /* [MODIFIED] 입력류 높이 축소 + 패딩 조정 */
@@ -398,7 +399,7 @@ ion-title {
 .radio span {
   font-size: 14px;             /* [MODIFIED] 16 → 15 */
   line-height: 1.25;
-  color: #111;
+  color: #fcfafa; 
 }
 
 /* [MODIFIED] 지역 인라인 레이아웃: 간격/최소폭 축소 */

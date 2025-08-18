@@ -93,7 +93,7 @@ const login = async () => {
     console.log('👤 로그인한 사용자 정보:', userRes.data.user)
 
     // ✅ 홈으로 이동
-    router.push('/home/2page')
+    router.push('/home/6page')
   } catch (err) {
     console.error('❌ 로그인 오류 발생:', err)
     message.value = err.response?.data?.message || '로그인 실패'
