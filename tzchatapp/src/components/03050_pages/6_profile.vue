@@ -5,7 +5,7 @@
       <!-- ★ 변경지점: 공통코드 충돌을 막기 위한 스코프 클래스 pf-scope 추가 -->
       <div v-if="user" class="card pf-scope">
         <h3 class="card-title">
-          <ion-icon :icon="icons.personCircleOutline" class="title-icon" />
+          <IonIcon :icon="icons.personCircleOutline" class="title-icon" />
           {{ user.nickname }} 님의 프로필
         </h3>
 
@@ -16,19 +16,47 @@
             <col class="pf-col-td" />
           </colgroup>
           <tbody>
-            <tr>
-              <!-- ★ 변경지점: th → pf-th -->
+            <!-- 닉네임 -->
+            <tr
+              @click="openPopup(4, user.nickname)"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(4, user.nickname)"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.calendarOutline" class="row-icon" />
+                <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
+                <strong class="label">닉네임</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.nickname }}</td>
+            </tr>
+
+            <!-- 비밀번호 변경 -->
+            <tr
+              class="editable-row"
+              @click="openPasswordModal"
+              tabindex="0"
+              @keydown.enter="openPasswordModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.lockClosedOutline" class="row-icon" />
+                <strong class="label">비밀번호변경</strong>
+              </td>
+              <td class="pf-td editable-text">변경하기</td>
+            </tr>
+
+            <!-- 출생년도 -->
+            <tr>
+              <td class="pf-th">
+                <IonIcon :icon="icons.calendarOutline" class="row-icon" />
                 <strong class="label">출생년도</strong>
               </td>
-              <!-- ★ 변경지점: td → pf-td -->
               <td class="pf-td readonly">{{ user.birthyear || '미입력' }}</td>
             </tr>
 
+            <!-- 성별 -->
             <tr>
               <td class="pf-th">
-                <ion-icon :icon="icons.maleFemaleOutline" class="row-icon" />
+                <IonIcon :icon="icons.maleFemaleOutline" class="row-icon" />
                 <strong class="label">성별</strong>
               </td>
               <td class="pf-td readonly">
@@ -36,41 +64,53 @@
               </td>
             </tr>
 
-            <tr @click="openPopup(4, user.nickname)" class="editable-row" tabindex="0" @keydown.enter="openPopup(4, user.nickname)">
+            <!-- 지역 -->
+            <tr
+              @click="openPopup(1, user.region1 + ' ' + user.region2)"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(1, user.region1 + ' ' + user.region2)"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.personCircleOutline" class="row-icon" />
-                <strong class="label">닉네임</strong>
-              </td>
-              <td class="pf-td editable-text">{{ user.nickname }}</td>
-            </tr>
-
-            <tr @click="openPopup(1, user.region1 + ' ' + user.region2)" class="editable-row" tabindex="0" @keydown.enter="openPopup(1, user.region1 + ' ' + user.region2)">
-              <td class="pf-th">
-                <ion-icon :icon="icons.locationOutline" class="row-icon" />
+                <IonIcon :icon="icons.locationOutline" class="row-icon" />
                 <strong class="label">지역</strong>
               </td>
               <td class="pf-td editable-text">{{ user.region1 }} {{ user.region2 }}</td>
             </tr>
 
-            <tr @click="openPopup(2, user.preference)" class="editable-row" tabindex="0" @keydown.enter="openPopup(2, user.preference)">
+            <!-- 성향 -->
+            <tr
+              @click="openPopup(2, user.preference)"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(2, user.preference)"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.sparklesOutline" class="row-icon" />
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
                 <strong class="label">성향</strong>
               </td>
               <td class="pf-td editable-text">{{ user.preference }}</td>
             </tr>
 
-            <tr @click="openPopup(3, user.selfintro || '소개 없음')" class="editable-row" tabindex="0" @keydown.enter="openPopup(3, user.selfintro || '소개 없음')">
+            <!-- 소개 -->
+            <tr
+              @click="openPopup(3, user.selfintro || '소개 없음')"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(3, user.selfintro || '소개 없음')"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" />
+                <IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" />
                 <strong class="label">소개</strong>
               </td>
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
 
+            <!-- 가입/마지막 접속 (주석 유지) -->
+            <!--
             <tr>
               <td class="pf-th">
-                <ion-icon :icon="icons.logInOutline" class="row-icon" />
+                <IonIcon :icon="icons.logInOutline" class="row-icon" />
                 <strong class="label">가입일</strong>
               </td>
               <td class="pf-td readonly">{{ formatDate(user.createdAt) }}</td>
@@ -78,11 +118,12 @@
 
             <tr>
               <td class="pf-th">
-                <ion-icon :icon="icons.timeOutline" class="row-icon" />
+                <IonIcon :icon="icons.timeOutline" class="row-icon" />
                 <strong class="label">마지막 접속</strong>
               </td>
               <td class="pf-td readonly">{{ formatDate(user.last_login) }}</td>
             </tr>
+            -->
           </tbody>
         </table>
       </div>
@@ -90,23 +131,27 @@
       <br />
 
       <!-- ✅ 친구 찾기 설정 카드 -->
-      <!-- ★ 변경지점: pf-scope 추가 -->
       <div v-if="user" class="card pf-scope">
         <h3 class="card-title">
-          <ion-icon :icon="icons.optionsOutline" class="title-icon" />
+          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
           친구 찾기 설정
         </h3>
 
         <table class="info-table">
-          <!-- ★ colgroup 네임스페이스 동일 적용 -->
           <colgroup>
             <col class="pf-col-th" />
             <col class="pf-col-td" />
           </colgroup>
           <tbody>
-            <tr class="editable-row" @click="openSearchYearModal" tabindex="0" @keydown.enter="openSearchYearModal">
+            <!-- 검색나이 -->
+            <tr
+              class="editable-row"
+              @click="openSearchYearModal"
+              tabindex="0"
+              @keydown.enter="openSearchYearModal"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.calendarNumberOutline" class="row-icon" />
+                <IonIcon :icon="icons.calendarNumberOutline" class="row-icon" />
                 <strong class="label">검색나이</strong>
               </td>
               <td class="pf-td editable-text">
@@ -114,17 +159,29 @@
               </td>
             </tr>
 
-            <tr class="editable-row" @click="openSearchPreferenceModal" tabindex="0" @keydown.enter="openSearchPreferenceModal">
+            <!-- 검색특징 -->
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.sparklesOutline" class="row-icon" />
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
                 <strong class="label">검색특징</strong>
               </td>
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
 
-            <tr class="editable-row" @click="openSearchRegionModal" tabindex="0" @keydown.enter="openSearchRegionModal">
+            <!-- 검색지역 -->
+            <tr
+              class="editable-row"
+              @click="openSearchRegionModal"
+              tabindex="0"
+              @keydown.enter="openSearchRegionModal"
+            >
               <td class="pf-th">
-                <ion-icon :icon="icons.locationOutline" class="row-icon" />
+                <IonIcon :icon="icons.locationOutline" class="row-icon" />
                 <strong class="label">검색지역</strong>
               </td>
               <td class="pf-td editable-text">
@@ -138,15 +195,59 @@
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
 
-    <!-- 모달들은 그대로 -->
-    <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" @updated="handleRegionUpdate" />
-    <PopupModal_2 v-if="showModal2" :message="popupMessage" @close="showModal2 = false" @updated="handlePreferenceUpdate" />
-    <PopupModal_3 v-if="showModal3" :message="popupMessage" @close="showModal3 = false" @updated="handleIntroUpdate" />
-    <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" @updated="handleNicknameUpdate" />
+    <!-- ✅ 모달들 -->
+    <PopupModal_1
+      v-if="showModal1"
+      :message="popupMessage"
+      @close="showModal1 = false"
+      @updated="handleRegionUpdate"
+    />
+    <PopupModal_2
+      v-if="showModal2"
+      :message="popupMessage"
+      @close="showModal2 = false"
+      @updated="handlePreferenceUpdate"
+    />
+    <PopupModal_3
+      v-if="showModal3"
+      :message="popupMessage"
+      @close="showModal3 = false"
+      @updated="handleIntroUpdate"
+    />
+    <PopupModal_4
+      v-if="showModal4"
+      :message="popupMessage"
+      @close="showModal4 = false"
+      @updated="handleNicknameUpdate"
+    />
 
-    <Search_Year_Modal v-if="showSearchYear" :initial-from="user?.search_birthyear1 ?? ''" :initial-to="user?.search_birthyear2 ?? ''" :from="user?.search_birthyear1 ?? ''" :to="user?.search_birthyear2 ?? ''" @close="showSearchYear = false" @updated="onSearchYearUpdated" />
-    <Search_Region_Modal v-if="showSearchRegion" :regions="regionsForModal" @close="showSearchRegion = false" @updated="onSearchRegionUpdated" />
-    <Search_Preference_Modal v-if="showSearchPreference" :message="user?.search_preference ?? ''" @close="showSearchPreference = false" @updated="onSearchPreferenceUpdated" />
+    <Search_Year_Modal
+      v-if="showSearchYear"
+      :initial-from="user?.search_birthyear1 ?? ''"
+      :initial-to="user?.search_birthyear2 ?? ''"
+      :from="user?.search_birthyear1 ?? ''"
+      :to="user?.search_birthyear2 ?? ''"
+      @close="showSearchYear = false"
+      @updated="onSearchYearUpdated"
+    />
+    <Search_Region_Modal
+      v-if="showSearchRegion"
+      :regions="regionsForModal"
+      @close="showSearchRegion = false"
+      @updated="onSearchRegionUpdated"
+    />
+    <Search_Preference_Modal
+      v-if="showSearchPreference"
+      :message="user?.search_preference ?? ''"
+      @close="showSearchPreference = false"
+      @updated="onSearchPreferenceUpdated"
+    />
+
+    <PasswordChangeModal
+      :is-open="showPasswordModal"
+      @close="showPasswordModal = false"
+      @updated="onPasswordUpdated"
+    />
   </div>
 </template>
 
@@ -154,7 +255,8 @@
 /* ===========================================================
    6_profile.vue
    - UI만 정리, 로직/흐름 최대 유지
-   - 기본 글자색 검정, 주석/로그 강화
+   - 기본 글자색은 테마 토큰으로 제어(가독성)
+   - 주석/로그 강화 + 즉시 반영 핸들러 추가
    =========================================================== */
 import { ref, computed, onMounted } from 'vue'
 import { toastController, IonIcon } from '@ionic/vue'
@@ -172,9 +274,13 @@ import Search_Year_Modal from '@/components/04610_Page6_profile/Search_Year_Moda
 import Search_Region_Modal from '@/components/04610_Page6_profile/Search_Region_Modal.vue'
 import Search_Preference_Modal from '@/components/04610_Page6_profile/Search_Preference_Modal.vue'
 
-/* Ionicons */
+/* 비밀번호 변경 모달 */
+import PasswordChangeModal from '@/components/04610_Page6_profile/Modal_password_chagne.vue'
+
+/* Ionicons 아이콘들 */
 import {
   personCircleOutline,
+  lockClosedOutline,
   calendarOutline,
   calendarNumberOutline,
   maleFemaleOutline,
@@ -186,8 +292,10 @@ import {
   optionsOutline
 } from 'ionicons/icons'
 
+/* 템플릿에서 사용하기 쉽게 묶어서 노출 */
 const icons = {
   personCircleOutline,
+  lockClosedOutline,
   calendarOutline,
   calendarNumberOutline,
   maleFemaleOutline,
@@ -204,16 +312,32 @@ const nickname = ref('')
 const user = ref(null)
 
 /* (유지) 프로필 모달 on/off */
-const showModal1 = ref(false)
-const showModal2 = ref(false)
-const showModal3 = ref(false)
-const showModal4 = ref(false)
+const showModal1 = ref(false) // 지역
+const showModal2 = ref(false) // 성향
+const showModal3 = ref(false) // 소개
+const showModal4 = ref(false) // 닉네임
 const popupMessage = ref('')
 
 /* (유지) 검색 모달 on/off */
 const showSearchYear = ref(false)
 const showSearchRegion = ref(false)
 const showSearchPreference = ref(false)
+
+/* 비밀번호 변경 */
+const showPasswordModal = ref(false)
+function openPasswordModal() {
+  console.log('[profile] openPasswordModal')
+  showPasswordModal.value = true
+}
+async function onPasswordUpdated() {
+  console.log('[profile] password updated')
+  const t = await toastController.create({
+    message: '비밀번호가 변경되었습니다.',
+    duration: 1400,
+    color: 'success'
+  })
+  t.present()
+}
 
 /* null, '', undefined → '전체' */
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
@@ -229,20 +353,33 @@ const openPopup = (modalNum, value) => {
 }
 
 /* ----- 5_find 모달 오픈 ----- */
-const openSearchYearModal = () => { console.log('[profile] openSearchYearModal'); showSearchYear.value = true }
-const openSearchRegionModal = () => { console.log('[profile] openSearchRegionModal'); showSearchRegion.value = true }
-const openSearchPreferenceModal = () => { console.log('[profile] openSearchPreferenceModal'); showSearchPreference.value = true }
+const openSearchYearModal = () => {
+  console.log('[profile] openSearchYearModal')
+  showSearchYear.value = true
+}
+const openSearchRegionModal = () => {
+  console.log('[profile] openSearchRegionModal')
+  showSearchRegion.value = true
+}
+const openSearchPreferenceModal = () => {
+  console.log('[profile] openSearchPreferenceModal')
+  showSearchPreference.value = true
+}
 
 /* ===========================================================
-   ✅ 화면/모달 복원용 regions 계산
+   ✅ 화면/모달 복원용 regions 계산 (검색조건)
    =========================================================== */
 const regionsForModal = computed(() => {
   if (!user.value) return []
 
-  const fromSnake = Array.isArray(user.value.search_regions) ? user.value.search_regions : []
-  const fromCamel = Array.isArray(user.value.searchRegions) ? user.value.searchRegions : []
+  const fromSnake = Array.isArray(user.value.search_regions)
+    ? user.value.search_regions
+    : []
+  const fromCamel = Array.isArray(user.value.searchRegions)
+    ? user.value.searchRegions
+    : []
 
-  const list = (fromSnake.length ? fromSnake : fromCamel).map(r => ({
+  const list = (fromSnake.length ? fromSnake : fromCamel).map((r) => ({
     region1: r?.region1 || '',
     region2: r?.region2 || ''
   }))
@@ -257,23 +394,27 @@ const regionsForModal = computed(() => {
 })
 
 /* ===========================================================
-   ✅ “표시에 사용할” 지역 배열
+   ✅ “표시에 사용할” 지역 배열(검색조건)
    =========================================================== */
 const searchRegionsBuffer = ref([])
 
 const effectiveRegions = computed(() => {
   if (searchRegionsBuffer.value?.length) return searchRegionsBuffer.value
-  const snake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
-  const camel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
+  const snake = Array.isArray(user.value?.search_regions)
+    ? user.value.search_regions
+    : []
+  const camel = Array.isArray(user.value?.searchRegions)
+    ? user.value.searchRegions
+    : []
   if (snake.length) return snake
   if (camel.length) return camel
   const r1 = user.value?.search_region1 || ''
   const r2 = user.value?.search_region2 || ''
-  return (r1 || r2) ? [{ region1: r1, region2: r2 }] : []
+  return r1 || r2 ? [{ region1: r1, region2: r2 }] : []
 })
 
 /* ===========================================================
-   ✅ 카드 표시용 요약 문자열
+   ✅ 카드 표시용 요약 문자열(검색조건)
    =========================================================== */
 function labelOf(item) {
   const r1 = (item?.region1 || '').trim()
@@ -287,26 +428,28 @@ function labelOf(item) {
 const searchRegionDisplay = computed(() => {
   const list = effectiveRegions.value
   if (!list.length) return '전체'
-  if (list.length === 1 && list[0].region1 === '전체' && list[0].region2 === '전체') return '전체'
+  if (list.length === 1 && list[0].region1 === '전체' && list[0].region2 === '전체')
+    return '전체'
   const firstLabel = labelOf(list[0])
   return list.length === 1 ? firstLabel : `${firstLabel} 외 ${list.length - 1}`
 })
 
 /* ===========================================================
-   ✅ 검색나이 저장
+   ✅ 검색나이 저장 (기존 그대로)
    =========================================================== */
 async function onSearchYearUpdated(payload) {
   console.log('[profile] onSearchYearUpdated payload:', payload)
   let from = '', to = ''
   if (typeof payload === 'string') {
-    const [f = '', t = ''] = payload.split('~').map(s => s.trim())
-    from = f; to = t
+    const [f = '', t = ''] = payload.split('~').map((s) => s.trim())
+    from = f
+    to = t
   } else if (Array.isArray(payload)) {
     from = payload[0] ?? ''
-    to   = payload[1] ?? ''
+    to = payload[1] ?? ''
   } else if (payload && typeof payload === 'object') {
     from = payload.from ?? payload.year1 ?? ''
-    to   = payload.to   ?? payload.year2 ?? ''
+    to = payload.to ?? payload.year2 ?? ''
   }
 
   if (user.value) {
@@ -316,13 +459,25 @@ async function onSearchYearUpdated(payload) {
 
   try {
     console.log('▶ PATCH /api/search/year:', { year1: from, year2: to })
-    const { data } = await axios.patch('/api/search/year', { year1: from, year2: to }, { withCredentials: true })
+    const { data } = await axios.patch(
+      '/api/search/year',
+      { year1: from, year2: to },
+      { withCredentials: true }
+    )
     console.log('✅ saved /search/year:', data)
-    const t = await toastController.create({ message: '검색 나이가 적용되었습니다.', duration: 1500, color: 'success' })
+    const t = await toastController.create({
+      message: '검색 나이가 적용되었습니다.',
+      duration: 1500,
+      color: 'success'
+    })
     await t.present()
   } catch (err) {
     console.error('❌ /search/year failed:', err?.response?.data || err)
-    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    const t = await toastController.create({
+      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
+      duration: 2000,
+      color: 'danger'
+    })
     await t.present()
   } finally {
     showSearchYear.value = false
@@ -330,7 +485,7 @@ async function onSearchYearUpdated(payload) {
 }
 
 /* ===========================================================
-   ✅ 검색지역 저장
+   ✅ 검색지역 저장 (기존 그대로)
    =========================================================== */
 function normalizeRegionsPayload(payload) {
   let arr = []
@@ -342,20 +497,31 @@ function normalizeRegionsPayload(payload) {
       arr = [{ region1: r1, region2: r2 }]
     }
   } else if (payload && typeof payload === 'object') {
-    arr = [{ region1: payload.region1 ?? payload.r1 ?? '', region2: payload.region2 ?? payload.r2 ?? '' }]
+    arr = [
+      {
+        region1: payload.region1 ?? payload.r1 ?? '',
+        region2: payload.region2 ?? payload.r2 ?? ''
+      }
+    ]
   } else if (typeof payload === 'string') {
-    const parts = payload.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)
+    const parts = payload
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
     const [r1 = '', r2 = ''] = parts
     arr = [{ region1: r1, region2: r2 }]
   }
 
   // 빈값 제거
   arr = arr
-    .map(it => ({ region1: (it.region1 || '').trim(), region2: (it.region2 || '').trim() }))
-    .filter(it => it.region1 && it.region2)
+    .map((it) => ({
+      region1: (it.region1 || '').trim(),
+      region2: (it.region2 || '').trim()
+    }))
+    .filter((it) => it.region1 && it.region2)
 
   // 전국은 정확히 {전체,전체} 한 건만 유지
-  if (arr.some(it => it.region1 === '전체' && it.region2 === '전체')) {
+  if (arr.some((it) => it.region1 === '전체' && it.region2 === '전체')) {
     return [{ region1: '전체', region2: '전체' }]
   }
   return arr
@@ -377,13 +543,25 @@ async function onSearchRegionUpdated(payload) {
 
   try {
     console.log('▶ PATCH /api/search/regions:', { regions: normalized })
-    const { data } = await axios.patch('/api/search/regions', { regions: normalized }, { withCredentials: true })
+    const { data } = await axios.patch(
+      '/api/search/regions',
+      { regions: normalized },
+      { withCredentials: true }
+    )
     console.log('✅ saved /search/regions:', data)
-    const t = await toastController.create({ message: '검색 지역이 적용되었습니다.', duration: 1500, color: 'success' })
+    const t = await toastController.create({
+      message: '검색 지역이 적용되었습니다.',
+      duration: 1500,
+      color: 'success'
+    })
     await t.present()
   } catch (err) {
     console.error('❌ /search/regions failed:', err?.response?.data || err)
-    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    const t = await toastController.create({
+      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
+      duration: 2000,
+      color: 'danger'
+    })
     await t.present()
   } finally {
     showSearchRegion.value = false
@@ -391,11 +569,11 @@ async function onSearchRegionUpdated(payload) {
 }
 
 /* ===========================================================
-   ✅ 검색특징 저장
+   ✅ 검색특징 저장 (기존 그대로)
    =========================================================== */
 async function onSearchPreferenceUpdated(payload) {
   console.log('[profile] onSearchPreferenceUpdated payload:', payload)
-  const preference = (typeof payload === 'string') ? payload : (payload?.preference ?? '')
+  const preference = typeof payload === 'string' ? payload : payload?.preference ?? ''
 
   if (user.value) {
     user.value.search_preference = preference
@@ -403,20 +581,143 @@ async function onSearchPreferenceUpdated(payload) {
 
   try {
     console.log('▶ PATCH /api/search/preference:', { preference })
-    const { data } = await axios.patch('/api/search/preference', { preference }, { withCredentials: true })
+    const { data } = await axios.patch(
+      '/api/search/preference',
+      { preference },
+      { withCredentials: true }
+    )
     console.log('✅ saved /search/preference:', data)
-    const t = await toastController.create({ message: '검색 특징이 적용되었습니다.', duration: 1500, color: 'success' })
+    const t = await toastController.create({
+      message: '검색 특징이 적용되었습니다.',
+      duration: 1500,
+      color: 'success'
+    })
     await t.present()
   } catch (err) {
     console.error('❌ /search/preference failed:', err?.response?.data || err)
-    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
+    const t = await toastController.create({
+      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
+      duration: 2000,
+      color: 'danger'
+    })
     await t.present()
   } finally {
     showSearchPreference.value = false
   }
 }
 
-/* (유지) 초기 로딩 */
+/* ===========================================================
+   ⭐ 프로필 편집 반영용 핸들러 4종 (즉시 반영)
+   - 모달이 서버 저장을 마친 뒤 emit('updated', payload) 한다는 전제로
+     부모의 user 상태를 즉시 갱신합니다.
+   =========================================================== */
+async function handleNicknameUpdate(payload) {
+  const newNickname =
+    typeof payload === 'string' ? payload : payload?.nickname ?? ''
+  console.log('[profile] handleNicknameUpdate:', newNickname)
+
+  if (user.value && newNickname) {
+    user.value.nickname = newNickname
+  }
+
+  try {
+    const t = await toastController.create({
+      message: '닉네임이 변경되었습니다.',
+      duration: 1400,
+      color: 'success'
+    })
+    await t.present()
+  } catch (err) {
+    console.error('❌ nickname local-update notice:', err)
+  } finally {
+    showModal4.value = false
+  }
+}
+
+async function handleRegionUpdate(payload) {
+  console.log('[profile] handleRegionUpdate raw:', payload)
+
+  let r1 = ''
+  let r2 = ''
+  if (Array.isArray(payload)) {
+    ;[r1 = '', r2 = ''] = payload
+  } else if (payload && typeof payload === 'object') {
+    r1 = payload.region1 ?? payload.r1 ?? ''
+    r2 = payload.region2 ?? payload.r2 ?? ''
+  } else if (typeof payload === 'string') {
+    const parts = payload
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    ;[r1 = '', r2 = ''] = parts
+  }
+
+  if (user.value) {
+    user.value.region1 = r1
+    user.value.region2 = r2
+  }
+
+  try {
+    const t = await toastController.create({
+      message: '지역이 변경되었습니다.',
+      duration: 1400,
+      color: 'success'
+    })
+    await t.present()
+  } catch (err) {
+    console.error('❌ region local-update notice:', err)
+  } finally {
+    showModal1.value = false
+  }
+}
+
+async function handlePreferenceUpdate(payload) {
+  const pref = typeof payload === 'string' ? payload : payload?.preference ?? ''
+  console.log('[profile] handlePreferenceUpdate:', pref)
+
+  if (user.value) {
+    user.value.preference = pref
+  }
+
+  try {
+    const t = await toastController.create({
+      message: '성향이 변경되었습니다.',
+      duration: 1400,
+      color: 'success'
+    })
+    await t.present()
+  } catch (err) {
+    console.error('❌ preference local-update notice:', err)
+  } finally {
+    showModal2.value = false
+  }
+}
+
+async function handleIntroUpdate(payload) {
+  const intro = typeof payload === 'string' ? payload : payload?.selfintro ?? ''
+  console.log('[profile] handleIntroUpdate:', intro)
+
+  if (user.value) {
+    user.value.selfintro = intro
+  }
+
+  try {
+    const t = await toastController.create({
+      message: '소개가 변경되었습니다.',
+      duration: 1400,
+      color: 'success'
+    })
+    await t.present()
+  } catch (err) {
+    console.error('❌ selfintro local-update notice:', err)
+  } finally {
+    showModal3.value = false
+  }
+}
+
+/* ===========================================================
+   (유지) 초기 로딩
+   =========================================================== */
 onMounted(async () => {
   try {
     const res = await axios.get('/api/me', { withCredentials: true })
@@ -425,8 +726,12 @@ onMounted(async () => {
     console.log('[profile] loaded me:', user.value)
 
     // 서버에 다중 지역(snake/camel) 있으면 버퍼에 복원
-    const fromSnake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
-    const fromCamel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
+    const fromSnake = Array.isArray(user.value?.search_regions)
+      ? user.value.search_regions
+      : []
+    const fromCamel = Array.isArray(user.value?.searchRegions)
+      ? user.value.searchRegions
+      : []
     const list = fromSnake.length ? fromSnake : fromCamel
     if (list.length) {
       searchRegionsBuffer.value = list
@@ -471,9 +776,10 @@ const logout = async () => {
 }
 
 .page-wrapper {
-  background: radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,0.08), transparent 55%),
-              radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,0.06), transparent 60%),
-              var(--bg);
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(212, 175, 55, 0.08), transparent 55%),
+    radial-gradient(900px 700px at 110% -20%, rgba(184, 144, 30, 0.06), transparent 60%),
+    var(--bg);
   color: var(--text);
   min-height: 100%;
 }
@@ -584,7 +890,21 @@ const logout = async () => {
 
 /* 행 hover/focus 배경을 "행 전체"에 동일 적용 */
 .pf-scope .editable-row { cursor: pointer; border-left: 2px solid transparent; }
-.pf-scope .editable-row:hover .pf-th,
+/* 편집 가능 행: 항상 강조된 흰색 */
+.pf-scope .editable-row .pf-th,
+.pf-scope .editable-row .pf-td {
+  color: #ffffff;     /* ✨ 강한 흰색 */
+  font-weight: 600;   /* 두껍게 */
+}
+
+/* 읽기 전용 행: 항상 흐린 회색 */
+.pf-scope .readonly-row .pf-th,
+.pf-scope .readonly-row .pf-td {
+  color: var(--ink-weak);  /* 흐린 회색 */
+  font-weight: 400;
+}
+
+
 .pf-scope .editable-row:hover .pf-td,
 .pf-scope .editable-row:focus .pf-th,
 .pf-scope .editable-row:focus .pf-td,

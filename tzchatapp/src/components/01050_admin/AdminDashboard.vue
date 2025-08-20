@@ -1,284 +1,242 @@
 <template>
-  <!-- 🔹 최상단 인사 + (현재 페이지 표시) + 로그아웃 -->
-  <div class="top-bar" role="banner" aria-label="관리자 상단바">
+  <!-- 🔹 상단바 (반갑습니다 / 관리자 / 로그아웃) -->
+  <div class="top-bar">
     <!-- 왼쪽: 인사말 -->
     <div class="top-left">
-      <ion-icon :icon="icons.personCircleOutline" aria-hidden="true" class="top-icon" />
-      <span class="welcome-text" :title="nickname + '님 반갑습니다.'">
-        {{ nickname }}님 반갑습니다.
-      </span>
+      <ion-icon :icon="icons.happyOutline" class="icon-left" aria-hidden="true" />
+      <span class="welcome-text">{{ nickname }} 관리자 페이지</span>
     </div>
 
-    <!-- 가운데: 현재 위치 표시 -->
-    <div class="top-center" aria-label="현재 페이지">
-      <span class="page-tag">
-        <ion-icon :icon="icons.shieldCheckmarkOutline" aria-hidden="true" class="tag-icon" />
-        관리자 페이지
-      </span>
+    <!-- 가운데: 관리자 버튼 (role이 master일 때만) -->
+    <div class="top-center">
+      <ion-button
+        v-if="meRole === 'master'"
+        size="small"
+        class="btn-outline admin-btn"
+        @click="goAdmin"
+      >
+        <ion-icon :icon="icons.settingsOutline" slot="start" />
+        관리
+      </ion-button>
     </div>
 
     <!-- 오른쪽: 로그아웃 -->
     <div class="top-right">
-      <button class="logout-btn" @click="logout" aria-label="로그아웃">
-        <ion-icon :icon="icons.powerOutline" aria-hidden="true" class="logout-icon" />
+      <ion-button size="small" class="btn-danger" @click="logout">
+        <ion-icon :icon="icons.logOutOutline" slot="start" />
         로그아웃
-      </button>
+      </ion-button>
     </div>
   </div>
 
-  <!-- 섹션이 하나라도 있으면 렌더 -->
-  <!-- 00100_HeartbeatCard, 00300_UserSearchBar, 00400_UserTable, 00500_UserActionsPanel 이벤트/props 호환 -->
-  <!-- 00200_ServerStatusCard, 00400_UserTable, 00500_UserActionsPanel, 00600_LogViewer props 호환 -->
-  <template v-if="sectionsInOrder.length">
-    <component
-      v-for="(Comp, idx) in sectionsInOrder"
-      :key="idx"
-      :is="Comp"
-      @latency="onLatency"         
-      @search="onSearch"          
-      @selected="onSelected"      
-      @acted="onActed"             
-      :last-latency="lastLatency"  
-      :filters="userFilters"       
-      :selected-user="selectedUser"
-      :logs="clientLogs"           
-    />
-  </template>
+  <!-- 🔹 리스트 (0001~0020 + 회원탈퇴) -->
+  <section class="page-wrap" role="region" aria-label="설정 목록">
+    <div class="list-wrap">
+      <ul class="list">
+        <!-- 번호 리스트 -->
+        <li class="list-item" @click="goPage('/home/admin/0001')">0001</li>
+        <li class="list-item" @click="goPage('/home/admin/0002')">0002</li>
+        <li class="list-item" @click="goPage('/home/admin/0003')">0003</li>
+        <li class="list-item" @click="goPage('/home/admin/0004')">0004</li>
+        <li class="list-item" @click="goPage('/home/admin/0005')">0005</li>
+        <li class="list-item" @click="goPage('/home/admin/0006')">0006</li>
+        <li class="list-item" @click="goPage('/home/admin/0007')">0007</li>
+        <li class="list-item" @click="goPage('/home/admin/0008')">0008</li>
+        <li class="list-item" @click="goPage('/home/admin/0009')">0009</li>
+        <li class="list-item" @click="goPage('/home/admin/0010')">0010</li>
+        <li class="list-item" @click="goPage('/home/admin/0011')">0011</li>
+        <li class="list-item" @click="goPage('/home/admin/0012')">0012</li>
+        <li class="list-item" @click="goPage('/home/admin/0013')">0013</li>
+        <li class="list-item" @click="goPage('/home/admin/0014')">0014</li>
+        <li class="list-item" @click="goPage('/home/admin/0015')">0015</li>
+        <li class="list-item" @click="goPage('/home/admin/0016')">0016</li>
+        <li class="list-item" @click="goPage('/home/admin/0017')">0017</li>
+        <li class="list-item" @click="goPage('/home/admin/0018')">0018</li>
+        <li class="list-item" @click="goPage('/home/admin/0019')">0019</li>
+        <li class="list-item" @click="goPage('/home/admin/0020')">0020</li>
 
-  <!-- 안전망: 섹션이 0개면 원인 추적 메시지 노출 -->
-  <div v-else class="empty-hint" role="note">
-    섹션 모듈을 찾지 못했습니다. 경로/파일명을 확인해 주세요.
-    <div class="hint-small">기대 경로: /src/components/04910_Page9_Admin/*.vue (예: 00100_HeartbeatCard.vue)</div>
-  </div>
+        <!-- 회원탈퇴 버튼 -->
+        <li class="withdraw-button" @click="withdraw">
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+          <span>회원탈퇴</span>
+        </li>
+      </ul>
+    </div>
+  </section>
 </template>
 
 <script setup lang="ts">
-// ------------------------------------------------------
-// AdminDashboard.vue (auto import & order by filename)
-// - 절대경로 glob, 파일명 사전순으로 섹션 렌더 순서 고정
-// - 상단바 UI 정리(아이콘 추가, 간격 컴팩트)
-// - 이벤트/props를 부모에서 중계
-// ------------------------------------------------------
-import type { Component } from 'vue'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-
-import { IonIcon } from '@ionic/vue'
+import { IonButton, IonIcon } from '@ionic/vue'
 import {
-  personCircleOutline,
-  shieldCheckmarkOutline,
-  powerOutline
+  happyOutline,
+  settingsOutline,
+  logOutOutline,
+  trashOutline
 } from 'ionicons/icons'
+import axios from '@/lib/axiosInstance'
 
-// 아이콘 바인딩(템플릿에서 접근 편의)
-const icons = {
-  personCircleOutline,
-  shieldCheckmarkOutline,
-  powerOutline,
-}
-
-// ✅ 절대경로 glob (eager: true → 즉시 import)
-const modules = import.meta.glob(
-  '/src/components/04910_Page9_Admin/*.vue',
-  { eager: true }
-) as Record<string, { default: Component }>
-
-// 🔎 로드된 모듈 로그
-console.group('[AdminDashboard] auto-load sections')
-Object.keys(modules).sort().forEach((k) => console.log(' - found:', k))
-console.groupEnd()
-
-// ✅ 사전순 정렬 후 default export만 추출
-const sectionsInOrder: Component[] = Object
-  .entries(modules)
-  .sort(([a], [b]) => a.localeCompare(b))
-  .map(([key, mod]) => {
-    const comp = mod?.default
-    if (!comp) console.warn('[AdminDashboard] missing default export:', key)
-    else console.log('[AdminDashboard] register component:', key)
-    return comp
-  })
-  .filter(Boolean) as Component[]
-
-// 📌 개수 로그
-console.info('[AdminDashboard] total sections:', sectionsInOrder.length)
-
-// ============================
-// 상단 인사/로그아웃 바 관련
-// ============================
 const router = useRouter()
-const nickname = ref<string>('')
-const meRole = ref<string>('') // (확장 대비)
+const icons = { happyOutline, settingsOutline, logOutOutline, trashOutline }
 
+const nickname = ref<string>('')
+const meRole = ref<string>('')
+
+/** 로그인 사용자 정보 가져오기 */
 onMounted(async () => {
   try {
-    console.time('[AdminDashboard] GET /api/me')
-    const r = await fetch('/api/me', { credentials: 'include' })
-    console.timeEnd('[AdminDashboard] GET /api/me')
-    if (!r.ok) {
-      console.warn('[AdminDashboard] /api/me not ok', r.status)
-      return
-    }
-    const data = await r.json()
-    nickname.value = data?.user?.nickname || ''
-    meRole.value = data?.user?.role || ''
-    console.log('[AdminDashboard] me:', { nickname: nickname.value, role: meRole.value })
+    const meRes = await axios.get('/api/me', { withCredentials: true })
+    nickname.value = meRes.data?.user?.nickname || ''
+    meRole.value = meRes.data?.user?.role || ''
+    console.log('[SettingsSections] me:', { nickname: nickname.value, role: meRole.value })
   } catch (err) {
-    console.error('❌ [AdminDashboard] /api/me 실패:', err)
+    console.error('❌ /api/me 실패:', err)
   }
 })
 
-// 로그아웃
+/** 페이지 이동 */
+const goPage = (path: string) => {
+  console.log('[SettingsSections] goPage:', path)
+  router.push(path)
+}
+
+/** 관리자 이동 */
+const goAdmin = () => {
+  console.log('[SettingsSections] goAdmin → /home/admin')
+  router.push('/home/admin')
+}
+
+/** 로그아웃 */
 const logout = async () => {
   try {
-    console.time('[AdminDashboard] POST /api/logout')
-    const r = await fetch('/api/logout', { method: 'POST', credentials: 'include' })
-    console.timeEnd('[AdminDashboard] POST /api/logout')
-    if (!r.ok) {
-      console.warn('[AdminDashboard] logout not ok', r.status)
-      return
-    }
-    console.info('[AdminDashboard] 로그아웃 성공 → /login 이동')
+    await axios.post('/api/logout', {}, { withCredentials: true })
+    console.info('[SettingsSections] 로그아웃 성공 → /login')
     router.push('/login')
   } catch (err) {
-    console.error('❌ [AdminDashboard] 로그아웃 실패:', err)
+    console.error('❌ 로그아웃 실패:', err)
   }
 }
 
-// ============================
-// 섹션 간 상태 중계
-// ============================
-const lastLatency = ref<number|null>(null)
-const userFilters = ref<{ q: string }>({ q: '' })
-const selectedUser = ref<any>(null)
-const clientLogs = ref<{ at: string; level: string; msg: string }[]>([])
-
-function pushLog(level: 'INFO'|'WARN'|'ERROR', msg: string) {
-  clientLogs.value.unshift({ at: new Date().toISOString(), level, msg })
-  if (clientLogs.value.length > 200) clientLogs.value.pop()
-}
-
-function onLatency(ms: number) {
-  lastLatency.value = ms
-  pushLog('INFO', `[DASH] heartbeat latency: ${ms}ms`)
-  console.log('[AdminDashboard] onLatency', ms)
-}
-
-function onSearch(filters: { q: string }) {
-  userFilters.value = { ...filters }
-  pushLog('INFO', `[DASH] search filters: ${JSON.stringify(filters)}`)
-  console.log('[AdminDashboard] onSearch', filters)
-}
-
-function onSelected(user: any) {
-  selectedUser.value = user
-  pushLog('INFO', `[DASH] selected user: ${user?.username || '(none)'}`)
-  console.log('[AdminDashboard] onSelected', user)
-}
-
-function onActed(payload: any) {
-  pushLog('INFO', `[DASH] action: ${JSON.stringify(payload)}`)
-  console.log('[AdminDashboard] onActed', payload)
+/** 회원탈퇴 */
+const withdraw = () => {
+  console.log('[SettingsSections] 회원탈퇴 클릭됨')
+  alert('회원탈퇴 기능이 실행됩니다.')
 }
 </script>
 
 <style scoped>
-/* ── AdminDashboard.vue: 상단바 깔끔 정리 ──
-   - 전체 글자색 검정(#000) 유지(가독성)
-   - 3분할 레이아웃: 좌(인사) / 중(페이지 태그) / 우(로그아웃)
-   - 아이콘은 텍스트 옆에 소형으로 배치, 간격 최소화
-*/
-
-/* 스크롤바 유무로 인한 가로폭 흔들림 방지(선택) */
-:global(html, body) { scrollbar-gutter: stable both-edges; }
-
-/* 상단 헤더 바 */
+/* =========================================================
+   상단바 (반갑습니다 / 관 / 로그아웃)
+========================================================= */
 .top-bar {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;  /* 좌 | 중앙 | 우 */
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 10px;
-
-  height: 50px;                         /* 고정 높이 */
-  padding: 0 12px;
-  background-color: #f6f6f6;
-  border-bottom: 1px solid #e5e5e5;
-  color: #000;
+  gap: 8px;
+  padding: 2px 12px;
+  background-color: var(--panel-2);
+  border-bottom: 1px solid var(--panel-border);
 }
 
-/* 그리드 내 정렬 */
-.top-left { justify-self: start; display: inline-flex; align-items: center; gap: 8px; }
+.top-bar ion-button {
+  --border-radius: 8px;
+  --padding-start: 6px;    /* 좌우 패딩 줄임 */
+  --padding-end: 6px;
+  min-height: 24px;        /* 버튼 높이 줄임 */
+  font-size: 13px;         /* 버튼 글자 크기 줄임 */
+}
+.top-left { justify-self: start; display: flex; align-items: center; }
 .top-center { justify-self: center; }
 .top-right { justify-self: end; }
 
-/* 왼쪽 아이콘 + 인사말 */
-.top-icon { font-size: 18px; color: #111; }
+.icon-left {
+  font-size: 18px;
+  color: var(--text-dim);
+  margin-right: 6px;
+}
 .welcome-text {
-  font-weight: 700;
-  font-size: clamp(15px, 2.6vw, 16px);
-  color: #000;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 현재 페이지 태그(배지) */
-.page-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid #333;
-  border-radius: 999px;
-  background: #fff;
-  color: #000;
-  font-size: clamp(12px, 2.2vw, 13px);
-  line-height: 1;
-  white-space: nowrap;
+/* =========================================================
+   리스트 (0001 ~ 0020 + 회원탈퇴)
+========================================================= */
+.page-wrap {
+  background: var(--panel-2);
+  min-height: 100%;
+  padding: 14px 12px 22px;
+  box-sizing: border-box;
 }
-.tag-icon { font-size: 14px; color: #111; }
-
-/* 로그아웃 버튼 */
-.logout-btn {
-  appearance: none;
-  background: #e11d48;                   /* danger 톤 */
-  color: #fff;
-  border: none;
+.list-wrap {
+  width: min(92vw, 480px);
+  margin: 0 auto;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 10px 0;
   border-radius: 12px;
-  min-height: 40px;                      /* 터치 타깃 */
-  padding: 0 12px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
-  transition: background .15s, transform .08s ease-out, opacity .2s;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25),
+              inset 0 0 0.5px rgba(255,255,255,0.04);
+  transition: border-color 0.18s, color 0.18s, transform 0.06s;
 }
-.logout-icon { font-size: 16px; }
-.logout-btn:hover { background: #be123c; }
-.logout-btn:active { transform: translateY(1px); }
-.logout-btn:disabled { opacity: .6; cursor: not-allowed; }
-.logout-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(225,17,72,.35);
+.list-item:hover {
+  border-color: rgba(212,175,55,0.65);
+  color: var(--accent-gold, #d4af37);
 }
-
-/* 섹션 비어있을 때 힌트 */
-.empty-hint {
-  color: #000;
-  padding: 16px;
-  font-size: clamp(14px, 2.4vw, 15px);
-  opacity: .9;
-}
-.hint-small {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #444;
+.list-item:active {
+  transform: translateY(1px);
 }
 
-/* 초소형 화면 보정 */
-@media (max-width: 360px) {
-  .top-bar { padding: 0 10px; gap: 8px; }
-  .page-tag { padding: 4px 8px; }
+/* 회원탈퇴 버튼 */
+.withdraw-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 14px 0 6px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #dc3545 0%, #b02a37 100%);
+  border: 1px solid #b02a37;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25),
+              inset 0 0 0.5px rgba(255,255,255,0.12);
+  transition: filter 0.18s, transform 0.06s, border-color 0.18s;
+}
+.withdraw-button:hover {
+  filter: brightness(1.02);
+  border-color: #962231;
+}
+.withdraw-button:active {
+  transform: translateY(1px);
+}
+.withdraw-button .icon-left {
+  font-size: 18px;
 }
 </style>
