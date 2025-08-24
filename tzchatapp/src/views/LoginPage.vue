@@ -1,12 +1,12 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-
-       <h2>Yes? Yes!</h2>
-       <h2>네네챗1</h2>
-
+<br><br></br>
+       <h1>Yes? Yes!</h1>
+       <h2>네네챗</h2>
+      <br><br></br>
       <h2>로그인</h2>
-
+<br>
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
         <!-- 아이디 입력 -->
@@ -93,7 +93,7 @@ const login = async () => {
     console.log('👤 로그인한 사용자 정보:', userRes.data.user)
 
     // ✅ 홈으로 이동
-    router.push('/home/6page')
+    router.push('/home/2page')
   } catch (err) {
     console.error('❌ 로그인 오류 발생:', err)
     message.value = err.response?.data?.message || '로그인 실패'

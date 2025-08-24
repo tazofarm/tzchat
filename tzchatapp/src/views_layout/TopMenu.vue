@@ -60,7 +60,7 @@ const FRIENDS_PATH = '/home/3page'
 const CHAT_PATH    = '/home/4page'
 
 const menuItems = [
-  { name: '테스트',   path: '/home/5page', icon: warningOutline },
+//  { name: '테스트',   path: '/home/5page', icon: warningOutline },
   { name: '긴급',   path: '/home/0page', icon: warningOutline },
   { name: '타겟',   path: '/home/2page', icon: locateOutline },
   { name: '친구',   path: FRIENDS_PATH,  icon: peopleOutline },

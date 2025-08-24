@@ -30,3 +30,6 @@ npm-debug.log*
 /platforms
 /plugins
 /www
+# --- Android signing files (절대 공개 금지) ---
+android/keystore/
+keystore.properties

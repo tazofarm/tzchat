@@ -1,22 +1,34 @@
+// backend/routes/friendRouter.js
+// ------------------------------------------------------------
+// 친구 신청/수락/거절/차단/목록 라우터
+// - 변경 최소화 원칙 준수
+// - ★ 신규: 누적 카운터($inc) 반영
+//   * 신청 생성: from.sentRequestCountTotal++, to.receivedRequestCountTotal++
+//   * 수락(처음 pending→accepted 전이): 양쪽 acceptedChatCountTotal++
+// - ★ 수락 로직은 findOneAndUpdate로 원자적 전이 보장(중복 증가 방지)
+// - 가독성(검은색 텍스트), 주석/로그 최대화
+// ------------------------------------------------------------
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const sharp = require('sharp'); // ✅ 이미지 압축용
-const bcrypt = require('bcrypt'); // ✅ [추가] 비밀번호 해시/검증용 (아래에서 사용함)
+const sharp = require('sharp'); // 이미지 압축용 (현재 파일에선 미사용이지만 기존 유지)
+const bcrypt = require('bcrypt'); // 비밀번호 해시/검증용 (현재 파일에선 미사용이지만 기존 유지)
+
 const User = require('../models/User');
-const FriendRequest = require('../models/FriendRequest'); // ✅ 누락된 import 추가
+const FriendRequest = require('../models/FriendRequest');
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
+
 const requireLogin = require('../middlewares/authMiddleware');
-const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency');
+const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency'); // (현재 파일 내 미사용) 기존 유지
 const router = express.Router();
 
-// 🔔 푸시 발송 모듈 (신규)
+// 🔔 푸시 발송 모듈 (기존 유지)
 const { sendPushToUser } = require('../push/sender');
 
-/**
-/** 공통: 프로필에 필요한 필드 */
+/** 공통: 프로필에 필요한 필드(간단 프로젝션) */
 const USER_MIN_FIELDS = 'username nickname birthyear gender';
 
 /** 유틸: friendRequest 문서를 from/to 모두 인구(populate) */
@@ -28,32 +40,56 @@ async function populateRequest(doc) {
   ]);
 }
 
+/** 간단 로그 유틸 */
+function log(...args) {
+  try { console.log('[friendRouter]', ...args); } catch (_) {}
+}
+function logErr(...args) {
+  try { console.error('[friendRouter][ERR]', ...args); } catch (_) {}
+}
+
 /** ============================
  *  📨 친구 신청 (A → B)
- *  - 생성 후 양쪽 유저에게 'friendRequest:created'
- *  - 응답: populate된 request 반환(프론트가 즉시 렌더/ⓝ 표시)
- *  - 🔔 신청 "받는 사람"에게 FCM 푸시 발송 (신규)
+ *  - 생성 후 소켓/푸시
+ *  - ★ 누적 카운터 +1 (from: sent, to: received)
  * ============================ */
 router.post('/friend-request', requireLogin, async (req, res) => {
   try {
     const fromId = String(req.session.user._id);
-    const { to, message } = req.body;
+    const { to, message } = req.body || {};
     const toId = String(to);
 
+    log('POST /friend-request', { fromId, toId });
+
+    if (!toId) return res.status(400).json({ message: '대상 사용자(to)가 필요합니다.' });
     if (fromId === toId) {
       return res.status(400).json({ message: '자기 자신에게 친구 신청할 수 없습니다' });
     }
 
-    // 같은 조합의 pending 존재 여부 체크 (양방향도 방어적으로 확인)
+    // 같은 조합의 pending 존재 여부 체크 (양방향 방어)
     const exists = await FriendRequest.findOne({
       $or: [
         { from: fromId, to: toId, status: 'pending' },
         { from: toId,   to: fromId, status: 'pending' },
       ]
-    });
+    }).lean();
     if (exists) return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
 
+    // 1) 친구 신청 문서 생성
     const request = await FriendRequest.create({ from: fromId, to: toId, message, status: 'pending' });
+
+    // 2) ★ 누적 카운터 증가 (원자적 $inc)
+    //    - 신청자: sentRequestCountTotal +1
+    //    - 수신자: receivedRequestCountTotal +1
+    await Promise.all([
+      User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }),
+      User.updateOne({ _id: toId },   { $inc: { receivedRequestCountTotal: 1 } }),
+    ]);
+    log('counter++ on create', {
+      fromId, toId,
+      inc: { from: 'sentRequestCountTotal', to: 'receivedRequestCountTotal' }
+    });
+
     const populated = await populateRequest(request);
 
     // 소켓 브로드캐스트 (기존 유지)
@@ -63,30 +99,28 @@ router.post('/friend-request', requireLogin, async (req, res) => {
     // 🔔 푸시: 받는 사람(to)에게 "친구 신청 도착"
     (async () => {
       try {
-        // 보낸 사람 닉네임 조회 (body 메시지용)
         const fromUser = await User.findById(fromId, { nickname: 1 }).lean();
         const fromNick = fromUser?.nickname || '알 수 없음';
-
-        console.log('[push][friend-request] 발송 준비:', { toId, fromNick });
+        log('[push][friend-request] 준비', { toId, fromNick });
 
         await sendPushToUser(toId, {
           title: '친구 신청 도착',
           body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
-          type: 'friend_request',  // 프론트에서 구분용
+          type: 'friend_request',
           fromUserId: fromId,
-          roomId: '',              // 친구신청은 채팅방 없음
+          roomId: '',
         });
 
-        console.log('[push][friend-request] ✅ 발송 완료:', { toId });
+        log('[push][friend-request] ✅ 발송 완료', { toId });
       } catch (pushErr) {
-        console.error('[push][friend-request] ❌ 발송 오류:', pushErr);
+        logErr('[push][friend-request] 발송 오류', pushErr);
       }
     })();
 
-    console.log(`✅ 친구 신청: ${fromId} → ${toId}`);
+    log('✅ 친구 신청', { fromId, toId, requestId: request._id });
     res.json(populated);
   } catch (err) {
-    console.error('[친구 신청 오류]', err);
+    logErr('친구 신청 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -94,6 +128,7 @@ router.post('/friend-request', requireLogin, async (req, res) => {
 /** ============================
  *  🗑️ 친구 신청 취소 (보낸 사람이 취소)
  *  - 양쪽에 'friendRequest:cancelled'
+ *  - (누적 카운터는 "신청 시점"에 이미 반영되었으므로 변화 없음)
  * ============================ */
 router.delete('/friend-request/:id', requireLogin, async (req, res) => {
   try {
@@ -111,10 +146,10 @@ router.delete('/friend-request/:id', requireLogin, async (req, res) => {
     const emit = req.app.get('emit');
     if (emit && emit.friendRequestCancelled) emit.friendRequestCancelled(deleted);
 
-    console.log(`🗑️ 친구 신청 취소됨: ${fromId} → ${deleted.to?._id}`);
+    log('🗑️ 친구 신청 취소', { fromId, toId: deleted.to?._id, id });
     res.json({ ok: true, deletedId: id });
   } catch (err) {
-    console.error('[친구 신청 취소 오류]', err);
+    logErr('친구 신청 취소 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -130,7 +165,7 @@ router.get('/friend-requests/received', requireLogin, async (req, res) => {
       .populate('from', USER_MIN_FIELDS);
     res.json(requests);
   } catch (err) {
-    console.error('[받은 신청 목록 오류]', err);
+    logErr('받은 신청 목록 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -146,42 +181,55 @@ router.get('/friend-requests/sent', requireLogin, async (req, res) => {
       .populate('to', USER_MIN_FIELDS);
     res.json(requests);
   } catch (err) {
-    console.error('[보낸 신청 목록 오류]', err);
+    logErr('보낸 신청 목록 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /** ============================
  *  🤝 친구 신청 수락 (받은 사람이 수락)
+ *  - ★ pending → accepted "처음" 전이에만 성공(원자적)
+ *  - 성공 시에만 채팅방 생성/친구연결/카운터 증가
  *  - 양쪽에 'friendRequest:accepted'
- *  - 1:1 채팅방 생성(없으면)
- *  - (옵션) 보낸 사람에게 "수락" 푸시 가능 (주석 참고)
  * ============================ */
 router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
   try {
     const myId = String(req.session.user._id);
     const { id } = req.params;
 
-    const request = await FriendRequest.findById(id);
-    if (!request || String(request.to) !== myId || request.status !== 'pending') {
-      return res.status(403).json({ message: '권한 없음 또는 신청 없음' });
+    // 1) ★ 원자적 전이: pending → accepted 에 "처음" 성공한 경우에만 반환
+    const request = await FriendRequest.findOneAndUpdate(
+      { _id: id, to: myId, status: 'pending' },
+      { $set: { status: 'accepted' } },
+      { new: true }
+    );
+    if (!request) {
+      // 이미 처리(accepted/rejected/blocked) 되었거나 권한 없음
+      return res.status(403).json({ message: '권한 없음 또는 신청 없음/이미 처리됨' });
     }
 
-    request.status = 'accepted';
-    await request.save();
+    // 2) 친구목록 동기화(양방향 addToSet 느낌으로 중복 방지)
+    const fromId = String(request.from);
+    const toId = String(request.to);
 
-    const userMe = await User.findById(myId);
-    const userFrom = await User.findById(request.from);
+    const [userMe, userFrom] = await Promise.all([
+      User.findById(toId),
+      User.findById(fromId),
+    ]);
+    if (!userMe || !userFrom) {
+      logErr('수락 처리 중 사용자 조회 실패', { toId, fromId });
+      return res.status(404).json({ message: '사용자 조회 실패' });
+    }
 
-    if (!userMe.friendlist.some(fid => String(fid) === String(userFrom._id))) {
+    if (!userMe.friendlist.some(fid => String(fid) === fromId)) {
       userMe.friendlist.push(userFrom._id);
     }
-    if (!userFrom.friendlist.some(fid => String(fid) === String(userMe._id))) {
+    if (!userFrom.friendlist.some(fid => String(fid) === toId)) {
       userFrom.friendlist.push(userMe._id);
     }
-    await userMe.save();
-    await userFrom.save();
+    await Promise.all([userMe.save(), userFrom.save()]);
 
+    // 3) 채팅방 생성(없으면) + 시스템 메시지
     let chatRoom = await ChatRoom.findOne({
       participants: { $all: [userMe._id, userFrom._id], $size: 2 }
     });
@@ -191,7 +239,7 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
         participants: [userMe._id, userFrom._id],
         messages: []
       });
-      console.log('💬 채팅방 생성:', chatRoom._id);
+      log('💬 채팅방 생성', { roomId: chatRoom._id });
     }
 
     const systemMessage = await Message.create({
@@ -202,8 +250,18 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
     chatRoom.messages.push(systemMessage._id);
     await chatRoom.save();
 
-    const populated = await populateRequest(request);
+    // 4) ★ 누적 카운터 증가(최초 수락 시 1회만)
+    await Promise.all([
+      User.updateOne({ _id: fromId }, { $inc: { acceptedChatCountTotal: 1 } }),
+      User.updateOne({ _id: toId },   { $inc: { acceptedChatCountTotal: 1 } }),
+    ]);
+    log('counter++ on accept', {
+      fromId, toId,
+      inc: { both: 'acceptedChatCountTotal' }
+    });
 
+    // 5) populate 후 소켓 브로드캐스트
+    const populated = await populateRequest(request);
     const emit = req.app.get('emit');
     if (emit && emit.friendRequestAccepted) emit.friendRequestAccepted(populated);
 
@@ -218,86 +276,71 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
           type: 'friend_accept',
           fromUserId: myId,
         });
-        console.log('[push][friend-accept] ✅ 발송 완료:', { to: String(request.from) });
+        log('[push][friend-accept] ✅ 발송 완료', { to: String(request.from) });
       } catch (pushErr) {
-        console.error('[push][friend-accept] ❌ 발송 오류:', pushErr);
+        logErr('[push][friend-accept] 발송 오류', pushErr);
       }
     })();
     */
 
-    console.log(`🤝 친구 수락 & 채팅 시작: ${request.from} ↔ ${myId}`);
+    log('🤝 친구 수락 & 채팅 시작', { fromId, toId, roomId: chatRoom._id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[친구 수락 오류]', err);
+    logErr('친구 수락 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /** ============================
  *  ❌ 친구 신청 거절 (받은 사람이 거절)
- *  - 양쪽에 'friendRequest:rejected'
- *  - (옵션) 보낸 사람에게 "거절" 푸시 가능 (주석 참고)
+ *  - 상태만 변경 (문서를 삭제하지 않아도 됨)
+ *  - 누적 카운터 변화 없음(신청 시 반영 완료)
  * ============================ */
 router.put('/friend-request/:id/reject', requireLogin, async (req, res) => {
   try {
     const myId = String(req.session.user._id);
     const { id } = req.params;
 
-    const request = await FriendRequest.findById(id);
-    if (!request || String(request.to) !== myId || request.status !== 'pending') {
-      return res.status(403).json({ message: '권한 없음 또는 신청 없음' });
+    const request = await FriendRequest.findOneAndUpdate(
+      { _id: id, to: myId, status: 'pending' },
+      { $set: { status: 'rejected' } },
+      { new: true }
+    );
+    if (!request) {
+      return res.status(403).json({ message: '권한 없음 또는 신청 없음/이미 처리됨' });
     }
-
-    request.status = 'rejected';
-    await request.save();
 
     const populated = await populateRequest(request);
 
     const emit = req.app.get('emit');
     if (emit && emit.friendRequestRejected) emit.friendRequestRejected(populated);
 
-    // (옵션) 🔔 보낸 사람에게 "거절됨" 푸시 — 원하시면 주석 해제
-    /*
-    (async () => {
-      try {
-        const me = await User.findById(myId, { nickname: 1 }).lean();
-        await sendPushToUser(String(request.from), {
-          title: '친구 신청 거절',
-          body: `${me?.nickname || '상대방'} 님이 친구 신청을 거절했습니다.`,
-          type: 'friend_reject',
-          fromUserId: myId,
-        });
-        console.log('[push][friend-reject] ✅ 발송 완료:', { to: String(request.from) });
-      } catch (pushErr) {
-        console.error('[push][friend-reject] ❌ 발송 오류:', pushErr);
-      }
-    })();
-    */
-
-    console.log(`❌ 친구 거절: ${request.from} → ${myId}`);
+    log('❌ 친구 거절', { from: String(request.from), to: myId, id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[친구 거절 오류]', err);
+    logErr('친구 거절 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /** ============================
  *  🚫 친구 차단 (거절 + blocklist 추가)
- *  - 'friendRequest:rejected' + 'block:created'
+ *  - 문서 상태를 rejected로 변경(삭제 아님)
+ *  - 누적 카운터 변화 없음(신청 시 반영 완료)
  * ============================ */
 router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
   try {
     const myId = String(req.session.user._id);
     const { id } = req.params;
 
-    const request = await FriendRequest.findById(id);
-    if (!request || String(request.to) !== myId || request.status !== 'pending') {
-      return res.status(403).json({ message: '권한 없음 또는 신청 없음' });
+    const request = await FriendRequest.findOneAndUpdate(
+      { _id: id, to: myId, status: 'pending' },
+      { $set: { status: 'rejected' } },
+      { new: true }
+    );
+    if (!request) {
+      return res.status(403).json({ message: '권한 없음 또는 신청 없음/이미 처리됨' });
     }
-
-    request.status = 'rejected';
-    await request.save();
 
     const me = await User.findById(myId);
     const fromId = String(request.from);
@@ -314,17 +357,16 @@ router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
       if (emit.blockCreated) emit.blockCreated({ blockerId: myId, blockedId: fromId });
     }
 
-    console.log(`🚫 친구 차단: ${fromId} → ${myId}`);
+    log('🚫 친구 차단', { fromId, toId: myId, id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[친구 차단 오류]', err);
+    logErr('친구 차단 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /** ============================
  *  👥 친구 리스트 조회
- *  - 프론트에서 username/nickname/birthyear/gender를 쓰므로 모두 제공
  * ============================ */
 router.get('/friends', requireLogin, async (req, res) => {
   try {
@@ -332,7 +374,7 @@ router.get('/friends', requireLogin, async (req, res) => {
     const user = await User.findById(me).populate('friendlist', USER_MIN_FIELDS);
     res.json(user?.friendlist || []);
   } catch (err) {
-    console.error('[친구 리스트 오류]', err);
+    logErr('친구 리스트 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -346,7 +388,7 @@ router.get('/blocks', requireLogin, async (req, res) => {
     const user = await User.findById(me).populate('blocklist', USER_MIN_FIELDS);
     res.json(user?.blocklist || []);
   } catch (err) {
-    console.error('[차단 리스트 오류]', err);
+    logErr('차단 리스트 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -369,7 +411,7 @@ router.get('/users/:id', requireLogin, async (req, res) => {
 
     res.json({ ...targetUser, isFriend });
   } catch (err) {
-    console.error('[유저 프로필 조회 오류]', err);
+    logErr('유저 프로필 조회 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -392,10 +434,10 @@ router.delete('/friend/:id', requireLogin, async (req, res) => {
     await me.save();
     await target.save();
 
-    console.log(`🗑️ 친구 삭제됨: ${myId} ↔ ${targetId}`);
+    log('🗑️ 친구 삭제', { myId, targetId });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[친구 삭제 오류]', err);
+    logErr('친구 삭제 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -414,10 +456,10 @@ router.delete('/block/:id', requireLogin, async (req, res) => {
     me.blocklist = (me.blocklist || []).filter(bid => String(bid) !== targetId);
     await me.save();
 
-    console.log(`✅ 차단 해제됨: ${targetId} → ${myId}`);
+    log('✅ 차단 해제', { myId, targetId });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[차단 해제 오류]', err);
+    logErr('차단 해제 오류', err);
     res.status(500).json({ message: '서버 오류' });
   }
 });

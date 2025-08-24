@@ -1,9 +1,10 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'io.ionic.starter',
+  appId: 'org.tzchat.app',
   appName: 'tzchatapp',
-  webDir: 'dist'
+  webDir: 'dist',
+ 
 };
 
 export default config;

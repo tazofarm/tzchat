@@ -1,0 +1,116 @@
+// ------------------------------------------------------------
+// app/build.gradle  (릴리스 서명 설정 포함)
+// - 기존 내용 최대한 유지
+// - keystore.properties 읽어서 release 서명 적용
+// - 콘솔 로그로 상태 확인 가능 (lifecycle 로그)
+// ------------------------------------------------------------
+
+apply plugin: 'com.android.application'
+
+// [ADD] 안전용 import (일부 환경에서 필요)
+import java.util.Properties
+import java.io.FileInputStream
+
+// [ADD] keystore.properties 로드 (Git에 올리지 않는 비밀 파일)
+// 권장 경로: android/keystore/keystore.properties
+// 예시 내용:
+//   storeFile=android/keystore/tzchat-release.keystore
+//   storePassword=비밀번호
+//   keyAlias=tzchat
+//   keyPassword=비밀번호
+def keystorePropertiesFile = rootProject.file("keystore/keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    logger.lifecycle("🔐 keystore.properties 로드 완료: ${keystorePropertiesFile}")
+} else {
+    logger.lifecycle("⚠️ keystore.properties 를 찾지 못했습니다. release 빌드 시 서명되지 않을 수 있습니다.")
+}
+
+android {
+    namespace "org.tzchat.app"
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "org.tzchat.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+
+        // ✅ 스토어 업로드 핵심: 업로드할 때마다 versionCode는 1,2,3… 증가
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        aaptOptions {
+            // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+            // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+
+    // [ADD] 릴리스 서명 정보
+    signingConfigs {
+        release {
+            if (keystoreProperties['storeFile']) {
+                // ⬇⬇⬇ 상대경로 오해 방지: 프로젝트 루트 기준으로 해석
+                def ksFile = rootProject.file(keystoreProperties['storeFile'])
+                logger.lifecycle("🔍 Using keystore at: ${ksFile}")
+                if (!ksFile.exists()) {
+                    logger.lifecycle("❌ Keystore NOT found at: ${ksFile}")
+                    // 필요 시 즉시 실패 원하시면 아래 주석 해제
+                    // throw new GradleException("Keystore not found at: ${ksFile}")
+                }
+                storeFile ksFile
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                logger.lifecycle("✅ release signingConfig 적용됨 (storeFile=${ksFile})")
+            } else {
+                logger.lifecycle("⚠️ release signingConfig: storeFile 미설정 → 무서명 빌드 가능성")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // 첫 배포에선 난독화/리소스 축소 비활성 권장 (문제 발생 시 원인 파악 쉬움)
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+
+            // [ADD] 릴리스 빌드에 서명 적용
+            signingConfig signingConfigs.release
+        }
+        // debug 블록은 별도 설정이 없어 생략 (기본 디버그 키로 자동 서명)
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+        logger.lifecycle("✅ google-services 플러그인 적용")
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

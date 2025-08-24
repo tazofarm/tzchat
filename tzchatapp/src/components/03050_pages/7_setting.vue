@@ -16,17 +16,21 @@
         @click="goAdmin"
       >
         <ion-icon :icon="icons.settingsOutline" slot="start" />
-        관
+        관리자페이지
       </ion-button>
     </div>
 
-    <!-- 오른쪽: 로그아웃 -->
+    <!-- 오른쪽: 로그아웃
     <div class="top-right">
       <ion-button size="small" class="btn-danger" @click="logout">
         <ion-icon :icon="icons.logOutOutline" slot="start" />
         로그아웃
       </ion-button>
     </div>
+
+       -->
+
+
   </div>
 
   <!-- 🔹 리스트 (0001~0020 + 회원탈퇴) -->
@@ -34,15 +38,16 @@
     <div class="list-wrap">
       <ul class="list">
         <!-- 번호 리스트 -->
-         > 계정
-        <li class="list-item" @click="goPage('/home/setting/0001')">비밀번호변경</li>
-        <li class="list-item" @click="goPage('/home/setting/0002')">0002</li>
-        <li class="list-item" @click="goPage('/home/setting/0003')">0003</li>
+        
+        <li class="list-item" @click="goPage('/home/setting/0001')">구독신청하기</li>
+        <li class="list-item" @click="goPage('/home/setting/0002')">알림설정</li>
+        <li class="list-item" @click="goPage('/home/setting/0003')">공지사항</li>
 
-        >알림
-        <li class="list-item" @click="goPage('/home/setting/0004')">0004</li>
-        <li class="list-item" @click="goPage('/home/setting/0005')">0005</li>
-        <li class="list-item" @click="goPage('/home/setting/0006')">0006</li>
+        
+        <li class="list-item" @click="goPage('/home/setting/0004')">건의하기</li>
+        <li class="list-item" @click="goPage('/home/setting/0005')">개인정보 처리방침</li>
+        <li class="list-item" @click="goPage('/home/setting/0006')">서비스 이용약관</li>
+        <!--
         <li class="list-item" @click="goPage('/home/setting/0007')">0007</li>
         <li class="list-item" @click="goPage('/home/setting/0008')">0008</li>
         <li class="list-item" @click="goPage('/home/setting/0009')">0009</li>
@@ -57,12 +62,24 @@
         <li class="list-item" @click="goPage('/home/setting/0018')">0018</li>
         <li class="list-item" @click="goPage('/home/setting/0019')">0019</li>
         <li class="list-item" @click="goPage('/home/setting/0020')">0020</li>
+        -->
+
+
+        <!-- 로그아웃 버튼 -->
+        <li class="withdraw-button" @click="logout">
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+          <span>로그아웃</span>
+        </li>
 
         <!-- 회원탈퇴 버튼 -->
+
         <li class="withdraw-button" @click="withdraw">
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
           <span>회원탈퇴</span>
         </li>
+
+
+        
       </ul>
     </div>
   </section>
@@ -196,7 +213,7 @@ const withdraw = () => {
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--panel-border);
   color: var(--text);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   user-select: none;

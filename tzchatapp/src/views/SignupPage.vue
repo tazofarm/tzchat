@@ -343,7 +343,7 @@ ion-title {
 .form-row label,
 .label-inline {
   font-weight: 600;
-  font-size: 14px;     /* [MODIFIED] 16~17 → 15 (줌 방지 한계선 유지) */
+  font-size: 12px;     /* [MODIFIED] 16~17 → 15 (줌 방지 한계선 유지) */
   letter-spacing: 0.1px;
   color: #fcfafa; 
 }
@@ -353,7 +353,7 @@ ion-title {
 .form-row input[type="password"],
 .form-row select {
   width: 100%;
-  height: 30px;               /* [MODIFIED] 48 → 44 */
+  height: 20px;               /* [MODIFIED] 48 → 44 */
   padding: 0 12px;            /* [MODIFIED] 14 → 12 */
   border: 1px solid #d9d9d9;
   border-radius: 10px;        /* [MODIFIED] 12 → 10 */
@@ -419,12 +419,13 @@ ion-title {
 .button-col {                  /* [MODIFIED] */
   display: grid;
   row-gap: 4px;                /* 10 → 8 */
-  margin-top: 2px;             /* 6 → 4 */
+  margin-top: 0px;             /* 6 → 4 */
+  
 }
 
 /* [MODIFIED] 버튼 높이/폰트 축소 */
 .btn {                         /* [MODIFIED] */
-  height: 38px;                /* 48 → 44 */
+  height: 44px;                /* 48 → 44 */
   border-radius: 10px;         /* 12 → 10 */
   text-align: center;
   font-weight: 700;
@@ -455,7 +456,7 @@ ion-title {
 /* [MODIFIED] 힌트/메시지: 줄 간격/크기 축소 */
 .hint {                        /* [MODIFIED] */
   margin: 2px 2px 0;
-  font-size: 12px;             /* clamp 제거, 15~16 → 14 */
+  font-size: 10px;             /* clamp 제거, 15~16 → 14 */
   line-height: 1.4;           /* 1.45 → 1.35 */
 }
 .hint.error { color: #c0392b; }

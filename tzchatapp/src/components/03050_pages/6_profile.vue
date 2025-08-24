@@ -3,11 +3,23 @@
     <div class="container">
       <!-- ✅ 내 프로필 카드 -->
       <!-- ★ 변경지점: 공통코드 충돌을 막기 위한 스코프 클래스 pf-scope 추가 -->
+
       <div v-if="user" class="card pf-scope">
         <h3 class="card-title">
           <IonIcon :icon="icons.personCircleOutline" class="title-icon" />
           {{ user.nickname }} 님의 프로필
         </h3>
+
+        <!-- ✅ [추가] 우측 상단 '설정' 버튼 (절대배치) -->
+        <button
+          class="title-action-btn"
+          type="button"
+          @click="goSetting"
+          aria-label="설정으로 이동"
+        >
+          <IonIcon :icon="icons.settingsOutline" class="action-icon" />
+          <span class="action-text">설정</span>
+        </button>
 
         <table class="info-table">
           <!-- ★ 변경지점: 열 너비 클래스도 네임스페이스로 교체 -->
@@ -16,33 +28,25 @@
             <col class="pf-col-td" />
           </colgroup>
           <tbody>
-            <!-- 닉네임 -->
-            <tr
-              @click="openPopup(4, user.nickname)"
+
+
+              <tr
               class="editable-row"
+              @click="goMembership"
               tabindex="0"
-              @keydown.enter="openPopup(4, user.nickname)"
+              @keydown.enter="goMembership"
             >
+            
               <td class="pf-th">
-                <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
-                <strong class="label">닉네임</strong>
+                <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
+                <strong class="label">일반회원</strong>
               </td>
-              <td class="pf-td editable-text">{{ user.nickname }}</td>
+              <td class="pf-td editable-text">
+                
+                <span class="inline-cta">구독하기</span>
+              </td>
             </tr>
 
-            <!-- 비밀번호 변경 -->
-            <tr
-              class="editable-row"
-              @click="openPasswordModal"
-              tabindex="0"
-              @keydown.enter="openPasswordModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.lockClosedOutline" class="row-icon" />
-                <strong class="label">비밀번호변경</strong>
-              </td>
-              <td class="pf-td editable-text">변경하기</td>
-            </tr>
 
             <!-- 출생년도 -->
             <tr>
@@ -63,6 +67,51 @@
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
               </td>
             </tr>
+
+            <!-- 매칭율-->
+            <tr>
+              <td class="pf-th">
+                <IonIcon :icon="icons.calendarOutline" class="row-icon" />
+                <strong class="label">매칭율</strong>
+              </td>
+              <td class="pf-td readonly">보냄 {{ user.sentRequestCountTotal|| '0' }} / 받음 {{ user.receivedRequestCountTotal|| '0' }} / 매칭 {{ user.acceptedChatCountTotal|| '0' }}</td>
+              
+            </tr>
+
+
+            <!-- 비밀번호 변경 -->
+            <tr
+              class="editable-row"
+              @click="openPasswordModal"
+              tabindex="0"
+              @keydown.enter="openPasswordModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.lockClosedOutline" class="row-icon" />
+                <strong class="label">비밀번호</strong>
+              </td>
+              <td class="pf-td editable-text">변경하기</td>
+            </tr>
+
+
+            <!-- 닉네임 -->
+            <tr
+              @click="openPopup(4, user.nickname)"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(4, user.nickname)"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
+                <strong class="label">닉네임</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.nickname }}</td>
+            </tr>
+
+
+
+
+
 
             <!-- 지역 -->
             <tr
@@ -92,6 +141,23 @@
               <td class="pf-td editable-text">{{ user.preference }}</td>
             </tr>
 
+
+            <!-- 결혼유무 -->
+            <tr
+              @click="openPopup(2, user.preference)"
+              class="editable-row"
+              tabindex="0"
+              @keydown.enter="openPopup(2, user.preference)"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">결혼</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.preference }}</td>
+            </tr>
+
+
+            
             <!-- 소개 -->
             <tr
               @click="openPopup(3, user.selfintro || '소개 없음')"
@@ -105,6 +171,11 @@
               </td>
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
+
+
+
+
+
 
             <!-- 가입/마지막 접속 (주석 유지) -->
             <!--
@@ -124,11 +195,16 @@
               <td class="pf-td readonly">{{ formatDate(user.last_login) }}</td>
             </tr>
             -->
+
           </tbody>
         </table>
       </div>
-
       <br />
+
+
+
+      
+    
 
       <!-- ✅ 친구 찾기 설정 카드 -->
       <div v-if="user" class="card pf-scope">
@@ -159,20 +235,6 @@
               </td>
             </tr>
 
-            <!-- 검색특징 -->
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">검색특징</strong>
-              </td>
-              <td class="pf-td editable-text">{{ user.search_preference }}</td>
-            </tr>
-
             <!-- 검색지역 -->
             <tr
               class="editable-row"
@@ -188,12 +250,99 @@
                 {{ searchRegionDisplay }}
               </td>
             </tr>
+
+            <!-- 검색특징 -->
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">검색성향</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+            </tr>
+
+
+
+            <!-- 결혼유무
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">결혼유무</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+            </tr>
+            -->
+
+
+            <!-- 상대매칭율
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">상대 매칭율 필터</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+            </tr>
+            -->
+
+            <!-- 전화번호 제외
+
+
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">보유전화번호제외</strong>
+              </td>
+              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+            </tr>
+
+            -->
+
+
           </tbody>
         </table>
       </div>
 
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+<br></br>
+
+
+
+
 
     <!-- ✅ 모달들 -->
     <PopupModal_1
@@ -254,9 +403,9 @@
 <script setup>
 /* ===========================================================
    6_profile.vue
-   - UI만 정리, 로직/흐름 최대 유지
-   - 기본 글자색은 테마 토큰으로 제어(가독성)
-   - 주석/로그 강화 + 즉시 반영 핸들러 추가
+   - 우측 상단 '설정' 버튼 추가 (절대배치)
+   - 클릭 시 /home/setting 이동 (라우트 원하는 경로로 변경 가능)
+   - 주석/로그 강화
    =========================================================== */
 import { ref, computed, onMounted } from 'vue'
 import { toastController, IonIcon } from '@ionic/vue'
@@ -289,7 +438,9 @@ import {
   chatbubbleEllipsesOutline,
   logInOutline,
   timeOutline,
-  optionsOutline
+  optionsOutline,
+  settingsOutline,  
+  ribbonOutline,        // ✅ [추가] 설정 아이콘
 } from 'ionicons/icons'
 
 /* 템플릿에서 사용하기 쉽게 묶어서 노출 */
@@ -304,7 +455,9 @@ const icons = {
   chatbubbleEllipsesOutline,
   logInOutline,
   timeOutline,
-  optionsOutline
+  optionsOutline,
+  settingsOutline, 
+  ribbonOutline,         // ✅ [추가]
 }
 
 const router = useRouter()
@@ -338,6 +491,23 @@ async function onPasswordUpdated() {
   })
   t.present()
 }
+
+/* ✅ 설정 버튼 핸들러 */
+function goSetting() {
+  console.log('[profile] goSetting → /home/setting')
+  // 필요 시 아래 경로를 프로젝트의 실제 설정 페이지로 맞춰주세요.
+  router.push('/home/7page')
+}
+
+// [함수 추가: 구독 페이지로 이동]
+function goMembership() {
+  console.log('[profile] goMembership → /home/subscribe')
+  router.push('/home/setting/0001') // 필요 시 실제 라우트로 변경
+}
+
+
+
+
 
 /* null, '', undefined → '전체' */
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
@@ -608,8 +778,6 @@ async function onSearchPreferenceUpdated(payload) {
 
 /* ===========================================================
    ⭐ 프로필 편집 반영용 핸들러 4종 (즉시 반영)
-   - 모달이 서버 저장을 마친 뒤 emit('updated', payload) 한다는 전제로
-     부모의 user 상태를 즉시 갱신합니다.
    =========================================================== */
 async function handleNicknameUpdate(payload) {
   const newNickname =
@@ -794,6 +962,7 @@ const logout = async () => {
   color: var(--text);
   box-shadow: 0 8px 24px var(--shadow);
   backdrop-filter: blur(2px);
+  position: relative; /* ✅ 우측 상단 버튼 절대배치용 */
 }
 
 /* 타이틀 */
@@ -811,6 +980,34 @@ const logout = async () => {
 }
 .title-icon { font-size: 18px; color: var(--gold); }
 
+/* ✅ 우측 상단 '설정' 버튼 */
+.title-action-btn {
+  position: absolute;
+  top: 10px;              /* 제목 라인과 정렬 */
+  right: 10px;            /* 우측 여백 */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--divider);
+  background: rgba(0,0,0,0.25);
+  color: #ffffff;         /* 가독성 확보(요청대로 진한 글씨) */
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+}
+.title-action-btn:hover,
+.title-action-btn:focus {
+  background: rgba(212,175,55,0.12);
+  border-color: var(--gold);
+  outline: none;
+}
+.title-action-btn:active { transform: translateY(1px); }
+.action-icon { font-size: 16px; color: var(--gold); }
+.action-text { line-height: 1; }
+
 /* 표(테이블) 공통 */
 .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: clamp(12px, 3.6vw, 14px); }
 .info-table tr { border-bottom: 1px dashed var(--divider); }
@@ -822,13 +1019,10 @@ const logout = async () => {
 
 /* ★ 교체 후 (안전: 테이블 셀 유지) */
 .pf-scope .pf-th {
-  /* display: grid;  ← 삭제 */
-  /* grid-template-columns: 20px 1fr; ← 삭제 */
-  /* column-gap: 6px; ← 삭제 */
   padding: 8px 8px;
-  vertical-align: middle;                           /* ★ 셀 수직 정렬 */
+  vertical-align: middle;                           
   color: var(--text) !important;
-  font-size: clamp(12.5px, 3.6vw, 14px) !important; /* ★ 글자 크기 강제 복구 */
+  font-size: clamp(12.5px, 3.6vw, 14px) !important; 
   line-height: 1.28;
   background: transparent !important;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -838,14 +1032,14 @@ const logout = async () => {
 .pf-scope .pf-th .row-icon {
   font-size: 14px !important;
   color: var(--gold) !important;
-  margin-right: 6px;                                 /* ★ 간격 */
+  margin-right: 6px;                                 
   vertical-align: middle;
 }
 
 /* 라벨은 한 줄 말줄임 */
 .pf-scope .pf-th .label {
   display: inline-block;
-  max-width: calc(100% - 26px);                      /* 아이콘 폭 고려 */
+  max-width: calc(100% - 26px);                      
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: var(--text) !important;
   font-weight: 700;
@@ -893,17 +1087,16 @@ const logout = async () => {
 /* 편집 가능 행: 항상 강조된 흰색 */
 .pf-scope .editable-row .pf-th,
 .pf-scope .editable-row .pf-td {
-  color: #ffffff;     /* ✨ 강한 흰색 */
-  font-weight: 600;   /* 두껍게 */
+  color: #ffffff;     
+  font-weight: 600;   
 }
 
 /* 읽기 전용 행: 항상 흐린 회색 */
 .pf-scope .readonly-row .pf-th,
 .pf-scope .readonly-row .pf-td {
-  color: var(--ink-weak);  /* 흐린 회색 */
+  color: var(--ink-weak);  
   font-weight: 400;
 }
-
 
 .pf-scope .editable-row:hover .pf-td,
 .pf-scope .editable-row:focus .pf-th,
@@ -918,6 +1111,27 @@ const logout = async () => {
 
 /* 로딩 */
 .loading-text { color: var(--text-muted); text-align: center; font-size: 14px; margin: 14px 0; }
+
+
+/* 회원 등급 행의 '구독하기' 뱃지형 CTA */
+.pf-scope .inline-cta {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  color: var(--gold);
+  font-weight: 700;
+}
+.pf-scope .editable-row:hover .inline-cta {
+  background: rgba(212, 175, 55, 0.12);
+}
+
+
+
+
+
+
+
 
 /* 초소형 화면 */
 @media (max-width: 360px) {
