@@ -14,32 +14,120 @@
         </p>
       </div>
 
+      <!-- 상태 메시지 -->
+      <p v-if="errorMsg" class="msg-error">{{ errorMsg }}</p>
+      <p v-if="successMsg" class="msg-success">{{ successMsg }}</p>
+
       <!-- 수락/거절/차단 버튼 -->
       <div class="button-row">
-        <ion-button color="success" expand="block" @click="accept">수락</ion-button>
-        <ion-button color="medium" expand="block" @click="reject">거절</ion-button>
-        <ion-button color="danger" expand="block" @click="block">차단</ion-button>
+        <ion-button
+          color="success"
+          expand="block"
+          :disabled="isSubmitting"
+          @click="accept"
+        >
+          {{ isSubmitting && action==='accept' ? '수락 중...' : '수락' }}
+        </ion-button>
+
+        <ion-button
+          color="medium"
+          expand="block"
+          :disabled="isSubmitting"
+          @click="reject"
+        >
+          {{ isSubmitting && action==='reject' ? '거절 중...' : '거절' }}
+        </ion-button>
+
+        <ion-button
+          color="danger"
+          expand="block"
+          :disabled="isSubmitting"
+          @click="block"
+        >
+          {{ isSubmitting && action==='block' ? '차단 중...' : '차단' }}
+        </ion-button>
       </div>
     </div>
   </ion-modal>
 </template>
 
 <script setup>
+// --------------------------------------------------------------
+// Modal_FriendMessage.vue
+// - 받은 친구 신청의 인사말 확인 + 수락/거절/차단 처리
+// - 변경 최소: API 호출을 모달 내부에 추가
+// - 주석/로그 풍부, 에러메시지 그대로 노출
+// --------------------------------------------------------------
+import { ref } from 'vue'
+import axios from 'axios'
 import { IonModal, IonButton } from '@ionic/vue'
 
 const props = defineProps({
-  request: Object, // request 객체 전체를 받음 (message, _id, from 등)
+  // request: {_id, from, to, message, status, ...}
+  request: { type: Object, required: true },
 })
 
 const emit = defineEmits(['close', 'accepted', 'rejected', 'blocked'])
 
-// 닫기
+const isSubmitting = ref(false)
+const action = ref('')          // 'accept' | 'reject' | 'block'
+const errorMsg = ref('')
+const successMsg = ref('')
+
 const closeModal = () => emit('close')
 
-// 버튼 이벤트
-const accept = () => emit('accepted', props.request._id)
-const reject = () => emit('rejected', props.request._id)
-const block = () => emit('blocked', props.request._id)
+// 공통 처리기: API 호출 래퍼
+async function doCall(method, url, okEvent) {
+  if (!props.request?._id) {
+    errorMsg.value = '요청 ID가 없습니다.'
+    console.error('[FriendMessage] missing request._id', props.request)
+    return
+  }
+
+  if (isSubmitting.value) return
+  isSubmitting.value = true
+  errorMsg.value = ''
+  successMsg.value = ''
+
+  try {
+    console.log('[FriendMessage] request start', { method, url, id: props.request._id })
+    const res = await axios({ method, url, withCredentials: true })
+    console.log('[FriendMessage] request ok', { status: res.status, data: res.data })
+
+    // 성공 메시지 & 상위 알림
+    successMsg.value = okEvent === 'accepted'
+      ? '친구 수락이 완료되었습니다. 채팅방이 생성됩니다.'
+      : okEvent === 'rejected'
+      ? '친구 신청을 거절했습니다.'
+      : '해당 사용자를 차단했습니다.'
+
+    emit(okEvent, props.request._id)
+
+    // UX: 잠깐 보여주고 닫기
+    setTimeout(() => emit('close'), 500)
+  } catch (err) {
+    const data = err?.response?.data
+    const msg = data?.message || data?.error || '처리에 실패했습니다.'
+    errorMsg.value = msg
+    console.error('[FriendMessage] request fail', { msg, err: data || err })
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+// 액션들
+async function accept() {
+  action.value = 'accept'
+  await doCall('put', `/api/friend-request/${props.request._id}/accept`, 'accepted')
+}
+async function reject() {
+  action.value = 'reject'
+  await doCall('put', `/api/friend-request/${props.request._id}/reject`, 'rejected')
+}
+async function block() {
+  action.value = 'block'
+  await doCall('put', `/api/friend-request/${props.request._id}/block`, 'blocked')
+}
 </script>
 
 <style scoped>
@@ -49,21 +137,21 @@ const block = () => emit('blocked', props.request._id)
    - 헤더/본문/버튼 간격 및 폰트 스케일 통일
    - 긴 메시지 스크롤 안전(max-height)
    - 터치 타깃(≥40px), safe-area 하단 여백 반영
-   - HTML/JS 변경 없음
+   - 글자색은 검은색(가독성 요청)
 ────────────────────────────────────────────────────────────────────── */
 
-/* 모달 자체 톤/크기 (Vue SFC scoped → :deep 필요) */
+/* 모달 자체 톤/크기 */
 :deep(ion-modal) {
   --backdrop-opacity: 0.45;
   --width: min(92vw, 420px);
-  --height: auto;                 /* 내용 높이에 맞춤 */
+  --height: auto;
   --border-radius: 14px;
   --box-shadow: 0 10px 28px rgba(0,0,0,.20);
 }
 :deep(ion-modal)::part(content) {
-  background: transparent;        /* 내부 카드만 흰 배경을 사용 */
-  border-radius: 14px;            /* iOS에서 모서리 유지 */
-  overflow: visible;              /* 그림자 잘리지 않도록 */
+  background: transparent;
+  border-radius: 14px;
+  overflow: visible;
 }
 
 /* 카드 래퍼 */
@@ -75,7 +163,7 @@ const block = () => emit('blocked', props.request._id)
   box-shadow: 0 10px 28px rgba(0,0,0,.12);
   padding: 16px 18px;
   font-size: clamp(14px, 2.6vw, 15px);
-  max-height: min(86vh, 640px);   /* 작은 화면에서도 안전 */
+  max-height: min(86vh, 640px);
   overflow: auto;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
@@ -100,11 +188,11 @@ const block = () => emit('blocked', props.request._id)
   --border-radius: 12px;
   --padding-start: 12px;
   --padding-end: 12px;
-  min-height: 40px;               /* 터치 타깃 */
+  min-height: 40px;
   font-weight: 600;
 }
 
-/* 메시지 박스: 긴 텍스트 대비 */
+/* 메시지 박스 */
 .message-box {
   padding: 12px;
   background-color: #f6f6f6;
@@ -114,7 +202,7 @@ const block = () => emit('blocked', props.request._id)
   white-space: pre-wrap;
   line-height: 1.45;
   color: #111;
-  max-height: 38vh;               /* 너무 길면 내부 스크롤 */
+  max-height: 38vh;
   overflow: auto;
 }
 .message-content {
@@ -123,7 +211,21 @@ const block = () => emit('blocked', props.request._id)
   word-break: break-word;
 }
 
-/* 버튼 열: 세로 스택 */
+/* 상태 메시지 */
+.msg-error {
+  margin: 8px 0;
+  color: #b00020;
+  font-weight: 700;
+  font-size: 13px;
+}
+.msg-success {
+  margin: 8px 0;
+  color: #1db954;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* 버튼 열 */
 .button-row {
   display: grid;
   grid-auto-flow: row;
@@ -133,7 +235,7 @@ const block = () => emit('blocked', props.request._id)
   --border-radius: 12px;
   --padding-start: 12px;
   --padding-end: 12px;
-  min-height: 44px;               /* 터치 타깃 강화 */
+  min-height: 44px;
   font-weight: 700;
 }
 
@@ -149,5 +251,4 @@ const block = () => emit('blocked', props.request._id)
   .modal-container { padding: 14px; }
   .message-box { padding: 10px; }
 }
-
 </style>

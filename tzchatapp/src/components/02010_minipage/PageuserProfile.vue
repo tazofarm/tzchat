@@ -10,7 +10,7 @@
           {{ user.nickname || '-' }} 님의 프로필
         </h3>
 
-        <!-- ✅ 6_profile 패턴: 우상단 절대배치 버튼 (설정→뒤로가기) -->
+        <!-- 뒤로가기 -->
         <button
           class="title-action-btn"
           type="button"
@@ -18,25 +18,15 @@
           aria-label="뒤로가기"
         >
           <IonIcon :icon="icons.chevronBackOutline" class="action-icon" />
-          <span class="action-text">뒤로가기</span>
+          <span class="action-text">뒤로</span>
         </button>
 
-        <!-- 🔍 사용자 정보 테이블 (6_profile 네임스페이스 적용) -->
-        <table class="info-table" aria-label="사용자 기본 정보">
+        <table class="info-table">
           <colgroup>
             <col class="pf-col-th" />
             <col class="pf-col-td" />
           </colgroup>
           <tbody>
-            <!-- 닉네임 -->
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
-                <strong class="label">닉네임</strong>
-              </td>
-              <td class="pf-td readonly">{{ user.nickname || '-' }}</td>
-            </tr>
-
             <!-- 성별 -->
             <tr>
               <td class="pf-th">
@@ -67,7 +57,7 @@
               <td class="pf-td readonly">{{ user.region1 || '' }} {{ user.region2 || '' }}</td>
             </tr>
 
-            <!-- 성향 (※ 현재 API 연결 전이므로 닉네임 임시 표시였던 부분 보정) -->
+            <!-- 성향 -->
             <tr>
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
@@ -76,25 +66,7 @@
               <td class="pf-td readonly">{{ user.preference || '-' }}</td>
             </tr>
 
-            <!-- 결혼유무 -->
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
-                <strong class="label">결혼유무</strong>
-              </td>
-              <td class="pf-td readonly">{{ user.maritalStatus || '-' }}</td>
-            </tr>
-
-            <!-- 최근 접속 -->
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.timeOutline" class="row-icon" />
-                <strong class="label">최근 접속</strong>
-              </td>
-              <td class="pf-td readonly">{{ formatDate(user.last_login) }}</td>
-            </tr>
-
-            <!-- 매칭율 (보냄/받음/매칭) -->
+            <!-- 매칭 통계 -->
             <tr>
               <td class="pf-th">
                 <IonIcon :icon="icons.statsChartOutline" class="row-icon" />
@@ -135,7 +107,6 @@
       <!-- ░░ 액션 영역 (대화하기/친구신청/차단/신고) ░░ -->
       <div class="card pf-scope">
 
-
         <!-- 대화하기 -->
         <div class="chat-button">
           <ion-button
@@ -151,6 +122,7 @@
 
         <!-- 버튼 그룹 -->
         <div class="button-group" role="group" aria-label="사용자 액션">
+          <!-- 친구 신청 -->
           <ion-button
             v-if="!user.isFriend"
             class="btn-outline"
@@ -161,73 +133,129 @@
             친구 신청
           </ion-button>
 
+          <!-- 친구 삭제 -->
           <ion-button
             v-else
-            class="btn-warning"
+            class="btn-danger"
             @click="removeFriend(user._id)"
           >
             <IonIcon :icon="icons.personRemoveOutline" class="btn-icon" />
             친구 삭제
           </ion-button>
 
+          <!-- 차단 / 차단 해제 -->
           <ion-button
             v-if="!user.isBlocked"
-            class="btn-muted"
+            class="btn-warning"
             @click="blockUser(user._id)"
           >
             <IonIcon :icon="icons.removeCircleOutline" class="btn-icon" />
             차단하기
           </ion-button>
-
           <ion-button
             v-else
-            class="btn-secondary"
+            class="btn-muted"
             @click="unblockUser(user._id)"
           >
             <IonIcon :icon="icons.checkmarkCircleOutline" class="btn-icon" />
             차단 해제
           </ion-button>
 
-          <ion-button class="btn-danger" @click="reportUser(user._id)">
+          <!-- 신고 -->
+          <ion-button
+            class="btn-secondary"
+            @click="reportUser(user._id)"
+          >
             <IonIcon :icon="icons.alertCircleOutline" class="btn-icon" />
             신고하기
           </ion-button>
         </div>
       </div>
 
-      <!-- 모달들 -->
-      <ModalFriendRequest
-        v-if="showRequestModal"
-        :toUserId="user._id"
-        :toNickname="user.nickname"
-        @close="showRequestModal = false"
-        @request-sent="handleRequestSent"
-      />
-      <ModalSelfIntro
+      <!-- ░░ 소개 모달 (읽기 전용) ░░ -->
+      <div
         v-if="showIntroModal"
-        :content="user.selfintro || '없음'"
-        @close="showIntroModal = false"
-      />
+        class="popup-overlay"
+        role="presentation"
+        @click.self="closeIntroModal"
+      >
+        <div
+          class="popup-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="intro-modal-title"
+        >
+          <h3 id="intro-modal-title">소개</h3>
+          <p class="intro-full">{{ user.selfintro || '소개가 없습니다.' }}</p>
+
+          <div class="footer-btns">
+            <ion-button
+              class="btn-primary"
+              expand="block"
+              @click="closeIntroModal"
+            >확인</ion-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ░░ 친구 신청 모달 ░░ -->
+      <div
+        v-if="showRequestModal"
+        class="popup-overlay"
+        role="presentation"
+        @click.self="onCloseFriendRequest"
+      >
+        <div
+          class="popup-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fr-modal-title"
+        >
+          <h3 id="fr-modal-title">친구 신청</h3>
+          <textarea
+            v-model="requestMessage"
+            class="request-input"
+            placeholder="인사말을 입력하세요 (선택)"
+            rows="4"
+          ></textarea>
+
+          <div class="footer-btns">
+            <ion-button
+              class="btn-primary"
+              expand="block"
+              :disabled="isSubmitting"
+              @click="sendFriendRequest"
+            >신청 보내기</ion-button>
+            <ion-button
+              class="btn-muted"
+              expand="block"
+              :disabled="isSubmitting"
+              @click="onCloseFriendRequest"
+            >취소</ion-button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
 
-<script setup>
-/* ===========================================================
-   pageuserProfile.vue  (6_profile 스타일 적용 버전)
-   - 레이아웃/간격/타이틀/버튼 스타일을 6_profile과 통일
-   - 기능/로직은 기존 유지
-   - 로그/주석 풍부하게
-   =========================================================== */
-import { ref, onMounted } from 'vue'
-import { IonIcon } from '@ionic/vue'
+<script setup lang="ts">
+/* -----------------------------------------------------------
+ * PageuserProfile.vue (TS 안전한 오류 처리)
+ * - axios 에러 안전 처리: isAxiosError / extractError
+ * - 라우터 기반 연동(변경 최소)
+ * - 주석/로그 최대
+ * ----------------------------------------------------------- */
+import {
+  IonButton,
+  IonIcon
+} from '@ionic/vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import axios, { isAxiosError } from 'axios' // ✅ isAxiosError 활용
 
-import ModalFriendRequest from '@/components/02010_minipage/Modal_FriendRequest.vue'
-import ModalSelfIntro from '@/components/02010_minipage/Modal_SelfIntro.vue'
-
-/* Ionicons */
+// 아이콘
 import {
   personCircleOutline,
   maleFemaleOutline,
@@ -236,7 +264,6 @@ import {
   chatbubbleEllipsesOutline,
   chevronForwardOutline,
   chevronBackOutline,
-  timeOutline,
   statsChartOutline,
   chatbubblesOutline,
   personAddOutline,
@@ -244,9 +271,7 @@ import {
   removeCircleOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
-  sparklesOutline,
-  optionsOutline,
-  ribbonOutline
+  sparklesOutline
 } from 'ionicons/icons'
 
 const icons = {
@@ -257,7 +282,6 @@ const icons = {
   chatbubbleEllipsesOutline,
   chevronForwardOutline,
   chevronBackOutline,
-  timeOutline,
   statsChartOutline,
   chatbubblesOutline,
   personAddOutline,
@@ -265,16 +289,14 @@ const icons = {
   removeCircleOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
-  sparklesOutline,
-  optionsOutline,
-  ribbonOutline
-}
+  sparklesOutline
+};
 
 const route = useRoute()
 const router = useRouter()
 
-/** 프로필 대상 사용자 상태 */
-const user = ref({
+// 상태
+const user = ref<any>({
   _id: '',
   username: '',
   nickname: '',
@@ -283,10 +305,7 @@ const user = ref({
   region1: '',
   region2: '',
   preference: '',
-  maritalStatus: '',
   selfintro: '',
-  createdAt: '',
-  last_login: '',
   isFriend: false,
   isBlocked: false,
   sentRequestCountTotal: 0,
@@ -294,20 +313,29 @@ const user = ref({
   acceptedChatCountTotal: 0
 })
 
-/** 모달 상태 */
-const showRequestModal = ref(false)
 const showIntroModal = ref(false)
+const showRequestModal = ref(false)
+const requestMessage = ref('')
+const isSubmitting = ref(false)
 
-/** 유틸: 날짜 포맷 */
-function formatDate(dateStr) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString()
+/** ✅ 공통: 에러 추출/로그 유틸 (TS 안전) */
+function extractError(e: unknown) {
+  if (isAxiosError(e)) {
+    // axios 에러: 서버 응답이 있으면 우선 출력
+    return e.response?.data ?? e.message;
+  }
+  if (e instanceof Error) return e.message;
+  try { return JSON.stringify(e); } catch { return String(e); }
 }
 
-/** 소개 모달 열기 */
+/** 소개 모달 핸들러 */
 function openIntroModal() {
   console.log('[UserProfile] 소개 모달 오픈')
   showIntroModal.value = true
+}
+function closeIntroModal() {
+  console.log('[UserProfile] 소개 모달 닫기')
+  showIntroModal.value = false
 }
 
 /** 초기 로딩: 사용자 정보 */
@@ -316,85 +344,115 @@ onMounted(async () => {
     const targetId = route.params.id
     console.log('[UserProfile] load target:', targetId)
     const res = await axios.get(`/api/users/${targetId}`, { withCredentials: true })
-    const data = res.data?.user ?? res.data ?? {}
+    const data = (res.data as any)?.user ?? res.data ?? {}
     user.value = {
       ...user.value,
       ...data,
+      isFriend:  !!data.isFriend,
+      isBlocked: !!data.isBlocked,
       sentRequestCountTotal: data.sentRequestCountTotal ?? 0,
       receivedRequestCountTotal: data.receivedRequestCountTotal ?? 0,
       acceptedChatCountTotal: data.acceptedChatCountTotal ?? 0
     }
     console.log('👤 사용자 정보 로드됨:', user.value)
-  } catch (err) {
-    console.error('❌ 사용자 정보 로딩 실패', err?.response?.data || err)
+  } catch (e) {
+    const msg = extractError(e)
+    console.error('❌ 사용자 정보 로딩 실패:', msg)
   }
 })
 
 /** 친구 신청 모달 오픈 */
 function onOpenFriendRequest() {
   if (!user.value._id) {
-    console.warn('[UserProfile] 대상 사용자 없음 → 모달 미오픈')
+    console.warn('⚠️ 대상 ID가 없습니다.')
     return
   }
-  console.log('[UserProfile] 친구 신청 모달 오픈')
+  if (user.value.isBlocked) {
+    console.warn('⚠️ 차단된 대상에게는 신청 불가')
+    return
+  }
+  requestMessage.value = ''
   showRequestModal.value = true
+  console.log('[UserProfile] 친구 신청 모달 오픈')
+}
+function onCloseFriendRequest() {
+  showRequestModal.value = false
+  console.log('[UserProfile] 친구 신청 모달 닫기')
 }
 
-/** 친구 신청 완료 후 처리 */
-function handleRequestSent() {
-  console.log('✅ 친구 신청 완료')
-  showRequestModal.value = false
+/** 친구 신청 보내기 */
+async function sendFriendRequest() {
+  if (!user.value._id) return
+  try {
+    isSubmitting.value = true
+    const payload = { to: user.value._id, message: requestMessage.value }
+    console.log('📨 친구 신청 요청:', payload)
+    const res = await axios.post('/api/friend-request', payload, { withCredentials: true })
+    console.log('✅ 친구 신청 성공:', res.data)
+    showRequestModal.value = false
+  } catch (e) {
+    const msg = extractError(e)
+    console.error('❌ 친구 신청 실패:', msg)
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 /** 대화 시작 */
-async function startChat(userId) {
-  try {
-    const res = await axios.post('/api/chatrooms', { userId }, { withCredentials: true })
-    const roomId = res.data?._id || res.data?.id
-    if (roomId) {
-      console.log('💬 채팅방 이동:', roomId)
-      router.push(`/home/chat/${roomId}`)
-    }
-  } catch (err) {
-    console.error('❌ 채팅방 생성 실패:', err?.response?.data || err)
-  }
+function startChat(targetId: string) {
+  console.log('💬 대화 시작 (추가 라우팅 필요 시 구현):', targetId)
+  // router.push(...) 등으로 연결
 }
 
 /** 친구 삭제 */
-async function removeFriend(targetId) {
+async function removeFriend(targetId: string) {
   try {
     await axios.delete(`/api/friend/${targetId}`, { withCredentials: true })
     user.value.isFriend = false
     console.log('🗑️ 친구 삭제됨:', targetId)
-  } catch (err) {
-    console.error('❌ 친구 삭제 실패:', err?.response?.data || err)
+  } catch (e) {
+    const msg = extractError(e)
+    console.error('❌ 친구 삭제 실패:', msg)
   }
 }
 
 /** 사용자 차단 */
-async function blockUser(targetId) {
+async function blockUser(targetId: string) {
   try {
-    await axios.put(`/api/block/${targetId}`, {}, { withCredentials: true })
+    const res = await axios.put(`/api/block/${targetId}`, {}, { withCredentials: true })
     user.value.isBlocked = true
-    console.log('🚫 차단됨:', targetId)
-  } catch (err) {
-    console.error('❌ 차단 실패:', err?.response?.data || err)
+    console.log('🚫 차단됨:', { targetId, status: res.status, data: res.data })
+
+    // 차단 후 이동(있으면)
+    const DEST_PATHS = ['/home/3page', '/blocks']
+    for (const p of DEST_PATHS) {
+      try {
+        await router.push(p)
+        console.log('[UserProfile] 차단 리스트로 이동:', p)
+        return
+      } catch {}
+    }
+    console.warn('⚠️ 차단 리스트 라우트가 없어 현재 페이지 유지됨.')
+  } catch (e) {
+    const msg = extractError(e)
+    console.error('❌ 차단 실패:', msg)
   }
 }
 
 /** 차단 해제 */
-async function unblockUser(targetId) {
+async function unblockUser(targetId: string) {
   try {
     await axios.delete(`/api/block/${targetId}`, { withCredentials: true })
     user.value.isBlocked = false
     console.log('🔓 차단 해제됨:', targetId)
-  } catch (err) {
-    console.error('❌ 차단 해제 실패:', err?.response?.data || err)
+  } catch (e) {
+    const msg = extractError(e)
+    console.error('❌ 차단 해제 실패:', msg)
   }
 }
 
 /** 신고 (임시) */
-function reportUser(id) {
+function reportUser(id: string) {
   console.log('⚠️ 신고 요청:', id)
 }
 
@@ -407,94 +465,43 @@ function goBack() {
 
 <style scoped>
 /* ===========================================================
-   6_profile 테마/토큰과 동일한 스케일을 적용
-   - 가독성(글자색) 강제
-   - pf-scope 네임스페이스로 충돌 최소화
+   블랙+골드 테마 (가독성 향상)
    =========================================================== */
 :root {
-  --bg: #0b0b0e;
-  --panel: #111215;
-  --panel-2: #15161a;
-  --gold: #d4af37;
-  --gold-2: #b8901e;
+  --bg: #0f0f10;
+  --card: #161616;
   --text: #eaeaea;
-  --text-dim: #bdbdbd;
-  --divider: rgba(212, 175, 55, 0.18);
-  --shadow: rgba(0, 0, 0, 0.35);
+  --text-strong: #ffffff;
+  --text-dim: #b8b8b8;
+  --divider: #2b2b2b;
+  --gold: #D4AF37;
+  --gold-2: #c19b2e;
 }
 
-.page-wrapper {
-  background:
-    radial-gradient(1200px 800px at 20% -10%, rgba(212, 175, 55, 0.08), transparent 55%),
-    radial-gradient(900px 700px at 110% -20%, rgba(184, 144, 30, 0.06), transparent 60%),
-    var(--bg);
-  color: var(--text);
-  min-height: 100%;
-}
+.page-wrapper { background: var(--bg); min-height: 100vh; padding: 12px; color: var(--text); }
+.container     { max-width: 780px; margin: 0 auto; padding: 12px; }
 
-.container { padding: 12px; }
+.card { background: var(--card); border: 1px solid var(--divider); border-radius: 14px; padding: 14px; box-shadow: 0 0 0 1px #000 inset; }
 
-/* ── 카드 기본 ─────────────────────────────────────────── */
-.card {
-  border: 1px solid var(--divider);
-  border-radius: 12px;
-  padding: 12px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), var(--panel);
-  color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow);
-  position: relative; /* 우상단 버튼 절대배치 */
-}
+/* 타이틀 */
+.card-title { display:flex; align-items:center; gap:8px; margin:0 0 12px; color: var(--text-strong); font-weight: 800; }
+.title-icon  { font-size: 20px !important; color: var(--gold) !important; }
 
-/* ── 타이틀 + 밑줄 ─────────────────────────────────────── */
-.card-title {
-  display: flex; align-items: center; gap: 8px;
-  margin: 0 0 10px;
-  font-size: clamp(15px, 4.2vw, 18px);
-  font-weight: 800; color: var(--text);
-  position: relative;
-}
-.card-title::after {
-  content: ""; height: 2px; width: 44px;
-  background: linear-gradient(90deg, var(--gold), transparent);
-  position: absolute; left: 0; bottom: -6px;
-}
-.title-icon { font-size: 18px; color: var(--gold); }
-
-/* ── 우상단 버튼 (뒤로가기) ─────────────────────────────── */
+/* 우상단 버튼 */
 .title-action-btn {
-  position: absolute; top: 10px; right: 10px;
+  position: absolute; top: 10px; right: 12px;
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 10px;
-  border: 1px solid var(--divider);
-  background: rgba(0,0,0,0.25);
-  color: #fff; font-weight: 700; font-size: 13px;
-  cursor: pointer;
-  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+  background: transparent; color: var(--gold); border: 1px solid var(--gold);
+  border-radius: 10px; padding: 6px 10px; cursor: pointer;
 }
-.title-action-btn:hover,
-.title-action-btn:focus { background: rgba(212,175,55,0.12); border-color: var(--gold); }
-.title-action-btn:active { transform: translateY(1px); }
-.action-icon { font-size: 16px; color: var(--gold); }
-.action-text { line-height: 1; }
+.title-action-btn .action-icon { font-size: 16px !important; color: var(--gold) !important; }
+.title-action-btn .action-text { color: var(--gold); font-weight: 700; }
 
-/* ── 테이블 (6_profile 네임스페이스) ───────────────────── */
-.info-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: clamp(12px, 3.6vw, 14px); }
-.info-table tr { border-bottom: 1px dashed var(--divider); }
-.info-table tr:last-child { border-bottom: 0; }
-
-.pf-col-th { width: 42%; }
-.pf-col-td { width: 58%; }
-
-.pf-scope .pf-th {
-  padding: 8px; vertical-align: middle;
-  color: var(--text) !important; background: transparent !important;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: clamp(12.5px, 3.6vw, 14px) !important; line-height: 1.28;
-}
-.pf-scope .pf-td {
-  padding: 8px; text-align: left; color: var(--text);
-  background: transparent !important;
-}
+/* 테이블 */
+.info-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.4; }
+.pf-col-th { width: 40%; } .pf-col-td { width: 60%; }
+.pf-scope .pf-th { padding: 8px; text-align: left; color: var(--text); font-weight: 700; }
+.pf-scope .pf-td { padding: 8px; text-align: left; color: var(--text); background: transparent !important; }
 
 /* 아이콘/라벨 */
 .pf-scope .row-icon { font-size: 14px !important; color: var(--gold) !important; margin-right: 6px; vertical-align: middle; }
@@ -504,50 +511,41 @@ function goBack() {
 .editable-row { cursor: pointer; border-left: 2px solid transparent; }
 .pf-scope .editable-row .pf-th, .pf-scope .editable-row .pf-td { color: #fff; font-weight: 600; }
 .pf-scope .editable-row:hover .pf-td,
-.pf-scope .editable-row:focus .pf-th,
-.pf-scope .editable-row:focus .pf-td,
-.pf-scope .editable-row:focus-within .pf-th,
-.pf-scope .editable-row:focus-within .pf-td { background-color: var(--panel-2) !important; }
-.pf-scope .editable-row:hover { border-left-color: var(--gold-2); }
-.pf-scope .editable-row:focus,
-.pf-scope .editable-row:focus-within { border-left-color: var(--gold); }
+.pf-scope .editable-row:focus .pf-td { background: rgba(255,255,255,0.04) !important; }
+.intro-cell { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.intro-preview { color: var(--text-dim); display:inline-block; max-width: calc(100% - 80px); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.more-icon { font-size: 14px !important; color: var(--gold) !important; }
 
-/* 소개 셀 내부 레이아웃 */
-.intro-cell { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.intro-preview { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.intro-more { display: inline-flex; align-items: center; color: var(--gold); font-weight: 700; }
-.more-icon { font-size: 14px; margin-left: 2px; }
+/* 매칭 통계 배지 */
+.match-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { background: #222; color: #e6e6e6; border: 1px solid #333; padding: 4px 8px; border-radius: 999px; font-weight: 700; }
+.badge-acc { background: #1f1a10; color: var(--gold); border-color: #3a2a0a; }
 
-/* 매칭율 뱃지 */
-.match-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 6px; border-radius: 999px;
-  border: 1px solid var(--divider); background: rgba(255,255,255,0.02);
-  font-weight: 700; white-space: nowrap;
-  font-size : 10px;
+/* 팝업 공통 */
+.popup-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display:flex; align-items:center; justify-content:center; z-index: 9999;
 }
-.badge-acc { border-color: var(--gold); }
+.popup-content {
+  width: min(680px, 92%); background: #111; border: 1px solid var(--gold);
+  border-radius: 14px; padding: 14px; color: var(--text);
+}
+.popup-content h3 { margin-top: 0; color: var(--text-strong); font-weight: 900; }
+.intro-full { white-space: pre-wrap; color: var(--text); }
 
-/* 액션 카드 내부 버튼 */
-.chat-button {
-  margin: 8px 0; /* 상하 간격 줄임 */
+.request-input {
+  width: 100%; min-height: 100px; border-radius: 10px; border: 1px solid #333;
+  background: #0f0f0f; color: #eaeaea; padding: 10px; font-size: 14px;
 }
 
-/* IonButton 공통 */
-ion-button {
-  --border-radius: 8px;   /* 둥근 정도 조금 축소 */
-  font-weight: 600;       /* 두께 살짝 줄임 */
-  font-size: 10px;        /* 글자 크기 축소 */
-  height: 22px;           /* 버튼 높이 지정 */
-  min-height: 32px;       /* 기본 min-height 덮어쓰기 */
-  --padding-start: 10px;  /* 좌우 패딩 */
-  --padding-end: 10px;
-  --padding-top: 4px;     /* 상하 패딩 */
-  --padding-bottom: 4px;
-}
+/* 모달 푸터 버튼 */
+.footer-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 
-/* 프라이머리 버튼 */
+/* 버튼 공통 */
+ion-button { --border-radius: 12px; font-weight: 800; }
+.btn-icon { margin-right: 6px; }
+
+/* 주요 버튼 색 */
 .btn-primary {
   --background: var(--gold);
   --background-activated: var(--gold-2);
@@ -555,45 +553,15 @@ ion-button {
   --color: #1a1a1a;
 }
 
-/* 버튼 그룹 (행 정렬 + 간격) */
-.button-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px; /* 버튼 사이 간격 줄임 */
-}
+/* 버튼 그룹 */
+.button-group { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* 스타일별 버튼 */
-.btn-outline {
-  --background: transparent;
-  --color: var(--gold);
-  --border-color: var(--gold);
-  --border-style: solid;
-  --border-width: 1px;
-}
-
-.btn-warning {
-  --background: #3a2a0a;
-  --color: var(--gold);
-}
-
-.btn-muted {
-  --background: transparent;
-  --color: var(--text-dim);
-  --border-color: var(--divider);
-  --border-style: solid;
-  --border-width: 1px;
-}
-
-.btn-secondary {
-  --background: #232323;
-  --color: var(--gold);
-}
-
-.btn-danger {
-  --background: #b00020;
-  --color: #fff;
-}
-
+.btn-outline { --background: transparent; --color: var(--gold); --border-color: var(--gold); --border-style: solid; --border-width: 1px; }
+.btn-warning { --background: #3a2a0a; --color: var(--gold); }
+.btn-muted   { --background: transparent; --color: var(--text-dim); --border-color: var(--divider); --border-style: solid; --border-width: 1px; }
+.btn-secondary { --background: #232323; --color: var(--gold); }
+.btn-danger  { --background: #b00020; --color: #fff; }
 
 /* 작은 화면 대응 */
 @media (max-width: 360px) {
