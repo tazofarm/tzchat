@@ -19,6 +19,24 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
+/**
+ * ✅ [추가] /public 정적 파일 서빙
+ * - privacy.html 등 정적 페이지를 직접 서빙합니다.
+ * - 결과적으로 /privacy.html 로도 접근 가능 → Play Console URL로 쓰기 좋음
+ */
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
+
+/**
+ * ✅ (유지) /privacy → /public/privacy.html 로 연결 (짧은 경로 지원 + 접근 로그)
+ * - 기존 라우트 유지, 정적 파일과 동일한 콘텐츠 반환
+ */
+app.get('/privacy', (req, res) => {
+  console.log(`[ROUTE] GET /privacy  ua=${req.get('user-agent')} ip=${req.ip}`);
+  res.sendFile(path.join(publicDir, 'privacy.html'));
+});
+
 // ✅ 사진 업로드된 파일 접근용 정적 경로
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 console.log('🖼️ /uploads 정적 파일 경로 설정');
