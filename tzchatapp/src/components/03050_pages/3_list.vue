@@ -8,7 +8,8 @@
         role="button"
         tabindex="0"
         :aria-expanded="!collapsedSent"
-        @click="toggleSent()"
+        @click="toggleSent()
+        "
         @keydown="toggleOnKeydown($event, toggleSent)"
       >
         <ion-icon :icon="icons.chevronForwardOutline" v-if="collapsedSent" class="section-toggle-icon" aria-hidden="true" />
@@ -237,6 +238,14 @@ const anyNewSent = computed(() => sentRequests.value.some(i => i._isNew))
 const anyNewReceived = computed(() => receivedRequests.value.some(i => i._isNew))
 const hasAnyNew = () => anyNewSent.value || anyNewReceived.value
 
+/* ===== 유틸: 리스트에서 id로 제거 ===== */
+function removeById (listRef, id, key = '_id') {
+  const before = listRef.value.length
+  listRef.value = listRef.value.filter(x => x?.[key] !== id)
+  const after = listRef.value.length
+  console.log(`[FriendsList] removeById ${id}: ${before} → ${after}`)
+}
+
 /* ===== 브로드캐스트 ===== */
 function broadcastFriendsState () {
   try {
@@ -287,7 +296,7 @@ const handleClick = (user) => {
   goToUserProfile(user._id)
 }
 
-/* API 리프레시 */
+/* ===== API 리프레시 ===== */
 async function refreshSent () {
   const res = await axios.get('/api/friend-requests/sent', { withCredentials: true })
   sentRequests.value = res.data.map(it => {
@@ -317,13 +326,101 @@ async function refreshBlocks () {
   console.log('[FriendsList] refreshBlocks →', blocks.value.length, '명')
 }
 
-/* 모달 */
+/* ===== 모달 ===== */
 const openMessageModal = (request) => {
   selectedRequest.value = request
   console.log('[FriendsList] 인사말 모달 오픈 →', request?._id)
 }
 
-/* 소켓 */
+/* ===================================================
+   ✅ 추가: 친구신청 취소 / 수락 / 거절 / 차단 액션 함수
+   - 라우터 규약(모델 메모리 상):
+     * 취소:    DELETE /api/friend-request/:id
+     * 수락:    PUT    /api/friend-request/:id/accept
+     * 거절:    PUT    /api/friend-request/:id/reject
+     * 차단:    PUT    /api/friend-request/:id/block
+   - 성공 시 목록/카운트/배지/소켓 반영
+=================================================== */
+async function cancelRequest (idOrObj) {
+  try {
+    const id = typeof idOrObj === 'string' ? idOrObj : idOrObj?._id
+    if (!id) return console.warn('[FriendsList] cancelRequest: id 없음', idOrObj)
+    console.log('[FriendsList] 친구신청 취소 요청 →', id)
+
+    await axios.delete(`/api/friend-request/${id}`, { withCredentials: true })
+
+    // 낙관적 업데이트: 보낸/받은 목록에서 제거
+    removeById(sentRequests, id)
+    removeById(receivedRequests, id)
+    broadcastFriendsState()
+
+    console.log('%c[FriendsList] 친구신청 취소 완료', 'color:#0bd60b', id)
+  } catch (err) {
+    console.error('[FriendsList] 친구신청 취소 실패:', err?.response?.data || err?.message || err)
+  }
+}
+
+async function acceptRequest (payload) {
+  try {
+    const id = typeof payload === 'string' ? payload : payload?._id
+    if (!id) return console.warn('[FriendsList] acceptRequest: id 없음', payload)
+    console.log('[FriendsList] 친구신청 수락 요청 →', id)
+
+    await axios.put(`/api/friend-request/${id}/accept`, {}, { withCredentials: true })
+
+    // 받은 목록에서 제거 + 친구 목록 갱신
+    removeById(receivedRequests, id)
+    await refreshFriends()
+    broadcastFriendsState()
+
+    if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
+    console.log('%c[FriendsList] 친구신청 수락 완료', 'color:#0bd60b', id)
+  } catch (err) {
+    console.error('[FriendsList] 친구신청 수락 실패:', err?.response?.data || err?.message || err)
+  }
+}
+
+async function rejectRequest (payload) {
+  try {
+    const id = typeof payload === 'string' ? payload : payload?._id
+    if (!id) return console.warn('[FriendsList] rejectRequest: id 없음', payload)
+    console.log('[FriendsList] 친구신청 거절 요청 →', id)
+
+    await axios.put(`/api/friend-request/${id}/reject`, {}, { withCredentials: true })
+
+    // 보낸/받은 양쪽에서 제거 (상대 상태와 무관하게 로컬 정리)
+    removeById(sentRequests, id)
+    removeById(receivedRequests, id)
+    broadcastFriendsState()
+
+    if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
+    console.log('%c[FriendsList] 친구신청 거절 완료', 'color:#0bd60b', id)
+  } catch (err) {
+    console.error('[FriendsList] 친구신청 거절 실패:', err?.response?.data || err?.message || err)
+  }
+}
+
+async function blockRequest (payload) {
+  try {
+    const id = typeof payload === 'string' ? payload : payload?._id
+    if (!id) return console.warn('[FriendsList] blockRequest: id 없음', payload)
+    console.log('[FriendsList] 친구신청 차단 요청 →', id)
+
+    await axios.put(`/api/friend-request/${id}/block`, {}, { withCredentials: true })
+
+    // 받은 목록에서 제거 + 차단 목록 갱신
+    removeById(receivedRequests, id)
+    await refreshBlocks()
+    broadcastFriendsState()
+
+    if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
+    console.log('%c[FriendsList] 친구신청 차단 완료', 'color:#0bd60b', id)
+  } catch (err) {
+    console.error('[FriendsList] 친구신청 차단 실패:', err?.response?.data || err?.message || err)
+  }
+}
+
+/* ===== 소켓 ===== */
 function bindSocketHandlers () {
   if (!socket) return
   console.log('[FriendsList] Socket 바인딩')
@@ -337,7 +434,7 @@ function bindSocketHandlers () {
   socket.on('friendRequest:accepted', async (req) => {
     const me = myId.value; if (!me) return
     if (req.to?._id === me) {
-      receivedRequests.value = receivedRequests.value.filter(r => r._id !== req._id)
+      removeById(receivedRequests, req._id)
       await refreshFriends()
       broadcastFriendsState()
     }
@@ -345,15 +442,15 @@ function bindSocketHandlers () {
 
   socket.on('friendRequest:rejected', (req) => {
     const me = myId.value; if (!me) return
-    sentRequests.value     = sentRequests.value.filter(r => r._id !== req._id)
-    receivedRequests.value = receivedRequests.value.filter(r => r._id !== req._id)
+    removeById(sentRequests, req._id)
+    removeById(receivedRequests, req._id)
     broadcastFriendsState()
   })
 
   socket.on('friendRequest:cancelled', (req) => {
     const me = myId.value; if (!me) return
-    sentRequests.value     = sentRequests.value.filter(r => r._id !== req._id)
-    receivedRequests.value = receivedRequests.value.filter(r => r._id !== req._id)
+    removeById(sentRequests, req._id)
+    removeById(receivedRequests, req._id)
     broadcastFriendsState()
   })
 
