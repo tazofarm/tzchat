@@ -8,8 +8,7 @@
         role="button"
         tabindex="0"
         :aria-expanded="!collapsedSent"
-        @click="toggleSent()
-        "
+        @click="toggleSent()"
         @keydown="toggleOnKeydown($event, toggleSent)"
       >
         <ion-icon :icon="icons.chevronForwardOutline" v-if="collapsedSent" class="section-toggle-icon" aria-hidden="true" />
@@ -43,7 +42,12 @@
                 <div class="user-meta">출생년도: {{ r.to.birthyear }} / 성별: {{ r.to.gender === 'man' ? '남자' : '여자' }}</div>
               </div>
               <!-- 버튼은 행 클릭과 분리 -->
-              <ion-button size="small" color="medium" class="btn-gold-outline" @click.stop="cancelRequest(r._id)">취소하기</ion-button>
+              <ion-button
+                size="small"
+                color="medium"
+                class="btn-gold-outline"
+                @click.stop="onCancelClick(r._id)"
+              >취소하기</ion-button>
             </div>
           </li>
         </ul>
@@ -91,7 +95,12 @@
                 </div>
                 <div class="user-meta">출생년도: {{ r.from.birthyear }} / 성별: {{ r.from.gender === 'man' ? '남자' : '여자' }}</div>
               </div>
-              <ion-button size="small" color="primary" class="btn-gold-solid" @click.stop="openMessageModal(r)">인사말보기</ion-button>
+              <ion-button
+                size="small"
+                color="primary"
+                class="btn-gold-solid"
+                @click.stop="openMessageModal(r)"
+              >인사말보기</ion-button>
             </div>
           </li>
         </ul>
@@ -189,9 +198,9 @@
     v-if="selectedRequest"
     :request="selectedRequest"
     @close="selectedRequest = null"
-    @accepted="acceptRequest"
-    @rejected="rejectRequest"
-    @blocked="blockRequest"
+    @accepted="onAcceptClick"
+    @rejected="onRejectClick"
+    @blocked="onBlockClick"
   />
 </template>
 
@@ -333,23 +342,21 @@ const openMessageModal = (request) => {
 }
 
 /* ===================================================
-   ✅ 추가: 친구신청 취소 / 수락 / 거절 / 차단 액션 함수
-   - 라우터 규약(모델 메모리 상):
-     * 취소:    DELETE /api/friend-request/:id
-     * 수락:    PUT    /api/friend-request/:id/accept
-     * 거절:    PUT    /api/friend-request/:id/reject
-     * 차단:    PUT    /api/friend-request/:id/block
-   - 성공 시 목록/카운트/배지/소켓 반영
+   ✅ 액션 함수(실제 API 호출) + 템플릿 래퍼(이름 충돌 방지)
+   - 취소:    DELETE /api/friend-request/:id
+   - 수락:    PUT    /api/friend-request/:id/accept
+   - 거절:    PUT    /api/friend-request/:id/reject
+   - 차단:    PUT    /api/friend-request/:id/block
 =================================================== */
-async function cancelRequest (idOrObj) {
+// --- 실제 호출 함수 ---
+async function cancelFriendRequest (idOrObj) {
   try {
     const id = typeof idOrObj === 'string' ? idOrObj : idOrObj?._id
-    if (!id) return console.warn('[FriendsList] cancelRequest: id 없음', idOrObj)
+    if (!id) return console.warn('[FriendsList] cancelFriendRequest: id 없음', idOrObj)
     console.log('[FriendsList] 친구신청 취소 요청 →', id)
 
     await axios.delete(`/api/friend-request/${id}`, { withCredentials: true })
 
-    // 낙관적 업데이트: 보낸/받은 목록에서 제거
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
     broadcastFriendsState()
@@ -359,16 +366,14 @@ async function cancelRequest (idOrObj) {
     console.error('[FriendsList] 친구신청 취소 실패:', err?.response?.data || err?.message || err)
   }
 }
-
-async function acceptRequest (payload) {
+async function acceptFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] acceptRequest: id 없음', payload)
+    if (!id) return console.warn('[FriendsList] acceptFriendRequest: id 없음', payload)
     console.log('[FriendsList] 친구신청 수락 요청 →', id)
 
     await axios.put(`/api/friend-request/${id}/accept`, {}, { withCredentials: true })
 
-    // 받은 목록에서 제거 + 친구 목록 갱신
     removeById(receivedRequests, id)
     await refreshFriends()
     broadcastFriendsState()
@@ -379,16 +384,14 @@ async function acceptRequest (payload) {
     console.error('[FriendsList] 친구신청 수락 실패:', err?.response?.data || err?.message || err)
   }
 }
-
-async function rejectRequest (payload) {
+async function rejectFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] rejectRequest: id 없음', payload)
+    if (!id) return console.warn('[FriendsList] rejectFriendRequest: id 없음', payload)
     console.log('[FriendsList] 친구신청 거절 요청 →', id)
 
     await axios.put(`/api/friend-request/${id}/reject`, {}, { withCredentials: true })
 
-    // 보낸/받은 양쪽에서 제거 (상대 상태와 무관하게 로컬 정리)
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
     broadcastFriendsState()
@@ -399,16 +402,14 @@ async function rejectRequest (payload) {
     console.error('[FriendsList] 친구신청 거절 실패:', err?.response?.data || err?.message || err)
   }
 }
-
-async function blockRequest (payload) {
+async function blockFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] blockRequest: id 없음', payload)
+    if (!id) return console.warn('[FriendsList] blockFriendRequest: id 없음', payload)
     console.log('[FriendsList] 친구신청 차단 요청 →', id)
 
     await axios.put(`/api/friend-request/${id}/block`, {}, { withCredentials: true })
 
-    // 받은 목록에서 제거 + 차단 목록 갱신
     removeById(receivedRequests, id)
     await refreshBlocks()
     broadcastFriendsState()
@@ -418,6 +419,37 @@ async function blockRequest (payload) {
   } catch (err) {
     console.error('[FriendsList] 친구신청 차단 실패:', err?.response?.data || err?.message || err)
   }
+}
+
+// --- 템플릿용 래퍼(이름 충돌 방지 + 런타임 가드 + 추가 로그) ---
+function onCancelClick (id) {
+  const t = typeof cancelFriendRequest
+  console.log('[FriendsList] onCancelClick 호출 → typeof cancelFriendRequest =', t, 'id=', id)
+  if (t !== 'function') {
+    console.error('[FriendsList] cancelFriendRequest가 함수가 아닙니다:', cancelFriendRequest)
+    refreshSent().catch(() => {})
+    refreshReceived().catch(() => {})
+    return
+  }
+  cancelFriendRequest(id)
+}
+function onAcceptClick (payload) {
+  const t = typeof acceptFriendRequest
+  console.log('[FriendsList] onAcceptClick → typeof acceptFriendRequest =', t, 'payload=', payload?._id || payload)
+  if (t !== 'function') return console.error('[FriendsList] acceptFriendRequest가 함수가 아닙니다:', acceptFriendRequest)
+  acceptFriendRequest(payload)
+}
+function onRejectClick (payload) {
+  const t = typeof rejectFriendRequest
+  console.log('[FriendsList] onRejectClick → typeof rejectFriendRequest =', t, 'payload=', payload?._id || payload)
+  if (t !== 'function') return console.error('[FriendsList] rejectFriendRequest가 함수가 아닙니다:', rejectFriendRequest)
+  rejectFriendRequest(payload)
+}
+function onBlockClick (payload) {
+  const t = typeof blockFriendRequest
+  console.log('[FriendsList] onBlockClick → typeof blockFriendRequest =', t, 'payload=', payload?._id || payload)
+  if (t !== 'function') return console.error('[FriendsList] blockFriendRequest가 함수가 아닙니다:', blockFriendRequest)
+  blockFriendRequest(payload)
 }
 
 /* ===== 소켓 ===== */
@@ -551,7 +583,7 @@ onUnmounted(() => {
   background:linear-gradient(135deg, rgba(212,175,55,.35), rgba(212,175,55,.08));
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite:xor; mask-composite:exclude;
-  pointer-events:none;                 /* ✅ 오버레이가 클릭을 가로채지 않게 */
+  pointer-events:none;
 }
 
 /* 리스트 */
@@ -560,7 +592,7 @@ ul{ margin:0; padding:0; list-style:none; }
 
 /* ✅ 행 전체 클릭 + 다크 배경 */
 .row{
-  position:relative; z-index:1;        /* ✅ 오버레이 위로 */
+  position:relative; z-index:1;
   background:var(--row) !important; color:var(--ink) !important;
   border:1px solid #2a2a2a; border-radius:12px;
   padding:12px 10px; margin-bottom:10px;
