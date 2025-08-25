@@ -110,8 +110,16 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0
-    }
+    },
+
+
+    // 🔽 [탈퇴 관리 필드]
+    status: { type: String, enum: ['active', 'pendingDeletion', 'deleted'], default: 'active' },
+    deletionRequestedAt: { type: Date, default: null },  // 탈퇴 신청 시각
+    deletionDueAt: { type: Date, default: null },        // 영구 삭제 예정일
+
   },
+  
   {
     timestamps: true // createdAt/updatedAt 자동 관리(기존 유지)
   }

@@ -61,7 +61,7 @@
         <li class="list-item" @click="goPage('/home/setting/0017')">0017</li>
         <li class="list-item" @click="goPage('/home/setting/0018')">0018</li>
         <li class="list-item" @click="goPage('/home/setting/0019')">0019</li>
-        <li class="list-item" @click="goPage('/home/setting/0020')">0020</li>
+        
         -->
 
 
@@ -71,14 +71,23 @@
           <span>로그아웃</span>
         </li>
 
-        <!-- 회원탈퇴 버튼 -->
+        <!-- 회원탈퇴 버튼
 
         <li class="withdraw-button" @click="withdraw">
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
           <span>회원탈퇴</span>
         </li>
+         -->
+          <!-- 회원탈퇴 버튼 -->
 
 
+        <li class="withdraw-button" @click="goPage('/home/setting/0020')">
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+          <span>회원탈퇴</span>
+        </li>
+
+       
+        
         
       </ul>
     </div>

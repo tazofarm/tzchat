@@ -169,6 +169,13 @@ const pushRouter = require('./routes/pushRouter');
 app.use('/api/push', pushRouter);
 console.log('📡 /api/push → pushRouter 등록 완료');
 
+
+// backend/main.js (또는 앱 진입점)
+const supportRouter = require('./routes/supportRouter')
+app.use('/api', supportRouter) // 공개 라우터, 인증 미들웨어 앞에서 연결
+
+
+
 let adminRouter; // 아래서 등록
 
 // =======================================

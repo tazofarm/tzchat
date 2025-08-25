@@ -74,17 +74,6 @@ import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 // ----------------------------------------------------------
 // 라우트 정의
 // - /home 은 인증 필요(meta.requiresAuth: true)
@@ -95,6 +84,18 @@ const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
+
+  // ★ 추가: 공개(비로그인) 라우트 — Play Console에 기재할 계정 삭제 안내 페이지
+  {
+    path: '/legal/delete-account',
+    name: 'DeleteAccountInfo',
+    component: () => import('@/views/public/DeleteAccountInfoPage.vue'),
+    meta: { public: true } // 전역 가드에서 인증 검사 제외(현 구조에선 없어도 통과되지만 표시 목적)
+  },
+
+
+
+
 
   {
     path: '/home',

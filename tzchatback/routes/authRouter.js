@@ -288,4 +288,76 @@ router.put('/update-password', requireLogin, async (req, res) => {
   }
 });
 
+
+
+// 🕒 유예기간 (14일)
+const DELETION_GRACE_DAYS = 14;
+
+/**
+ * [1] 탈퇴 신청
+ */
+router.post('/account/delete-request', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.user._id;
+    const now = new Date();
+    const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
+
+    const user = await User.findByIdAndUpdate(userId, {
+      status: 'pendingDeletion',
+      deletionRequestedAt: now,
+      deletionDueAt: due
+    }, { new: true });
+
+    console.log(`[탈퇴신청] user=${userId}, dueAt=${due.toISOString()}`);
+    req.session.destroy(() => {}); // 세션 종료
+
+    res.json({ message: '탈퇴가 신청되었습니다. ' + DELETION_GRACE_DAYS + '일 후 영구 삭제됩니다.' });
+  } catch (err) {
+    console.error('[탈퇴신청 오류]', err);
+    res.status(500).json({ error: '탈퇴 신청 실패' });
+  }
+});
+
+/**
+ * [2] 탈퇴 취소 (유예기간 내)
+ */
+router.post('/account/undo-delete', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.user._id;
+    const user = await User.findById(userId);
+
+    if (!user || user.status !== 'pendingDeletion') {
+      return res.status(400).json({ error: '탈퇴 신청 상태가 아닙니다.' });
+    }
+
+    if (user.deletionDueAt < new Date()) {
+      return res.status(400).json({ error: '이미 삭제 예정일이 지났습니다.' });
+    }
+
+    user.status = 'active';
+    user.deletionRequestedAt = null;
+    user.deletionDueAt = null;
+    await user.save();
+
+    console.log(`[탈퇴취소] user=${userId}`);
+    res.json({ message: '탈퇴가 취소되었습니다.' });
+  } catch (err) {
+    console.error('[탈퇴취소 오류]', err);
+    res.status(500).json({ error: '탈퇴 취소 실패' });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 module.exports = router;
