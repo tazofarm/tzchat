@@ -142,7 +142,7 @@
             </tr>
 
 
-            <!-- 결혼유무 -->
+            <!-- 결혼유무 
             <tr
               @click="openPopup(2, user.preference)"
               class="editable-row"
@@ -156,7 +156,7 @@
               <td class="pf-td editable-text">{{ user.preference }}</td>
             </tr>
 
-
+            -->
             
             <!-- 소개 -->
             <tr
