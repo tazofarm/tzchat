@@ -4,8 +4,13 @@ const express = require('express');
 const app = express();
 const http = require('http');
 const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
-const PORT = 2000;
 const path = require('path'); // 파일 경로 관련 내장 모듈
+
+// ✅ 환경변수(포트/DB/시크릿) — 없으면 기존 기본값 유지
+const PORT = Number(process.env.PORT || 2000);
+const HOST = process.env.HOST || '0.0.0.0';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/tzchat';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'tzchatsecret';
 
 // ⚠️ (신규) 채팅방 참여자 조회용 모델 로드
 const ChatRoom = require('./models/ChatRoom');
@@ -20,7 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
 /**
- * ✅ [추가] /public 정적 파일 서빙
+ * ✅ /public 정적 파일 서빙
  * - privacy.html 등 정적 페이지를 직접 서빙합니다.
  * - 결과적으로 /privacy.html 로도 접근 가능 → Play Console URL로 쓰기 좋음
  */
@@ -30,7 +35,6 @@ console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
 
 /**
  * ✅ (유지) /privacy → /public/privacy.html 로 연결 (짧은 경로 지원 + 접근 로그)
- * - 기존 라우트 유지, 정적 파일과 동일한 콘텐츠 반환
  */
 app.get('/privacy', (req, res) => {
   console.log(`[ROUTE] GET /privacy  ua=${req.get('user-agent')} ip=${req.ip}`);
@@ -54,24 +58,32 @@ console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV')
 
 // ✅ CORS 설정
 const cors = require('cors');
-// ★ 운영: HTTPS 오리진 허용, 개발: 로컬 오리진 허용
+
+// ★ 운영: HTTPS 오리진 허용, 개발: 로컬 오리진 허용 + 앱(WebView, Capacitor) 허용
 const allowedOrigins = [
   'http://localhost:8081',
   'http://192.168.0.7:8081',
-  // ★ 운영 오리진(HTTPS): 프런트/백 동일 도메인 사용 시 필수
-  'https://tzchat.duckdns.org',
+  'capacitor://localhost',       // ✅ 앱(WebView) 오리진 추가 (중요)
+  'https://tzchat.duckdns.org',  // ✅ 운영 오리진(HTTPS)
 ];
+
+// 디버그: 요청마다 오리진/경로 출력
+app.use((req, res, next) => {
+  console.log('[CORS-DBG] Origin=', req.headers.origin, '| Path=', req.method, req.path);
+  next();
+});
+
 const corsOptions = {
   origin: (origin, cb) => {
     // 모바일 앱/webview 등 Origin 없을 수도 있으니 허용
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    console.warn('⚠️ CORS 차단 시도:', origin);
-    return cb(new Error('Not allowed by CORS'));
+    const ok = allowedOrigins.includes(origin);
+    console.log('[CORS-CHECK]', origin, '=>', ok ? 'ALLOW' : 'BLOCK');
+    return cb(ok ? null : new Error('Not allowed by CORS'), ok);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
 app.use(cors(corsOptions));
 console.log('🛡️  CORS 허용 오리진:', allowedOrigins.join(', '));
@@ -81,7 +93,7 @@ app.get('/api/ping', (req, res) => {
   console.log('🩺 /api/ping', {
     ip: req.ip,
     origin: req.headers.origin,
-    ua: req.headers['user-agent']
+    ua: req.headers['user-agent'],
   });
   res.json({ ok: true, at: new Date().toISOString() });
 });
@@ -92,11 +104,10 @@ app.get('/api/ping', (req, res) => {
 
 // ✅ MongoDB 연결
 const mongoose = require('mongoose');
-const mongoUrl = 'mongodb://localhost:27017/tzchat';
-
-mongoose.connect(mongoUrl)
-  .then(() => console.log('✅ MongoDB 연결 성공'))
-  .catch(err => console.error('❌ MongoDB 연결 실패:', err));
+mongoose
+  .connect(MONGO_URI)
+  .then(() => console.log('✅ MongoDB 연결 성공:', MONGO_URI))
+  .catch((err) => console.error('❌ MongoDB 연결 실패:', err));
 
 // ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 secure 쿠키 인식)
 // ★ 중요: 이 설정이 있어야 sameSite:'none', secure:true 쿠키가 정상 동작
@@ -107,8 +118,8 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
 const sessionStore = MongoStore.create({
-  mongoUrl,
-  ttl: 60 * 60 * 24 // 1일
+  mongoUrl: MONGO_URI,
+  ttl: 60 * 60 * 24, // 1일(초 단위)
 });
 
 // ★ 운영/개발 분기된 쿠키 설정
@@ -116,22 +127,23 @@ const cookieConfig = isProd
   ? {
       httpOnly: true,
       maxAge: 1000 * 60 * 60 * 24, // 1일
-      sameSite: 'none', // ★ 크로스사이트(HTTPS) 허용 (프런트/백이 동일 도메인이어도 안전)
-      secure: true      // ★ HTTPS에서만
+      sameSite: 'none', // ✅ 크로스사이트(HTTPS) 허용
+      secure: true,     // ✅ HTTPS에서만
     }
   : {
       httpOnly: true,
       maxAge: 1000 * 60 * 60 * 24, // 1일
       sameSite: 'lax',
-      secure: false
+      secure: false,
     };
 
 const sessionMiddleware = session({
-  secret: 'tzchatsecret', // ⚠️ 운영 시 환경변수로 분리 권장
+  name: 'tzchat.sid',
+  secret: SESSION_SECRET, // ⚠️ 운영 시 환경변수 사용 권장(이미 적용)
   resave: false,
   saveUninitialized: false,
   store: sessionStore,
-  cookie: cookieConfig
+  cookie: cookieConfig,
 });
 
 app.use(sessionMiddleware);
@@ -169,12 +181,9 @@ const pushRouter = require('./routes/pushRouter');
 app.use('/api/push', pushRouter);
 console.log('📡 /api/push → pushRouter 등록 완료');
 
-
-// backend/main.js (또는 앱 진입점)
-const supportRouter = require('./routes/supportRouter')
-app.use('/api', supportRouter) // 공개 라우터, 인증 미들웨어 앞에서 연결
-
-
+const supportRouter = require('./routes/supportRouter');
+app.use('/api', supportRouter); // 공개 라우터, 인증 미들웨어 앞에서 연결
+console.log('📡 /api → supportRouter 등록 완료');
 
 let adminRouter; // 아래서 등록
 
@@ -186,9 +195,9 @@ const io = new Server(server, {
   // ★ 프론트와 경로 통일 (connectSocket()에서 path:'/socket.io')
   path: '/socket.io',
   cors: {
-    origin: allowedOrigins, // ★ CORS 오리진 동일 적용
-    credentials: true
-  }
+    origin: allowedOrigins, // ★ CORS 오리진 동일 적용 (capacitor 포함)
+    credentials: true,
+  },
 });
 console.log('🔌 Socket.IO 경로(/socket.io) 및 CORS 적용');
 
@@ -213,14 +222,14 @@ app.set('roomMembers', roomMembers);
 async function notifyRoomParticipantsForList(roomId, lastMessagePayload) {
   try {
     const room = await ChatRoom.findById(roomId).select('participants').lean();
-    const ids = room?.participants?.map(id => String(id)) || [];
+    const ids = room?.participants?.map((id) => String(id)) || [];
     ids.forEach((pid) => {
       // ⓐ TopMenu 합계/리스트 배지 재계산 신호
       io.to(userRoom(pid)).emit('chatrooms:badge', { changedRoomId: roomId });
       // ⓑ 리스트의 마지막 메시지 미리보기 갱신(옵션)
       io.to(userRoom(pid)).emit('chatrooms:updated', {
         changedRoomId: roomId,
-        lastMessage: lastMessagePayload || null
+        lastMessage: lastMessagePayload || null,
       });
     });
     console.log(`[notifyRoomParticipantsForList] room=${roomId} -> users=${ids.join(',')}`);
@@ -232,7 +241,7 @@ async function notifyRoomParticipantsForList(roomId, lastMessagePayload) {
 async function notifyRoomParticipantsBadgeOnly(roomId) {
   try {
     const room = await ChatRoom.findById(roomId).select('participants').lean();
-    const ids = room?.participants?.map(id => String(id)) || [];
+    const ids = room?.participants?.map((id) => String(id)) || [];
     ids.forEach((pid) => {
       io.to(userRoom(pid)).emit('chatrooms:badge', { changedRoomId: roomId });
     });
@@ -252,27 +261,27 @@ app.set('emit', {
   // 친구 요청 관련 표준 이벤트들
   friendRequestCreated(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
-    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
     if (fromId) io.to(userRoom(fromId)).emit('friendRequest:created', reqObj);
-    if (toId)   io.to(userRoom(toId)).emit('friendRequest:created', reqObj);
+    if (toId) io.to(userRoom(toId)).emit('friendRequest:created', reqObj);
   },
   friendRequestAccepted(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
-    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
     if (fromId) io.to(userRoom(fromId)).emit('friendRequest:accepted', reqObj);
-    if (toId)   io.to(userRoom(toId)).emit('friendRequest:accepted', reqObj);
+    if (toId) io.to(userRoom(toId)).emit('friendRequest:accepted', reqObj);
   },
   friendRequestRejected(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
-    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
     if (fromId) io.to(userRoom(fromId)).emit('friendRequest:rejected', reqObj);
-    if (toId)   io.to(userRoom(toId)).emit('friendRequest:rejected', reqObj);
+    if (toId) io.to(userRoom(toId)).emit('friendRequest:rejected', reqObj);
   },
   friendRequestCancelled(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
-    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+    const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
     if (fromId) io.to(userRoom(fromId)).emit('friendRequest:cancelled', reqObj);
-    if (toId)   io.to(userRoom(toId)).emit('friendRequest:cancelled', reqObj);
+    if (toId) io.to(userRoom(toId)).emit('friendRequest:cancelled', reqObj);
   },
   blockCreated(blockObj) {
     const { blockerId, blockedId } = blockObj || {};
@@ -288,7 +297,7 @@ app.set('emit', {
         content: message?.content || '',
         imageUrl: message?.imageUrl || '',
         sender: message?.sender || null,
-        createdAt: message?.createdAt || new Date()
+        createdAt: message?.createdAt || new Date(),
       });
       console.log('[emit.chatMessageNew] ✅ room=', roomId);
     } catch (err) {
@@ -303,7 +312,7 @@ app.set('emit', {
     } catch (err) {
       console.error('[emit.chatMessagesRead] ❌', err);
     }
-  }
+  },
 });
 
 io.on('connection', (socket) => {
@@ -332,7 +341,7 @@ io.on('connection', (socket) => {
       }
     });
 
-    // ==== 채팅방 조인 (기존) ====
+    // ==== 채팅방 조인 ====
     socket.on('joinRoom', (roomId) => {
       try {
         socket.join(roomId);
@@ -356,9 +365,8 @@ io.on('connection', (socket) => {
       }
     });
 
-    // ==== 채팅 메시지 포워딩 (기존) ====
+    // ==== 채팅 메시지 포워딩 ====
     // ⚠️ 프론트에서 POST로 메시지 저장 후, 아래 이벤트를 emit하고 있음
-    //    → 서버는 같은 방으로 재전파 + 참여자 개인룸에 리스트/TopMenu 갱신 신호 발송
     socket.on('chatMessage', async ({ roomId, message }) => {
       try {
         console.log(`📨 소켓 메시지: ${message?.content ? message.content : '[이미지]'} → ${roomId}`);
@@ -368,18 +376,20 @@ io.on('connection', (socket) => {
           content: message?.content || '',
           imageUrl: message?.imageUrl || '',
           sender: message?.sender || null,
-          createdAt: message?.createdAt || new Date()
+          createdAt: message?.createdAt || new Date(),
         });
       } catch (err) {
         console.error('❌ chatMessage 처리 오류:', err);
       }
     });
 
-    // ✅ (신규) 읽음 처리 브로드캐스트
+    // ✅ 읽음 처리 브로드캐스트
     socket.on('messagesRead', async (payload = {}) => {
       try {
         const { roomId, readerId, messageIds } = payload;
-        console.log(`👀 messagesRead 브로드캐스트: room=${roomId} reader=${readerId} count=${messageIds?.length || 0}`);
+        console.log(
+          `👀 messagesRead 브로드캐스트: room=${roomId} reader=${readerId} count=${messageIds?.length || 0}`
+        );
         socket.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
         await notifyRoomParticipantsBadgeOnly(roomId);
       } catch (err) {
@@ -413,10 +423,10 @@ console.log('📡 /api → adminRouter 등록 완료');
 // =======================================
 // 5) 서버 실행
 // =======================================
-server.listen(PORT, '0.0.0.0', () => { // ★ 모든 인터페이스에서 수신
+server.listen(PORT, HOST, () => {
   const addr = server.address();
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
-  console.log(`🔭 휴대폰 테스트: http://192.168.0.7:${PORT}`);
+  console.log(`🔭 휴대폰 테스트 예시: http://192.168.0.7:${PORT}`);
   if (isProd) {
     console.log('🔒 PROD 모드: sameSite=None, secure=true 쿠키 / proxy 신뢰 / wss 프록시 조건 충족 필요');
   } else {

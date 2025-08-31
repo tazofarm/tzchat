@@ -9,6 +9,13 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- ✅ [추가] Google Mobile Ads SDK 초기화용 App ID 메타데이터
+             - 값은 res/values/strings.xml 의 @string/admob_app_id 를 참조
+             - 이 값이 없으면 'Missing application ID'로 앱이 즉시 크래시납니다. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="@string/admob_app_id" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
@@ -31,11 +38,10 @@
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
+                android:resource="@xml/file_paths" />
         </provider>
     </application>
 
     <!-- Permissions -->
-
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

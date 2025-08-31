@@ -1,7 +1,20 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 📌 앱 이름 -->
     <string name="app_name">네네챗</string>
+
+    <!-- 📌 메인 액티비티 타이틀 -->
     <string name="title_activity_main">tzchatapp</string>
+
+    <!-- 📌 패키지명 -->
     <string name="package_name">org.tzchat.app</string>
+
+    <!-- 📌 커스텀 URL 스킴 -->
     <string name="custom_url_scheme">org.tzchat.app</string>
+
+    <!-- ✅ [추가] AdMob App ID (현재는 구글 테스트용 ID)
+         - 이 값이 없으면 Google Mobile Ads SDK가 초기화 단계에서 크래시 발생
+         - 배포 전에는 본인 앱의 App ID로 교체 필요
+         - 실제 값 형식: ca-app-pub-xxxxxxxxxxxxxxxx~xxxxxxxxxx -->
+    <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>
 </resources>

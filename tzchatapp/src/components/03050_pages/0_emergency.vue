@@ -15,7 +15,7 @@
         <div class="emergency-toggle" role="group" aria-label="Emergency Matching Toggle">
           <div class="toggle-title">
             <ion-icon :icon="icons.flameOutline" aria-hidden="true" class="title-icon" />
-            <ion-label class="black-text">Emergency Matching</ion-label>
+            <ion-label class="black-text">Speed Matcing</ion-label>
           </div>
 
           <ion-toggle
@@ -40,7 +40,7 @@
         <div class="section-title-wrap" role="heading" aria-level="2">
           <div class="section-title-row">
             <ion-icon :icon="icons.shieldCheckmarkOutline" aria-hidden="true" class="section-icon" />
-            <h2 class="section-title-text black-text">Emergency Matching List</h2>
+            <h2 class="section-title-text black-text">Speed Matching List</h2>
           </div>
           <div class="section-divider" aria-hidden="true"></div>
         </div>
