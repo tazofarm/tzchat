@@ -1,28 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 📡 네트워크 권한
+         - INTERNET: API 호출 및 광고/분석 SDK 등 네트워크 접근
+         - ACCESS_NETWORK_STATE: 네트워크 상태 체크(AdMob 등 일부 SDK 권장) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
+        android:label="@string/app_name"            <!-- 홈 화면/런처에 보이는 앱 이름 → strings.xml에서 관리 -->
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="false">       <!-- 🔒 평문 HTTP 차단(HTTPS만 허용) → SameSite=None;Secure 쿠키 전제 -->
 
-        <!-- ✅ [추가] Google Mobile Ads SDK 초기화용 App ID 메타데이터
-             - 값은 res/values/strings.xml 의 @string/admob_app_id 를 참조
-             - 이 값이 없으면 'Missing application ID'로 앱이 즉시 크래시납니다. -->
+        <!-- ✅ Google Mobile Ads SDK(App ID)
+             - 반드시 실제 값이 strings.xml의 admob_app_id에 있어야 함
+             - 없으면 "Missing application ID"로 앱 크래시 -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/admob_app_id" />
 
+        <!-- 🚀 메인 액티비티 (Capacitor: BridgeActivity 상속)
+             - exported=true: Android 12+ 요구사항
+             - singleTask: WebView 재활용(중복 인스턴스 방지) -->
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
+            android:exported="true"
             android:label="@string/title_activity_main"
-            android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,6 +41,9 @@
 
         </activity>
 
+        <!-- 📂 파일 공유(FileProvider): 카메라/갤러리 첨부 등 URI 권한 제공 시 필요
+             - authorities는 ${applicationId}.fileprovider로 고정
+             - @xml/file_paths는 res/xml/file_paths.xml에 정의 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -40,8 +53,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-    </application>
 
-    <!-- Permissions -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    </application>
 </manifest>
