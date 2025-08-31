@@ -36,3 +36,6 @@ const http = {
 
 export default http;
 export { http };
+
+// 🔁 하위호환용: 일부 코드가 `import { api } from '@/lib/http'`를 사용하므로 제공
+export { api };
