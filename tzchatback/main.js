@@ -54,7 +54,8 @@ app.use((req, res, next) => {
 
 // ★★★★★ 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
 const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
-console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV');
+const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_MOBILE_SESSION === '1';
+console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
 
 // ✅ CORS 설정
 const cors = require('cors');
@@ -63,7 +64,7 @@ const cors = require('cors');
 const allowedOrigins = [
   'http://localhost:8081',
   'http://192.168.0.7:8081',
-  'capacitor://localhost',       // ✅ 앱(WebView) 오리진 추가 (중요)
+  'capacitor://localhost',       // ✅ 앱(WebView) 오리진
   'https://tzchat.duckdns.org',  // ✅ 운영 오리진(HTTPS)
 ];
 
@@ -84,6 +85,8 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  // ✅ 프리플라이트 캐시(선택)
+  maxAge: 600,
 };
 app.use(cors(corsOptions));
 console.log('🛡️  CORS 허용 오리진:', allowedOrigins.join(', '));
@@ -94,6 +97,7 @@ app.get('/api/ping', (req, res) => {
     ip: req.ip,
     origin: req.headers.origin,
     ua: req.headers['user-agent'],
+    cookie: req.headers.cookie ? '(present)' : '(none)',
   });
   res.json({ ok: true, at: new Date().toISOString() });
 });
@@ -122,20 +126,37 @@ const sessionStore = MongoStore.create({
   ttl: 60 * 60 * 24, // 1일(초 단위)
 });
 
-// ★ 운영/개발 분기된 쿠키 설정
-const cookieConfig = isProd
-  ? {
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24, // 1일
-      sameSite: 'none', // ✅ 크로스사이트(HTTPS) 허용
-      secure: true,     // ✅ HTTPS에서만
-    }
-  : {
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24, // 1일
-      sameSite: 'lax',
-      secure: false,
-    };
+// ————————————————————————————————————————————————
+// 🍪 쿠키 정책 설명
+// - 웹(동일 오리진 또는 Lax로도 되는 상황): sameSite:'lax', secure:false (DEV)
+// - 앱(Capacitor WebView = capacitor://localhost ⇒ 크로스사이트):
+//   반드시 sameSite:'none' + secure:true + HTTPS 로 접근해야 쿠키가 실림.
+// - 이를 위해 APP_MODE=capacitor 또는 FORCE_MOBILE_SESSION=1 시,
+//   sameSite:'none', secure:true 로 강제합니다.
+//   (이때 백엔드는 https:// 로 접근해야 하며, 프록시 신뢰가 필요합니다.)
+// ————————————————————————————————————————————————
+const cookieForProd = {
+  httpOnly: true,
+  maxAge: 1000 * 60 * 60 * 24, // 1일
+  sameSite: 'none', // ✅ 크로스사이트(HTTPS) 허용
+  secure: true,     // ✅ HTTPS에서만
+};
+const cookieForDevWeb = {
+  httpOnly: true,
+  maxAge: 1000 * 60 * 60 * 24, // 1일
+  sameSite: 'lax',
+  secure: false,
+};
+
+// ✅ 최종 쿠키 설정 결괏값 계산
+// - PROD 이거나 앱세션강제면 SameSite=None + Secure
+// - 그 외에는 개발 웹 기본값(Lax)
+const cookieConfig = (isProd || isCapAppMode) ? cookieForProd : cookieForDevWeb;
+
+// ⚠️ 경고 로그: 앱세션강제인데 HTTPS가 아니라면 쿠키가 막힙니다.
+if ((isProd || isCapAppMode) && process.env.API_BASE_URL && !process.env.API_BASE_URL.startsWith('https://')) {
+  console.warn('⚠️ APP_MODE/PROD 쿠키는 Secure 필요. API_BASE_URL이 HTTPS가 아니면 세션 쿠키가 동작하지 않습니다:', process.env.API_BASE_URL);
+}
 
 const sessionMiddleware = session({
   name: 'tzchat.sid',
@@ -144,6 +165,13 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   store: sessionStore,
   cookie: cookieConfig,
+});
+
+app.use((req, res, next) => {
+  // 요청 단위로 어떤 쿠키 정책이 적용됐는지 로그
+  const origin = req.headers.origin || '(no-origin)';
+  console.log('🍪 [SessionCookiePolicy] origin=', origin, '| sameSite=', cookieConfig.sameSite, '| secure=', cookieConfig.secure);
+  next();
 });
 
 app.use(sessionMiddleware);
@@ -427,8 +455,8 @@ server.listen(PORT, HOST, () => {
   const addr = server.address();
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
   console.log(`🔭 휴대폰 테스트 예시: http://192.168.0.7:${PORT}`);
-  if (isProd) {
-    console.log('🔒 PROD 모드: sameSite=None, secure=true 쿠키 / proxy 신뢰 / wss 프록시 조건 충족 필요');
+  if (isProd || isCapAppMode) {
+    console.log('🔒 SameSite=None + Secure 쿠키 사용중 → 반드시 HTTPS로 접근해야 세션 동작합니다.');
   } else {
     console.log('🧪 DEV 모드: sameSite=lax, secure=false 쿠키 / 로컬 개발 오리진 허용');
   }
