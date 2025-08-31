@@ -7,14 +7,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 🔒 평문 HTTP 차단(HTTPS만 허용) → SameSite=None;Secure 쿠키 전제 -->
+    <!--  * HTTP 필요 시 android:usesCleartextTraffic="true" 또는 network_security_config 사용 -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"            <!-- 홈 화면/런처에 보이는 앱 이름 → strings.xml에서 관리 -->
+        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:usesCleartextTraffic="false">       <!-- 🔒 평문 HTTP 차단(HTTPS만 허용) → SameSite=None;Secure 쿠키 전제 -->
+        android:usesCleartextTraffic="false">
 
         <!-- ✅ Google Mobile Ads SDK(App ID)
              - 반드시 실제 값이 strings.xml의 admob_app_id에 있어야 함
