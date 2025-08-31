@@ -83,6 +83,7 @@ app.use((req, res, next) => {
 });
 
 // ★★★★★ 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
+// - 앱(WebView) 세션 강제 모드는 capacitor/모바일에서 크로스사이트 쿠키 필요 시 사용
 const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
 const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_MOBILE_SESSION === '1';
 console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
@@ -90,26 +91,28 @@ console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV',
 // ✅ CORS 설정
 const cors = require('cors');
 
-// ★ 운영: HTTPS 오리진 허용, 개발: 로컬/앱(WebView, Capacitor/Ionic) 오리진 허용
+// ★ 운영: HTTPS 오리진 허용, 개발/원격-dev: 로컬/앱(WebView, Capacitor/Ionic) 오리진 허용
 const allowedOriginsList = [
-  // 운영
+  // 운영(배포 프론트)
   'https://tzchat.duckdns.org',
-  // 개발(웹)
+
+  // 개발(웹, vite/ionic dev)
   'http://localhost:8081',
   'http://127.0.0.1:8081',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  // 개발(내부IP 빌드)
-  'http://192.168.0.7:8081',
-  // Ionic Dev 서버
   'http://localhost:8100',
   'http://127.0.0.1:8100',
-  // Capacitor/Ionic WebView 스킴
+
+  // 개발(내부IP 빌드 예시)
+  'http://192.168.0.7:8081',
+
+  // Capacitor/Ionic WebView 스킴 (앱)
   'capacitor://localhost',
   'ionic://localhost',
 ];
 
-// ✅ 사설망 오리진 정규식 허용
+// ✅ 사설망 오리진 정규식 허용(에뮬레이터/내부 망)
 const dynamicOriginAllow = [
   /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
   /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
@@ -124,7 +127,7 @@ app.use((req, res, next) => {
 
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // 앱의 내장 webview 등
+    if (!origin) return cb(null, true); // 서버 내부 요청, 앱 webview 등
     if (allowedOriginsList.includes(origin)) {
       console.log('[CORS-CHECK]', origin, '=> ALLOW(list)');
       return cb(null, true);
@@ -143,9 +146,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// ⛑️ Express v5 와일드카드: 문자열 '*' 사용 금지 → 정규식으로!
-//    (이전: app.options('*', ...)  // ❌ v5에서 path-to-regexp 오류)
-//    (수정: app.options(/.*/, ...)  // ✅ 정규식 리터럴)
+// ⛑️ Express v5 와일드카드: 문자열 '*' 금지 → 정규식 사용(프리플라이트 허용)
 app.options(/.*/, cors(corsOptions));
 
 console.log('🛡️  CORS 허용(고정):', allowedOriginsList.join(', '));
@@ -184,6 +185,8 @@ const sessionStore = MongoStore.create({
 });
 
 // 🍪 쿠키 정책
+// - dev(localhost→localhost) : sameSite=lax, secure=false
+// - prod / app(capacitor 또는 HTTPS 프록시 뒤) : sameSite=none, secure=true
 const cookieForProd = {
   httpOnly: true,
   maxAge: 1000 * 60 * 60 * 24,
@@ -198,6 +201,8 @@ const cookieForDevWeb = {
   secure: false,
   path: '/',
 };
+
+// ✅ dev:remote(로컬 프론트 → 서버 HTTPS 백엔드) 시 서버는 보통 PROD로 동작하므로 아래 분기 OK
 const isSecureMode = isProd || isCapAppMode;
 const cookieConfig = isSecureMode ? cookieForProd : cookieForDevWeb;
 
