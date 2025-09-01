@@ -1,12 +1,13 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-<br><br></br>
-       <h1>Yes? Yes!</h1>
-       <h2>네네챗</h2>
-      <br><br></br>
+      <br /><br />
+      <h1>Yes? Yes!</h1>
+      <h2>네네챗</h2>
+      <br /><br />
       <h2>로그인</h2>
-<br>
+      <br />
+
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
         <!-- 아이디 입력 -->
@@ -38,10 +39,12 @@
         </div>
 
         <!-- 로그인 버튼 -->
-        <button type="submit">로그인</button>
+        <button type="submit" :disabled="submitting">
+          {{ submitting ? '로그인 중...' : '로그인' }}
+        </button>
       </form>
 
-      <!-- 에러 메시지 -->
+      <!-- 에러/안내 메시지 -->
       <p class="error" v-if="message">{{ message }}</p>
 
       <!-- 회원가입 링크 -->
@@ -53,9 +56,19 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+/**
+ * LoginPage.vue
+ * ------------------------------------------------------
+ * 변경 사항
+ * - 진입 시 /api/me 체크: 401은 정상(미로그인)으로 간주하고 무시
+ * - 로그인 후 즉시 /api/me 재검증 → 성공 시 라우팅
+ * - 성공/실패 분기 로직 강화 + 상세 로그
+ * - axiosInstance 기본 설정(withCredentials) 활용
+ * - API_PREFIX 사용으로 경로 일관화
+ */
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios, { API_PREFIX } from '@/lib/axiosInstance' // default: axios 인스턴스, named: API_PREFIX
 
 const router = useRouter()
 
@@ -63,46 +76,90 @@ const router = useRouter()
 const username = ref('')
 const password = ref('')
 const message = ref('')
+const submitting = ref(false)
+
+// 진입 시 세션 확인(401이면 정상 흐름으로 간주)
+onMounted(async () => {
+  console.log('🟦 [LoginPage] mounted. 진입 시 세션 상태 확인 시작')
+  try {
+    const me = await axios.get(`${API_PREFIX}/me`)
+    console.log('🔐 이미 로그인 상태입니다. /api/me 응답:', me.data)
+    // 이미 로그인되어 있다면 바로 홈으로 이동(원하시면 주석 해제)
+    // return router.push('/home/2page')
+  } catch (e) {
+    const status = e?.response?.status
+    if (status === 401) {
+      console.log('ℹ️ [LoginPage] 세션 없음(401). 로그인 진행 가능 상태.')
+    } else {
+      console.log('⚠️ [LoginPage] /api/me 확인 중 예외:', e)
+    }
+  }
+})
 
 // 로그인 함수
 const login = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  message.value = ''
+
   try {
     console.log('🔐 입력된 아이디:', username.value)
-    console.log('🔐 입력된 비밀번호:', password.value)
+    console.log('🔐 입력된 비밀번호:', password.value ? '***' : '(빈 값)')
 
     // ✅ 로그인 요청
-    const res = await axios.post(
-      '/api/login',
-      {
-        username: username.value,
-        password: password.value,
-      },
-      {
-        withCredentials: true, // ✅ 세션 쿠키 포함
-      }
-    )
-
-    console.log('✅ 로그인 응답:', res.data)
-    message.value = res.data.message || '로그인 성공'
-
-    // ✅ 로그인 후 사용자 정보 요청
-    const userRes = await axios.get('/api/me', {
-      withCredentials: true,
+    const res = await axios.post(`${API_PREFIX}/login`, {
+      username: username.value,
+      password: password.value,
     })
 
-    console.log('👤 로그인한 사용자 정보:', userRes.data.user)
+    console.log('✅ [Login] 응답 수신:', {
+      status: res.status,
+      data: res.data,
+    })
 
-    // ✅ 홈으로 이동
-    router.push('/home/2page')
+    // ✅ 로그인 직후 세션/쿠키 재검증
+    try {
+      const me = await axios.get(`${API_PREFIX}/me`)
+      console.log('👤 [Login] 세션 사용자 확인 성공:', me.data)
+
+      // UI 안내
+      message.value = (res.data && (res.data.message || res.data.msg)) || '로그인 되었습니다.'
+
+      // ✅ 홈으로 이동
+      router.push('/home/2page')
+      return
+    } catch (meErr) {
+      console.log('⚠️ [Login] 로그인 후 /api/me 확인 실패:', {
+        status: meErr?.response?.status,
+        data: meErr?.response?.data,
+        msg: meErr?.message,
+      })
+      message.value = '로그인 후 세션 확인에 실패했습니다. 잠시 후 다시 시도해주세요.'
+      return
+    }
   } catch (err) {
-    console.error('❌ 로그인 오류 발생:', err)
-    message.value = err.response?.data?.message || '로그인 실패'
+    console.error('❌ [Login] 로그인 오류 발생:', {
+      status: err?.response?.status,
+      data: err?.response?.data,
+      msg: err?.message,
+    })
+
+    if (err?.response?.status === 401) {
+      message.value = err.response?.data?.message || '아이디/비밀번호를 확인해주세요.'
+    } else if (err?.response?.status === 400) {
+      message.value = err.response?.data?.message || '요청 형식이 올바르지 않습니다.'
+    } else if (err?.response?.status === 429) {
+      message.value = '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.'
+    } else {
+      message.value = '로그인 실패: 네트워크/서버 오류'
+    }
+  } finally {
+    submitting.value = false
   }
 }
 </script>
 
 <style scoped>
-
 /* ✅ 로그인 화면 - 비율 보정 전용(CSS만 수정, 구조 불변)
    - 라벨(아이디/비밀번호) 가독성 ↑ : 16~17px + 굵기 600
    - 입력/버튼은 16px, 높이 48px 유지(모바일 터치 타깃)
@@ -159,32 +216,32 @@ const login = async () => {
   align-items: stretch; /* 모바일 넓이 꽉 채움 */
 }
 
-/* 라벨: ★ 비율 보정 핵심 */
+/* 라벨 */
 .login-box label {
-  margin-bottom: 8px;                   /* 6px → 8px */
-  font-size: clamp(16px, 2.8vw, 17px);  /* 0.95rem → 16~17px */
-  font-weight: 600;                     /* 굵기 추가로 시인성 ↑ */
-  letter-spacing: 0.1px;                /* 미세 가독성 보정 */
+  margin-bottom: 8px;
+  font-size: clamp(16px, 2.8vw, 17px);
+  font-weight: 600;
+  letter-spacing: 0.1px;
   color: #ffffff;
 }
 
 /* 입력창 */
 .login-box input {
   width: 100%;
-  min-height: 48px;            /* 터치 타깃 유지 */
+  min-height: 48px;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid #cfcfcf;
-  font-size: 16px;             /* iOS 입력 확대 방지 기준 */
+  font-size: 16px;
   background: #ffffff;
   color: #111;
   outline: none;
   transition: box-shadow .15s, border-color .15s;
-  accent-color: #3498db;       /* 체크/라디오 등 포커스 컬러 */
+  accent-color: #3498db;
 }
 .login-box input::placeholder { color: #8d8d8d; }
 
-/* 오토필(자동완성) 가독성 보정 */
+/* 오토필 가독성 보정 */
 .login-box input:-webkit-autofill,
 .login-box input:-webkit-autofill:hover,
 .login-box input:-webkit-autofill:focus {
@@ -203,14 +260,14 @@ const login = async () => {
 /* 버튼 */
 .login-box button {
   width: 100%;
-  min-height: 48px;            /* 터치 타깃 유지 */
+  min-height: 48px;
   padding: 12px 14px;
   background: #3498db;
   color: #fff;
   border: none;
   border-radius: 12px;
-  font-size: 16px;             /* 입력과 동일 스케일 */
-  font-weight: 700;            /* 600 → 700로 대비 약간 ↑ */
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   transition: background .2s, transform .08s ease-out, opacity .2s;
   will-change: transform;
@@ -229,7 +286,7 @@ const login = async () => {
 .error {
   color: #ff5252;
   margin-top: 10px;
-  font-size: clamp(15px, 2.6vw, 16px);  /* 가독성 소폭 ↑ */
+  font-size: clamp(15px, 2.6vw, 16px);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -237,7 +294,7 @@ const login = async () => {
 /* 하단 링크 */
 .link-container {
   margin-top: clamp(16px, 3.5vw, 22px);
-  font-size: clamp(15px, 2.6vw, 16px);  /* 가독성 소폭 ↑ */
+  font-size: clamp(15px, 2.6vw, 16px);
   line-height: 1.45;
   color: #ffffff;
   word-break: break-word;
@@ -265,6 +322,4 @@ const login = async () => {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
-
-
 </style>

@@ -7,6 +7,8 @@ const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
 const path = require('path');          // 파일 경로 관련 내장 모듈
 const fs = require('fs');              // ✅ public/pubblic 자동 감지용
 
+app.disable('x-powered-by'); // 소소한 보안 헤더
+
 // ✅ 환경변수(포트/DB/시크릿) — 없으면 기존 기본값 유지
 const PORT = Number(process.env.PORT || 2000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -41,7 +43,7 @@ function safeMountRouter(mountPath, modulePath, exact = true) {
 const ChatRoom = require('./models/ChatRoom');
 
 // =======================================
-// 0) 파서 & 정적 경로 & 기본 로깅/CORS
+// 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
 
 // ✅ JSON 파서 등록 (imageUrl 전달용)
@@ -75,44 +77,33 @@ app.get('/privacy', (req, res) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 console.log('🖼️ /uploads 정적 파일 경로 설정');
 
-// ✅ 요청 로그 및 PNA 헤더
+// ✅ 요청 로그 및 Private-Network 헤더
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
   console.log(`📥 [요청] ${req.method} ${req.url}`);
   next();
 });
 
-// ★★★★★ 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
-// - 앱(WebView) 세션 강제 모드는 capacitor/모바일에서 크로스사이트 쿠키 필요 시 사용
-const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
-const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_MOBILE_SESSION === '1';
-console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
-
-// ✅ CORS 설정
+// =======================================
+// CORS (라우터/세션 이전에 설정)
+// =======================================
 const cors = require('cors');
 
-// ★ 운영: HTTPS 오리진 허용, 개발/원격-dev: 로컬/앱(WebView, Capacitor/Ionic) 오리진 허용
+// ★ 운영/원격-dev 허용 오리진
 const allowedOriginsList = [
-  // 운영(배포 프론트)
-  'https://tzchat.duckdns.org',
-
-  // 개발(웹, vite/ionic dev)
+  'https://tzchat.duckdns.org', // 배포/원격-dev 공용
   'http://localhost:8081',
   'http://127.0.0.1:8081',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:8100',
   'http://127.0.0.1:8100',
-
-  // 개발(내부IP 빌드 예시)
   'http://192.168.0.7:8081',
-
-  // Capacitor/Ionic WebView 스킴 (앱)
   'capacitor://localhost',
   'ionic://localhost',
 ];
 
-// ✅ 사설망 오리진 정규식 허용(에뮬레이터/내부 망)
+// 사설망 오리진 정규식 허용
 const dynamicOriginAllow = [
   /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
   /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
@@ -144,24 +135,27 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   maxAge: 600, // 프리플라이트 캐시
 };
-app.use(cors(corsOptions));
 
-// ⛑️ Express v5 와일드카드: 문자열 '*' 금지 → 정규식 사용(프리플라이트 허용)
-app.options(/.*/, cors(corsOptions));
+app.use(cors(corsOptions));
+// Express v5: 문자열 '*' 금지 → 정규식으로 OPTIONS 허용
+app.options(/.*/, cors(corsOptions), (req, res) => {
+  // 일부 환경에서 204 응답을 명시해 프리플라이트 딜레이 제거
+  res.sendStatus(204);
+});
 
 console.log('🛡️  CORS 허용(고정):', allowedOriginsList.join(', '));
 console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 
-// ✅ 헬스체크
-app.get('/api/ping', (req, res) => {
-  console.log('🩺 /api/ping', {
-    ip: req.ip,
-    origin: req.headers.origin,
-    ua: req.headers['user-agent'],
-    cookie: req.headers.cookie ? '(present)' : '(none)',
-  });
-  res.json({ ok: true, at: new Date().toISOString() });
-});
+// =======================================
+/**
+ * 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
+ * - dev:remote(로컬 FE → HTTPS BE)에서도 쿠키는 Secure+None 이어야 하므로
+ *   "원격 HTTPS 백엔드"에 맞춰 secure 모드로 취급
+ */
+// =======================================
+const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
+const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_MOBILE_SESSION === '1';
+console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
 
 // =======================================
 // 1) DB, 세션 설정
@@ -172,8 +166,8 @@ mongoose
   .then(() => console.log('✅ MongoDB 연결 성공:', MONGO_URI))
   .catch((err) => console.error('❌ MongoDB 연결 실패:', err));
 
-// ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 secure 쿠키 인식)
-app.set('trust proxy', 1);
+// ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 Secure 쿠키 인식)
+app.set('trust proxy', 1); // ★ 반드시 세션 미들웨어 이전
 
 // ✅ 세션 설정 (connect-mongo)
 const session = require('express-session');
@@ -185,13 +179,11 @@ const sessionStore = MongoStore.create({
 });
 
 // 🍪 쿠키 정책
-// - dev(localhost→localhost) : sameSite=lax, secure=false
-// - prod / app(capacitor 또는 HTTPS 프록시 뒤) : sameSite=none, secure=true
 const cookieForProd = {
   httpOnly: true,
   maxAge: 1000 * 60 * 60 * 24,
-  sameSite: 'none',
-  secure: true,
+  sameSite: 'none', // ★ 크로스사이트 쿠키
+  secure: true,     // ★ HTTPS 필수
   path: '/',
 };
 const cookieForDevWeb = {
@@ -202,12 +194,14 @@ const cookieForDevWeb = {
   path: '/',
 };
 
-// ✅ dev:remote(로컬 프론트 → 서버 HTTPS 백엔드) 시 서버는 보통 PROD로 동작하므로 아래 분기 OK
-const isSecureMode = isProd || isCapAppMode;
+// dev:remote(프론트 localhost:8081 → 백 https://tzchat.duckdns.org) 시
+// 백엔드는 HTTPS이므로 secure 쿠키가 필요함 → isSecureMode = true 취급
+const FORCE_SECURE_COOKIE = true; // ← dev-remote에서도 무조건 Secure+None
+const isSecureMode = FORCE_SECURE_COOKIE || isProd || isCapAppMode;
 const cookieConfig = isSecureMode ? cookieForProd : cookieForDevWeb;
 
 if (isSecureMode && process.env.API_BASE_URL && !process.env.API_BASE_URL.startsWith('https://')) {
-  console.warn('⚠️ APP_MODE/PROD 쿠키는 Secure 필요. API_BASE_URL이 HTTPS가 아니면 세션 쿠키가 동작하지 않습니다:', process.env.API_BASE_URL);
+  console.warn('⚠️ Secure 쿠키 모드인데 API_BASE_URL이 HTTPS가 아닙니다:', process.env.API_BASE_URL);
 }
 
 const sessionMiddleware = session({
@@ -219,10 +213,15 @@ const sessionMiddleware = session({
   cookie: cookieConfig,
 });
 
-// 요청 단위 쿠키정책 로그
+// 요청 단위 쿠키정책 로그 + 프록시 프로토콜 점검
 app.use((req, res, next) => {
   const origin = req.headers.origin || '(no-origin)';
-  console.log('🍪 [SessionCookiePolicy] origin=', origin, '| sameSite=', cookieConfig.sameSite, '| secure=', cookieConfig.secure);
+  const xfProto = req.headers['x-forwarded-proto'] || '(none)';
+  console.log('🍪 [SessionCookiePolicy] origin=', origin, '| sameSite=', cookieConfig.sameSite, '| secure=', cookieConfig.secure, '| xfp=', xfProto);
+  if (cookieConfig.secure === true && xfProto !== 'https') {
+    // Nginx 설정 미흡 시 진단에 도움(세션쿠키가 버려지는 대표 케이스)
+    console.warn('⚠️ secure 쿠키 모드인데 X-Forwarded-Proto !== https 입니다. Nginx proxy_set_header X-Forwarded-Proto $scheme; 확인 필요');
+  }
   next();
 });
 
@@ -257,7 +256,6 @@ safeMountRouter('/api', './routes/authRouter');
 safeMountRouter('/api', './routes/targetRouter');
 safeMountRouter('/api', './routes/friendRouter');
 safeMountRouter('/api', './routes/chatRouter');
-safeMountRouter('/api', './routes/emergencyRouter');
 safeMountRouter('/api/push', './routes/pushRouter'); // 별도 prefix
 safeMountRouter('/api', './routes/supportRouter');   // 공개 라우터
 safeMountRouter('/api/admin', './routes/adminRouter');
@@ -491,9 +489,9 @@ server.listen(PORT, HOST, () => {
   const addr = server.address();
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
   console.log(`🔭 휴대폰 테스트 예시: http://192.168.0.7:${PORT}`);
-  if (isProd || isCapAppMode) {
+  if (isSecureMode) {
     console.log('🔒 SameSite=None + Secure 쿠키 사용중 → 반드시 HTTPS(프록시)로 접근해야 세션 동작합니다.');
-    console.log('   Nginx 설정에 proxy_set_header X-Forwarded-Proto https; 가 필요합니다.');
+    console.log('   Nginx 설정에 proxy_set_header X-Forwarded-Proto $scheme; 가 필요합니다.');
   } else {
     console.log('🧪 DEV 모드: sameSite=lax, secure=false 쿠키 / 로컬 개발 오리진 허용');
   }
