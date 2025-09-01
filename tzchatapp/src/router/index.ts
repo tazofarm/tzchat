@@ -1,5 +1,14 @@
 // src/router/index.ts
+// ----------------------------------------------------------
+// 라우터 설정 (Vue Router v4)
+// - 가독성 위해 글자색 관련 CSS는 각 컴포넌트에서 처리(여기선 로직/가드 집중)
+// - 전역 가드에서 /api/me 호출 시 반드시 공통 axios 인스턴스를 사용
+//   (상대경로 fetch 사용 금지: dev 서버(8081)로 붙어 500/401 유발)
+// ----------------------------------------------------------
 import { createRouter, createWebHistory } from 'vue-router'
+
+// ✅ 공통 Axios 인스턴스 (baseURL: https://tzchat.duckdns.org, withCredentials: true)
+import api from '@/lib/axiosInstance' // 반드시 이걸로 /api/me 호출
 
 // 기본 페이지
 import LoginPage from '@/views/LoginPage.vue'
@@ -21,9 +30,7 @@ import Page7 from '@/components/03050_pages/7_setting.vue'
 import PageuserProfile from '@/components/02010_minipage/PageuserProfile.vue'
 import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
 
-
 // setting
-
 import setting01 from '@/components/04710_Page7_setting/setlist/0001_s.vue'
 import setting02 from '@/components/04710_Page7_setting/setlist/0002_s.vue'
 import setting03 from '@/components/04710_Page7_setting/setlist/0003_s.vue'
@@ -45,12 +52,8 @@ import setting18 from '@/components/04710_Page7_setting/setlist/0018_s.vue'
 import setting19 from '@/components/04710_Page7_setting/setlist/0019_s.vue'
 import setting20 from '@/components/04710_Page7_setting/setlist/0020_s.vue'
 
-
-
-
 // ✅ 관리자 대시보드(홈 아래 child 라우트로 표시)
 import AdminDashboard from '@/components/04910_Page9_Admin/adminlist/0000_AdminDashboard.vue'
-
 import Admin01 from '@/components/04910_Page9_Admin/adminlist/0001_a.vue'
 import Admin02 from '@/components/04910_Page9_Admin/adminlist/0002_a.vue'
 import Admin03 from '@/components/04910_Page9_Admin/adminlist/0003_a.vue'
@@ -72,8 +75,6 @@ import Admin18 from '@/components/04910_Page9_Admin/adminlist/0018_a.vue'
 import Admin19 from '@/components/04910_Page9_Admin/adminlist/0019_a.vue'
 import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 
-
-
 // ----------------------------------------------------------
 // 라우트 정의
 // - /home 은 인증 필요(meta.requiresAuth: true)
@@ -85,17 +86,13 @@ const routes = [
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
 
-  // ★ 추가: 공개(비로그인) 라우트 — Play Console에 기재할 계정 삭제 안내 페이지
+  // ★ 공개(비로그인) 라우트 — Play Console용 계정 삭제 안내
   {
     path: '/legal/delete-account',
     name: 'DeleteAccountInfo',
     component: () => import('@/views/public/DeleteAccountInfoPage.vue'),
-    meta: { public: true } // 전역 가드에서 인증 검사 제외(현 구조에선 없어도 통과되지만 표시 목적)
+    meta: { public: true },
   },
-
-
-
-
 
   {
     path: '/home',
@@ -119,8 +116,7 @@ const routes = [
       { path: 'user/:id', component: PageuserProfile },
       { path: 'chat/:id', component: ChatRoomPage },
 
-
-      //setting
+      // setting
       { path: 'setting/0001', component: setting01 },
       { path: 'setting/0002', component: setting02 },
       { path: 'setting/0003', component: setting03 },
@@ -142,15 +138,8 @@ const routes = [
       { path: 'setting/0019', component: setting19 },
       { path: 'setting/0020', component: setting20 },
 
-
-
-      // ------------------------------------------------------
       // admin page (Home 아래에 표시)
-      // - /home/admin 으로 접근
-      // - 마스터만 진입 가능 (meta.requiresMaster: true)
-      // ------------------------------------------------------
       { path: 'admin', component: AdminDashboard, meta: { requiresMaster: true } },
-
       { path: 'admin/0001', component: Admin01, meta: { requiresMaster: true } },
       { path: 'admin/0002', component: Admin02, meta: { requiresMaster: true } },
       { path: 'admin/0003', component: Admin03, meta: { requiresMaster: true } },
@@ -171,12 +160,6 @@ const routes = [
       { path: 'admin/0018', component: Admin18, meta: { requiresMaster: true } },
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
-
-
-
-
-
-
     ],
   },
 
@@ -193,46 +176,62 @@ const router = createRouter({
 // 전역 네비게이션 가드
 // - meta.requiresAuth: 인증 필요
 // - meta.requiresMaster: 마스터 권한 필요
-//   ※ matched.some(...)으로 meta를 검사하는 것은 공식 패턴입니다.
+//   ※ matched.some(...) 공식 패턴
 // ----------------------------------------------------------
 router.beforeEach(async (to, from, next) => {
+  // 공개 라우트는 통과
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
   const requiresMaster = to.matched.some((record) => record.meta.requiresMaster)
+  const isPublic = to.matched.some((record) => record.meta.public)
 
-  // 인증이 필요 없는 라우트는 통과
   if (!requiresAuth && !requiresMaster) {
+    // 공개 라우트(로그인/회원가입/법적안내/기타) → 통과
     return next()
   }
+  if (isPublic) return next()
 
   try {
-    // 세션 기반 로그인 확인 (+ role 확인을 위해 /api/me 호출)
-    const res = await fetch('/api/me', { credentials: 'include' })
+    console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
 
-    if (!res.ok) {
-      console.warn('⛔ [가드] 로그인 안됨 → /login 리디렉션', { to: to.fullPath, status: res.status })
-      return next('/login')
+    // ✅ 절대 경로가 아닌, 공통 axios 인스턴스로 호출해야 함
+    const { data } = await api.get('/api/me', { withCredentials: true })
+
+    if (!data?.ok) {
+      console.warn('⛔ [가드] /api/me ok=false → /login 리디렉션', { to: to.fullPath })
+      return next({ path: '/login', query: { redirect: to.fullPath } })
     }
 
-    const json = await res.json()
-    const me = json?.user
-    console.log('✅ [가드] 로그인 확인:', { nickname: me?.nickname, role: me?.role })
+    const me = data?.user
+    console.log('✅ [가드] 로그인 확인:', { username: me?.username, nickname: me?.nickname, role: me?.role })
 
-    // 마스터 요구 라우트인지 검사
+    // 마스터 요구 라우트 검사
     if (requiresMaster) {
       if (me?.role === 'master') {
-        console.log('✅ [가드] 마스터 권한 확인됨 → 통과')
+        console.log('✅ [가드] 마스터 권한 통과')
         return next()
       } else {
-        console.warn('⛔ [가드] 마스터 권한 아님 → /home 리디렉션', { role: me?.role })
+        console.warn('⛔ [가드] 마스터 권한 부족 → /home 리디렉션', { role: me?.role })
         return next('/home')
       }
     }
 
-    // 일반 인증만 필요한 경우 통과
+    // 일반 인증만 필요한 경우
     return next()
-  } catch (err) {
-    console.error('❌ [가드] /api/me 확인 오류 → /login 리디렉션', err)
-    return next('/login')
+  } catch (err: any) {
+    // 상세 로그 (요청 URL/상태/응답 메시지)
+    const status = err?.response?.status
+    const url = `${err?.config?.baseURL || ''}${err?.config?.url || ''}`
+    console.error('❌ [가드] /api/me 확인 오류', { status, url, err })
+
+    // 401 → 로그인 필요로 판정
+    if (status === 401) {
+      console.warn('⛔ [가드] 401 Unauthorized → /login 리디렉션', { to: to.fullPath })
+      return next({ path: '/login', query: { redirect: to.fullPath } })
+    }
+
+    // 5xx 등 서버 오류: 사용자 경험을 위해 리디렉트 대신 진입 허용할 수도 있음
+    // 정책상 로그인 보호 페이지에서는 보수적으로 로그인 페이지로 보냄
+    return next({ path: '/login', query: { redirect: to.fullPath, e: status || '500' } })
   }
 })
 
