@@ -1,8 +1,10 @@
 // src/lib/axiosInstance.ts
 // ------------------------------------------------------
 // ✅ 단일 axios 인스턴스 + http 래퍼
-// - baseURL = ORIGIN(도메인/포트)만 사용 (/api 붙이지 않음)
-// - 각 호출부는 `${API_PREFIX}/...` 사용
+// - baseURL = ORIGIN(도메인/포트)만 사용 (/api 붙이지 않음)  ← 원칙 유지
+//   └ 단, 환경에 따라 baseURL 끝에 /api 가 들어올 수 있으므로
+//      요청 인터셉터에서 "/api/api/..." 이중 경로를 자동 보정합니다.
+// - 각 호출부는 `${API_PREFIX}/...` 사용 (하위 호환)
 // - 인터셉터/로깅/withCredentials 일원화
 // - 하위호환: default export = api (axios 인스턴스)
 //            named export = { api, http, API_PREFIX, getApiBaseURL }
@@ -58,7 +60,7 @@ const getApiBaseURL = () => RESOLVED_BASE;
 
 // ===== Axios Instance =====
 const api: AxiosInstance = axios.create({
-  baseURL: RESOLVED_BASE, // ❗ '/api'를 붙이지 않습니다. (/api/api 이중 방지)
+  baseURL: RESOLVED_BASE, // ❗ '/api'를 붙이지 않습니다. (단, 인터셉터에서 이중 보정)
   withCredentials: true,  // ⭐ 세션/쿠키 전달 필수
   timeout: 20000,         // 네트워크 품질 고려 여유 확대(기본 20s)
   headers: {
@@ -73,11 +75,42 @@ console.log('[Axios][INIT]', {
   mode: import.meta.env.MODE,
 });
 
-// ===== Interceptors (logging) =====
+// ===== Interceptors (request: 경로 자동 보정 + 로깅) =====
 api.interceptors.request.use(
   (config) => {
     // URL이 절대경로인지/상대경로인지 표시
     const isAbs = /^https?:\/\//i.test(config.url || '');
+
+    // ----------- 🔧 이중 /api 자동 보정 로직 -----------
+    // 상황:
+    //  1) baseURL 이 "https://host/api" 로 끝나고
+    //  2) 호출부 url 이 "/api/..." 로 시작하면
+    // 최종 URL이 "https://host/api/api/..." 가 되어 404 발생.
+    //
+    // 해결:
+    //  - 위 조건일 때 url 의 선행 "/api" 한 번만 제거하여
+    //    최종 "https://host/api/..." 가 되도록 보정.
+    try {
+      if (!isAbs) {
+        const base = (config.baseURL || '').replace(/\/+$/, ''); // 끝 슬래시 제거
+        let url = config.url || '';
+
+        // base가 /api 로 끝나고, url이 /api 로 시작하면 → url 쪽의 /api 1회 제거
+        if (/\/api$/.test(base) && /^\/api(\/|$)/.test(url)) {
+          const before = url;
+          url = url.replace(/^\/api(\/|$)/, '/');
+          console.log('🛠️ [Axios][REQ][FIX] /api 중복 제거:', { before, after: url, base });
+        }
+
+        // base + url 결합 시 중복 슬래시 예방 (예: "//")
+        url = url.replace(/\/{2,}/g, '/');
+        config.url = url;
+      }
+    } catch (e) {
+      console.warn('⚠️ [Axios][REQ][FIX] 경로 보정 중 예외:', e);
+    }
+    // ----------- /이중 /api 자동 보정 -----------
+
     console.log('✅ [Axios][REQ]', {
       baseURL: config.baseURL,
       url: config.url,
@@ -88,6 +121,7 @@ api.interceptors.request.use(
       params: config.params,
       data: config.data,
     });
+
     if (!config.baseURL) {
       console.warn(
         '⚠️ [Axios][REQ][WARN] config.baseURL이 비어 있습니다. ' +
@@ -102,6 +136,7 @@ api.interceptors.request.use(
   }
 );
 
+// ===== Interceptors (response: 로깅) =====
 api.interceptors.response.use(
   (res) => {
     console.log('✅ [Axios][RES]', {
@@ -170,5 +205,5 @@ const http = {
 };
 
 // ===== Exports =====
-export default api;                             // 레거시: 기본(default) axios 인스턴스
-export { api, http, API_PREFIX, getApiBaseURL } // 병행 제공(호출부 일괄 치환 최소화)
+export default api;                              // 레거시: 기본(default) axios 인스턴스
+export { api, http, API_PREFIX, getApiBaseURL }; // 병행 제공(호출부 일괄 치환 최소화)

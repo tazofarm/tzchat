@@ -7,9 +7,9 @@
       </ion-toolbar>
     </ion-header>
 
-    <!-- [MODIFIED] 한 페이지(뷰포트) 내에 들어오도록 scrollY 비활성 + 내부 레이아웃 컴팩트 -->
-    <ion-content :fullscreen="true" :scroll-y="false"> <!-- [MODIFIED] -->
-      <div class="container onepage"> <!-- [MODIFIED] onepage 클래스 추가 -->
+    <!-- [유지/개선] 한 페이지(뷰포트) 내에 들어오도록 scrollY 비활성 + 내부 레이아웃 컴팩트 -->
+    <ion-content :fullscreen="true" :scroll-y="false">
+      <div class="container onepage">
         <!-- (옵션) 디버그용 빌드/환경 로그 -->
         <!--
         <div class="env-log" aria-hidden="true">
@@ -18,7 +18,7 @@
         </div>
         -->
 
-        <form class="form compact" @submit.prevent="onSubmit" autocomplete="on" novalidate> <!-- [MODIFIED] compact 클래스 추가 -->
+        <form class="form compact" @submit.prevent="onSubmit" autocomplete="on" novalidate>
           <!-- 아이디 -->
           <div class="form-row">
             <label for="username">아이디</label>
@@ -78,7 +78,8 @@
           <!-- 출생년도 -->
           <div class="form-row">
             <label for="birthyear">출생년도</label>
-            <select id="birthyear" name="birthyear" v-model="form.birthyear" required>
+            <!-- ✅ 숫자 바인딩 보장: v-model.number -->
+            <select id="birthyear" name="birthyear" v-model.number="form.birthyear" required>
               <option value="" disabled>출생년도를 선택하세요</option>
               <option v-for="y in birthyearOptions" :key="y" :value="y">{{ y }}년</option>
             </select>
@@ -150,11 +151,12 @@
  * SignupPage - 일반 폼 구조 (컴팩트 1페이지 레이아웃 적용)
  * - 지역2에 '전체' 옵션 제거 (회원가입에서는 정확한 지점 선택)
  * - 로그/에러로그 충분히 출력
+ * - ✅ API 경로: `${API_PREFIX}/signup` 사용 (이중 /api 방지 + 서버 /api 프리픽스와 정합)
  * -----------------------------------------------------*/
 import { IonPage, IonHeader, IonToolbar, IonTitle, IonContent } from '@ionic/vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios, { API_PREFIX } from '@/lib/axiosInstance' // API_PREFIX 사용
 // regions.js는 named export 입니다.
 import { regions } from '@/data/regions'
 
@@ -233,6 +235,9 @@ onMounted(() => {
 })
 
 // 제출
+const errorMsg = ref('')
+const successMsg = ref('')
+
 async function onSubmit() {
   if (!isValid.value) {
     console.warn('⛔ [Signup] Invalid form:', JSON.parse(JSON.stringify(form.value)))
@@ -255,7 +260,8 @@ async function onSubmit() {
   console.log('📝 [Signup] Submit payload:', { ...payload, password: '(hidden)' })
 
   try {
-    const res = await axios.post('/api/signup', payload, { withCredentials: true })
+    // ✅ 중요한 부분: `${API_PREFIX}/signup` 사용
+    const res = await axios.post(`${API_PREFIX}/signup`, payload)
     console.log('✅ [Signup] API OK:', res.status, res.data)
     successMsg.value = '회원가입이 완료되었습니다.'
     router.push('/login')
@@ -266,10 +272,6 @@ async function onSubmit() {
     submitting.value = false
   }
 }
-
-const errorMsg = ref('')
-const successMsg = ref('')
-
 </script>
 
 <style scoped>
@@ -279,24 +281,19 @@ const successMsg = ref('')
    - 내부 간격 최적화
 */
 
-
 /* 툴바(헤더) 높이 */
 ion-toolbar {
-  --min-height: 44px;   /* 기본 약 56px → 줄임 */
+  --min-height: 44px;
   --padding-top: 0px;
   --padding-bottom: 0px;
 }
 
 /* 타이틀 글씨 크기 */
 ion-title {
-  font-size: 16px;      /* 기본 약 20px → 줄임 */
-  font-weight: 600;     /* 가독성 유지 */
-  color: #fcfafa;          /* 검정 글씨 */
+  font-size: 16px;
+  font-weight: 600;
+  color: #fcfafa; /* 헤더 다크 배경 대비 */
 }
-
-
-
-
 
 /* (변경 없음) 공용 로그 */
 .env-log {
@@ -307,60 +304,58 @@ ion-title {
   color: #111;
 }
 
-/* [MODIFIED] 컨테이너가 헤더를 제외한 뷰포트 높이를 꽉 채우도록 제한 */
-.container.onepage { /* [MODIFIED] */
+/* 컨테이너가 헤더를 제외한 뷰포트 높이를 꽉 채우도록 제한 */
+.container.onepage {
   width: min(640px, 92vw);
   margin: 4px auto 0;
   padding: 6px 4px 0;
   color: #111;
-  /* ion-header(툴바) 높이를 뺀 영역 계산: 기기별 툴바 대략 56px 가정 */
-  max-height: calc(100vh - 56px); /* [MODIFIED] */
-  display: flex;                   /* [MODIFIED] 폼을 수직 중앙 근접 배치 */
-  align-items: flex-start;         /* [MODIFIED] 위쪽 정렬(안전) */
+  max-height: calc(100vh - 56px);
+  display: flex;
+  align-items: flex-start;
 }
 
-/* [MODIFIED] ion-content 자체 스크롤 off일 때 내부 넘침 방지 */
-:host { /* [MODIFIED] */
+/* ion-content 자체 스크롤 off일 때 내부 넘침 방지 */
+:host {
   display: block;
 }
 
-/* [MODIFIED] 폼 레이아웃을 컴팩트하게 */
-.form.compact {                /* [MODIFIED] */
-  display: grid;               /* [MODIFIED] grid로 수직 공간 절약 */
-  grid-auto-rows: min-content; /* [MODIFIED] */
-  row-gap: 8px;                /* [MODIFIED] 섹션 간격 줄임 (14→8) */
+/* 폼 레이아웃을 컴팩트하게 */
+.form.compact {
+  display: grid;
+  grid-auto-rows: min-content;
+  row-gap: 8px;
   width: 100%;
 }
 
-/* [MODIFIED] 개별 행 간 간격 축소 */
-.form-row {            /* [MODIFIED] */
+/* 개별 행 간 간격 축소 */
+.form-row {
   display: grid;
-  row-gap: 4px;        /* (8→6) */
-  
+  row-gap: 4px;
 }
 
 /* 라벨/인라인 라벨 */
 .form-row label,
 .label-inline {
   font-weight: 600;
-  font-size: 12px;     /* [MODIFIED] 16~17 → 15 (줌 방지 한계선 유지) */
+  font-size: 12px;
   letter-spacing: 0.1px;
-  color: #fcfafa; 
+  color: #fcfafa; /* 어두운 배경 대비 */
 }
 
-/* [MODIFIED] 입력류 높이 축소 + 패딩 조정 */
+/* 입력류 높이 축소 + 패딩 조정 */
 .form-row input[type="text"],
 .form-row input[type="password"],
 .form-row select {
   width: 100%;
-  height: 20px;               /* [MODIFIED] 48 → 44 */
-  padding: 0 12px;            /* [MODIFIED] 14 → 12 */
+  height: 20px;
+  padding: 0 12px;
   border: 1px solid #d9d9d9;
-  border-radius: 10px;        /* [MODIFIED] 12 → 10 */
+  border-radius: 10px;
   outline: none;
   background: #fff;
   color: #111;
-  font-size: 10px;            /* iOS 확대 방지 기준 유지 */
+  font-size: 10px; /* iOS 확대 방지 기준 */
   transition: box-shadow .15s, border-color .15s;
   -webkit-appearance: none;
 }
@@ -383,53 +378,52 @@ ion-title {
   box-shadow: 0 0 0px 1000px #fff inset;
 }
 
-/* [MODIFIED] 라디오 그룹 간격 축소 */
-.radio-group {                 /* [MODIFIED] */
+/* 라디오 그룹 간격 축소 */
+.radio-group {
   display: flex;
-  gap: 14px;                   /* 20 → 14 */
+  gap: 14px;
   align-items: center;
-  padding-top: 2px;            /* 4 → 2 */
+  padding-top: 2px;
   flex-wrap: wrap;
 }
-.radio { display: inline-flex; align-items: center; gap: 6px; } /* [MODIFIED] 8 → 6 */
+.radio { display: inline-flex; align-items: center; gap: 6px; }
 .radio input[type="radio"] {
-  width: 18px; height: 14px;   /* [MODIFIED] 20 → 18 */
+  width: 18px; height: 14px;
   accent-color: #3b82f6;
 }
 .radio span {
-  font-size: 14px;             /* [MODIFIED] 16 → 15 */
+  font-size: 14px;
   line-height: 1.25;
-  color: #fcfafa; 
+  color: #fcfafa;
 }
 
-/* [MODIFIED] 지역 인라인 레이아웃: 간격/최소폭 축소 */
-.region-row {                  /* [MODIFIED] */
+/* 지역 인라인 레이아웃: 간격/최소폭 축소 */
+.region-row {
   display: flex;
-  gap: 8px;                    /* 12 → 8 */
-  flex-wrap: nowrap;           /* [MODIFIED] 강제로 한 줄 유지(스크롤 방지) */
+  gap: 8px;
+  flex-wrap: nowrap;  /* 한 줄 유지 */
   align-items: end;
-  margin-top: 2px;             /* 4 → 2 */
+  margin-top: 2px;
 }
 .region-row .col {
   flex: 1 1 0;
-  min-width: 0;                /* [MODIFIED] 200px → 0 (강제 한 줄) */
+  min-width: 0;
 }
 
-/* [MODIFIED] 버튼 열 간격/높이 축소 */
-.button-col {                  /* [MODIFIED] */
+/* 버튼 열 간격/높이 축소 */
+.button-col {
   display: grid;
-  row-gap: 4px;                /* 10 → 8 */
-  margin-top: 0px;             /* 6 → 4 */
-  
+  row-gap: 4px;
+  margin-top: 0px;
 }
 
-/* [MODIFIED] 버튼 높이/폰트 축소 */
-.btn {                         /* [MODIFIED] */
-  height: 44px;                /* 48 → 44 */
-  border-radius: 10px;         /* 12 → 10 */
+/* 버튼 높이/폰트 */
+.btn {
+  height: 44px;
+  border-radius: 10px;
   text-align: center;
   font-weight: 700;
-  font-size: 12px;             /* 16 → 15 */
+  font-size: 12px;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -453,27 +447,25 @@ ion-title {
 /* 고스트 버튼 */
 .btn.ghost { background: #fff; color: #111; border-color: #dcdcdc; }
 
-/* [MODIFIED] 힌트/메시지: 줄 간격/크기 축소 */
-.hint {                        /* [MODIFIED] */
+/* 힌트/메시지 */
+.hint {
   margin: 2px 2px 0;
-  font-size: 10px;             /* clamp 제거, 15~16 → 14 */
-  line-height: 1.4;           /* 1.45 → 1.35 */
+  font-size: 10px;
+  line-height: 1.4;
 }
 .hint.error { color: #c0392b; }
 .hint.success { color: #2d7a33; }
 
-/* [MODIFIED] 폼 전체를 뷰포트에 맞춰 수직 압축 (헤더 제외) */
-.onepage .form {               /* [MODIFIED] */
+/* 폼 전체를 뷰포트에 맞춰 수직 압축 (헤더 제외) */
+.onepage .form {
   max-height: calc(100vh - 56px - 8px); /* 헤더(약 56px) + 위 여백 8px */
-  overflow: hidden;            /* 스크롤 아예 금지 */
+  overflow: hidden; /* 스크롤 금지 */
 }
 
-/* [MODIFIED][옵션] 초소형 강제 스케일
-   - 아주 작은 기기에서 마지막 줄이 살짝 넘칠 때 0.98~0.95로 낮추세요.
-*/
-@media (max-height: 640px) {   /* [MODIFIED] */
+/* 초소형 강제 스케일(옵션) */
+@media (max-height: 640px) {
   .onepage {
-    transform: scale(0.98);    /* 필요 시 0.97~0.95로 조정 가능 */
+    transform: scale(0.98);
     transform-origin: top center;
   }
 }

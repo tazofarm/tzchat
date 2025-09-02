@@ -4,6 +4,9 @@ import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
 
+// ✅ axios 인스턴스 초기화 로그가 부트 초기에 찍히도록(기능 변화 없음)
+import '@/lib/axiosInstance'
+
 // 🔔 Web/PWA 푸시 등록 (신규 추가)
 import { registerWebPush } from './push/webPush'
 
@@ -188,7 +191,7 @@ app.config.compilerOptions.isCustomElement = (tag: string) => {
 }
 
 /* -------------------------------------------------------
- * 6-2) 🔔 WebPush 등록 (신규)
+ * 6-2) 🔔 WebPush 등록
  *  - 앱 시작 시 1회만 호출
  *  - 권한 요청 → FCM 토큰 발급 → 서버 /api/push/register 로 전송
  *  - 실패해도 앱 부트는 계속 진행
