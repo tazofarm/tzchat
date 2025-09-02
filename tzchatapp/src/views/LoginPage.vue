@@ -59,14 +59,14 @@
 /**
  * LoginPage.vue
  * ------------------------------------------------------
- * - 진입 시 /api/me 체크: 401은 정상(미로그인) 처리
+ * - 진입 시 /api/me 체크: 401은 정상(미로그인) 처리 → validateStatus로 콘솔 에러 최소화
  * - 로그인 후 /api/me 재검증: 짧은 딜레이 + 재시도(세션 저장 타이밍 대비)
- * - 최종 실패 시 /debug/echo, /debug/session으로 빠르게 원인 추적(서버 제공)  :contentReference[oaicite:2]{index=2}
- * - axiosInstance(withCredentials 기본 on) + API_PREFIX 사용  :contentReference[oaicite:3]{index=3}
+ * - 최종 실패 시 /debug/echo, /debug/session 절대 URL로 호출하여 즉시 진단
+ * - axiosInstance(withCredentials 기본 on) + API_PREFIX 사용
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios, { API_PREFIX } from '@/lib/axiosInstance' // default: axios 인스턴스, named: API_PREFIX
+import axios, { API_PREFIX, getApiBaseURL } from '@/lib/axiosInstance' // default axios + helpers
 
 const router = useRouter()
 
@@ -91,7 +91,10 @@ async function fetchMeWithRetry(maxRetry = 3, delayMs = 150) {
     } catch (e) {
       lastErr = e
       const st = e?.response?.status
-      console.warn(`⚠️ [LoginPage] /api/me 실패(${attempt}/${maxRetry}) status=${st || 'N/A'}`, e?.response?.data || e?.message)
+      console.warn(
+        `⚠️ [LoginPage] /api/me 실패(${attempt}/${maxRetry}) status=${st || 'N/A'}`,
+        e?.response?.data || e?.message
+      )
       if (attempt < maxRetry) await sleep(delayMs)
     }
   }
@@ -102,17 +105,20 @@ async function fetchMeWithRetry(maxRetry = 3, delayMs = 150) {
 onMounted(async () => {
   console.log('🟦 [LoginPage] mounted. 진입 시 세션 상태 확인 시작')
   try {
-    const me = await axios.get(`${API_PREFIX}/me`)
-    console.log('🔐 이미 로그인 상태입니다. /api/me 응답:', me.data)
-    // 필요 시 자동 이동:
-    // return router.push('/home/2page')
-  } catch (e) {
-    const status = e?.response?.status
-    if (status === 401) {
-      console.log('ℹ️ [LoginPage] 세션 없음(401). 로그인 진행 가능 상태.')
+    // ✅ 200/401만 성공 취급 → 401이어도 빨간 에러 로그로 안 떨어짐
+    const res = await axios.get(`${API_PREFIX}/me`, {
+      validateStatus: (s) => s === 200 || s === 401,
+    })
+    if (res.status === 200) {
+      console.log('🔐 이미 로그인 상태입니다. /api/me 응답:', res.data)
+      // 필요 시 자동 이동:
+      // return router.push('/home/2page')
     } else {
-      console.log('⚠️ [LoginPage] /api/me 확인 중 예외:', e)
+      console.log('ℹ️ [LoginPage] 세션 없음(401). 로그인 진행 가능 상태.')
     }
+  } catch (e) {
+    // 네트워크/기타 예외만 표시
+    console.log('⚠️ [LoginPage] /api/me 확인 중 예외:', e)
   }
 })
 
@@ -156,10 +162,12 @@ const login = async () => {
         msg: meErr?.message,
       })
 
-      // 🔎 보조 진단: 서버의 디버그 라우트 호출 (쿠키 수신/세션여부 확인)  :contentReference[oaicite:4]{index=4}
+      // 🔎 보조 진단: 서버의 디버그 라우트 호출 (쿠키 수신/세션여부 확인)
+      //    baseURL이 .../api 로 끝나므로, 절대 URL로 루트를 계산해 호출해야 /api 가 중첩되지 않습니다.
       try {
-        const echo = await axios.get('/debug/echo')     // 쿠키 헤더 수신 여부
-        const sess = await axios.get('/debug/session')  // 세션 객체/유저
+        const origin = getApiBaseURL().replace(/\/api\/?$/, '') // '.../api' → '...'
+        const echo = await axios.get(`${origin}/debug/echo`)     // 절대 URL
+        const sess = await axios.get(`${origin}/debug/session`)  // 절대 URL
         console.log('🔎 [Debug] echo:', echo.data)
         console.log('🔎 [Debug] session:', sess.data)
       } catch (dbgErr) {

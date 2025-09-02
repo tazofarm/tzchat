@@ -211,6 +211,7 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   store: sessionStore,
   cookie: cookieConfig,
+  proxy: true, // ⭐ [CHANGED] 프록시 뒤에서 secure 쿠키를 안정적으로 설정/인식
 });
 
 // 요청 단위 쿠키정책 로그 + 프록시 프로토콜 점검
