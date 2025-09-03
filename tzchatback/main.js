@@ -1,5 +1,8 @@
 // main.js
-// 🌐 Express 기반 tzchat 서버 초기화 (Socket.IO 포함)
+// 🌐 Express 기반 tzchat 서버 초기화 (Socket.IO 포함 + ✅ JWT 병행 지원)
+// - 기존 세션(session) 기반은 그대로 유지(호환성)
+// - 추가: JWT(Bearer) 파싱/검증 미들웨어 + Socket.IO 토큰 인증
+// - 웹/앱(웹뷰/네이티브) 공용 사용 목적
 const express = require('express');
 const app = express();
 const http = require('http');
@@ -14,6 +17,8 @@ const PORT = Number(process.env.PORT || 2000);
 const HOST = process.env.HOST || '0.0.0.0';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/tzchat';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'tzchatsecret';
+// 🔐 JWT 비밀키(신규) — 세션과 병행 사용
+const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
 
 // ⚠️ (신규) 라우터 로딩 에러를 잡아 친절하게 안내하는 헬퍼
 function safeMountRouter(mountPath, modulePath, exact = true) {
@@ -130,8 +135,9 @@ const corsOptions = {
     console.log('[CORS-CHECK]', origin, '=> BLOCK');
     return cb(new Error('Not allowed by CORS'));
   },
-  credentials: true, // ⭐ withCredentials 쿠키 허용
+  credentials: true, // ⭐ withCredentials 쿠키 허용(세션 호환), JWT는 Authorization 헤더 사용
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  // ✅ JWT 헤더 허용
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   maxAge: 600, // 프리플라이트 캐시
 };
@@ -139,7 +145,6 @@ const corsOptions = {
 app.use(cors(corsOptions));
 // Express v5: 문자열 '*' 금지 → 정규식으로 OPTIONS 허용
 app.options(/.*/, cors(corsOptions), (req, res) => {
-  // 일부 환경에서 204 응답을 명시해 프리플라이트 딜레이 제거
   res.sendStatus(204);
 });
 
@@ -158,7 +163,7 @@ const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_M
 console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
 
 // =======================================
-// 1) DB, 세션 설정
+// 1) DB, 세션 설정 (유지) + ✅ JWT 파서(신규)
 // =======================================
 const mongoose = require('mongoose');
 mongoose
@@ -169,7 +174,7 @@ mongoose
 // ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 Secure 쿠키 인식)
 app.set('trust proxy', 1); // ★ 반드시 세션 미들웨어 이전
 
-// ✅ 세션 설정 (connect-mongo)
+// ✅ 세션 설정 (connect-mongo) — 기존 세션 의존 라우터 호환용
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
@@ -211,7 +216,6 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   store: sessionStore,
   cookie: cookieConfig,
-  proxy: true, // ⭐ [CHANGED] 프록시 뒤에서 secure 쿠키를 안정적으로 설정/인식
 });
 
 // 요청 단위 쿠키정책 로그 + 프록시 프로토콜 점검
@@ -220,7 +224,6 @@ app.use((req, res, next) => {
   const xfProto = req.headers['x-forwarded-proto'] || '(none)';
   console.log('🍪 [SessionCookiePolicy] origin=', origin, '| sameSite=', cookieConfig.sameSite, '| secure=', cookieConfig.secure, '| xfp=', xfProto);
   if (cookieConfig.secure === true && xfProto !== 'https') {
-    // Nginx 설정 미흡 시 진단에 도움(세션쿠키가 버려지는 대표 케이스)
     console.warn('⚠️ secure 쿠키 모드인데 X-Forwarded-Proto !== https 입니다. Nginx proxy_set_header X-Forwarded-Proto $scheme; 확인 필요');
   }
   next();
@@ -229,6 +232,55 @@ app.use((req, res, next) => {
 app.use(sessionMiddleware);
 app.set('sessionStore', sessionStore);
 console.log('🔐 세션 설정 완료:', cookieConfig);
+
+// ---------------------------------------
+// ✅ JWT 파서/검증 미들웨어 (신규, 비파괴)
+// - Authorization: Bearer <token> 또는 ?token=, X-Auth-Token 지원
+// - 유효하면 req.user 설정(세션보다 우선 사용 가능)
+// - 라우터들은 점진적 전환: req.user || req.session.user
+// ---------------------------------------
+const jwt = require('jsonwebtoken');
+
+function extractToken(req) {
+  // Authorization 헤더
+  const auth = req.headers['authorization'] || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
+
+  // 대안 헤더
+  const xToken = req.headers['x-auth-token'];
+  if (xToken) return String(xToken).trim();
+
+  // 쿼리 토큰(소켓 핸드셰이크 재활용)
+  if (req.query && req.query.token) return String(req.query.token).trim();
+
+  return null;
+}
+
+app.use((req, res, next) => {
+  const token = extractToken(req);
+  if (!token) {
+    console.log('[AUTH][JWT][MISS]', { path: req.path });
+    return next();
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    // 민감 정보 마스킹하여 로그
+    console.log('[AUTH][JWT][OK]', { sub: payload.sub || payload._id || '(none)', path: req.path });
+    // 표준화된 형태로 저장
+    req.user = {
+      _id: payload._id || payload.sub || null,
+      username: payload.username || null,
+      nickname: payload.nickname || null,
+      roles: payload.roles || [],
+      // 필요 시 추가 클레임
+    };
+    req.auth = { type: 'jwt', tokenMasked: token.slice(0, 8) + '***' };
+  } catch (err) {
+    console.log('[AUTH][ERR]', { step: 'jwt.verify', code: err.name, message: err.message });
+    // JWT 실패해도 세션 경로로 계속 진행(호환)
+  }
+  next();
+});
 
 // 디버그 라우트
 app.get('/debug/echo', (req, res) => {
@@ -240,17 +292,20 @@ app.get('/debug/echo', (req, res) => {
   });
 });
 app.get('/debug/session', (req, res) => {
-  console.log('🔎 /debug/session sessionID =', req.sessionID, ' user =', req.session?.user || null);
+  console.log('🔎 /debug/session sessionID =', req.sessionID, ' user =', req.session?.user || null, ' jwtUser =', req.user || null);
   res.json({
     ok: true,
     sessionID: req.sessionID,
-    user: req.session?.user || null,
-    raw: req.session
+    sessionUser: req.session?.user || null,
+    jwtUser: req.user || null
   });
 });
 
 // =======================================
 // 2) 라우터 등록 (safeMountRouter)
+//    ⚠️ 현재 라우터는 세션 기반으로 동작 중일 수 있음.
+//    JWT 전환 완료 전까지는 req.user || req.session.user 를 함께 고려하도록
+//    각 라우터에서 점진적으로 리팩토링 예정.
 // =======================================
 safeMountRouter('/api', './routes/userRouter');
 safeMountRouter('/api', './routes/authRouter');
@@ -263,6 +318,7 @@ safeMountRouter('/api/admin', './routes/adminRouter');
 
 // =======================================
 // 3) Socket.IO 설정 (+온라인유저/방현황 트래킹)
+//    ✅ JWT 인증 병행: handshake.auth.token / headers.authorization
 // =======================================
 const { Server } = require('socket.io');
 const io = new Server(server, {
@@ -279,9 +335,44 @@ const io = new Server(server, {
 });
 console.log('🔌 Socket.IO 경로(/socket.io) 및 CORS 적용');
 
-// ✅ 세션 공유
+// ✅ 세션 공유(유지) — 기존 세션 방식과 병행
 io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
+});
+
+// ✅ JWT 인증(신규)
+// - 우선 JWT 검사 → 실패해도 세션이 있으면 세션으로 진행
+io.use((socket, next) => {
+  try {
+    const h = socket.handshake || {};
+    const headers = h.headers || {};
+    const auth = headers['authorization'] || '';
+    let token = null;
+
+    if (h.auth && h.auth.token) token = String(h.auth.token);
+    else if (auth.startsWith('Bearer ')) token = auth.slice(7).trim();
+    else if (h.query && h.query.token) token = String(h.query.token);
+
+    if (!token) {
+      console.log('[SOCKET][AUTH][JWT][MISS]', { sid: socket.id });
+      return next(); // 세션으로 계속
+    }
+
+    const payload = jwt.verify(token, JWT_SECRET);
+    // socket.user: 라우팅/방조인 로직에서 사용 가능
+    socket.user = {
+      _id: payload._id || payload.sub || null,
+      username: payload.username || null,
+      nickname: payload.nickname || null,
+      roles: payload.roles || [],
+    };
+    console.log('[SOCKET][AUTH][JWT][OK]', { sid: socket.id, sub: socket.user._id });
+    return next();
+  } catch (err) {
+    console.log('[SOCKET][AUTH][ERR]', { step: 'jwt.verify', code: err.name, message: err.message });
+    // JWT 실패 시 세션만으로도 입장 가능(호환)
+    return next();
+  }
 });
 
 // ✅ 온라인 유저/방 현황
@@ -386,10 +477,13 @@ app.set('emit', {
 
 io.on('connection', (socket) => {
   try {
+    // ✅ JWT 우선 → 없으면 세션
+    const jwtUserId = socket.user?._id ? String(socket.user._id) : null;
     const session = socket.request.session;
-    const userId = session?.user?._id ? String(session.user._id) : null;
+    const sessUserId = session?.user?._id ? String(session.user._id) : null;
+    const userId = jwtUserId || sessUserId || null;
 
-    console.log(`📡 소켓 연결됨: ${socket.id} | 유저: ${userId || '(anon)'} | path=/socket.io`);
+    console.log('[SOCKET][CONN]', { sid: socket.id, userId: userId || '(anon)', via: jwtUserId ? 'jwt' : (sessUserId ? 'session' : 'anonymous') });
 
     if (userId) {
       onlineUsers.add(userId);
@@ -402,39 +496,39 @@ io.on('connection', (socket) => {
         const uid = String(payload.userId || userId || '');
         if (!uid) return;
         socket.join(userRoom(uid));
-        console.log(`🚪 사용자 조인: ${uid} → ${userRoom(uid)}`);
+        console.log(`[SOCKET][MSG] join`, { roomId: userRoom(uid), from: uid, type: 'personal' });
       } catch (err) {
-        console.error('❌ join 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'join', message: err.message });
       }
     });
 
     socket.on('joinRoom', (roomId) => {
       try {
         socket.join(roomId);
-        console.log(`🚪 ${userId || '(anon)'} → 방 참여: ${roomId}`);
+        console.log(`[SOCKET][MSG] joinRoom`, { roomId, from: userId || '(anon)', type: 'chatroom' });
         if (!roomMembers.has(roomId)) roomMembers.set(roomId, new Set());
         if (userId) roomMembers.get(roomId).add(userId);
       } catch (err) {
-        console.error('❌ joinRoom 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'joinRoom', message: err.message });
       }
     });
 
     socket.on('leaveRoom', (roomId) => {
       try {
         socket.leave(roomId);
-        console.log(`🚪 ${userId || '(anon)'} → 방 나가기: ${roomId}`);
+        console.log(`[SOCKET][MSG] leaveRoom`, { roomId, from: userId || '(anon)' });
         if (roomMembers.has(roomId) && userId) {
           roomMembers.get(roomId).delete(userId);
         }
       } catch (err) {
-        console.error('❌ leaveRoom 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'leaveRoom', message: err.message });
       }
     });
 
     // ⚠️ 프론트에서 POST로 메시지 저장 후 emit
     socket.on('chatMessage', async ({ roomId, message }) => {
       try {
-        console.log(`📨 소켓 메시지: ${message?.content ? message.content : '[이미지]'} → ${roomId}`);
+        console.log(`[SOCKET][MSG] chatMessage`, { roomId, from: userId || '(anon)', type: message?.imageUrl ? 'image' : 'text' });
         io.to(roomId).emit('chatMessage', message);
         await notifyRoomParticipantsForList(roomId, {
           _id: message?._id,
@@ -444,7 +538,7 @@ io.on('connection', (socket) => {
           createdAt: message?.createdAt || new Date(),
         });
       } catch (err) {
-        console.error('❌ chatMessage 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'chatMessage', message: err.message });
       }
     });
 
@@ -452,23 +546,23 @@ io.on('connection', (socket) => {
     socket.on('messagesRead', async (payload = {}) => {
       try {
         const { roomId, readerId, messageIds } = payload;
-        console.log(`👀 messagesRead 브로드캐스트: room=${roomId} reader=${readerId} count=${messageIds?.length || 0}`);
+        console.log(`[SOCKET][MSG] messagesRead`, { roomId, from: readerId, count: messageIds?.length || 0 });
         socket.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
         await notifyRoomParticipantsBadgeOnly(roomId);
       } catch (err) {
-        console.error('❌ messagesRead 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'messagesRead', message: err.message });
       }
     });
 
     socket.on('disconnect', () => {
       try {
-        console.log(`❌ 소켓 연결 종료: ${socket.id}`);
+        console.log(`[SOCKET][DISC]`, { sid: socket.id });
         if (userId) {
           onlineUsers.delete(userId);
           for (const set of roomMembers.values()) set.delete(userId);
         }
       } catch (err) {
-        console.error('❌ disconnect 처리 오류:', err);
+        console.log('[SOCKET][ERR]', { step: 'disconnect', message: err.message });
       }
     });
   } catch (err) {
@@ -491,9 +585,10 @@ server.listen(PORT, HOST, () => {
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
   console.log(`🔭 휴대폰 테스트 예시: http://192.168.0.7:${PORT}`);
   if (isSecureMode) {
-    console.log('🔒 SameSite=None + Secure 쿠키 사용중 → 반드시 HTTPS(프록시)로 접근해야 세션 동작합니다.');
+    console.log('🔒 SameSite=None + Secure 쿠키 사용중(세션 호환) + JWT 병행 → HTTPS(프록시) 권장.');
     console.log('   Nginx 설정에 proxy_set_header X-Forwarded-Proto $scheme; 가 필요합니다.');
   } else {
     console.log('🧪 DEV 모드: sameSite=lax, secure=false 쿠키 / 로컬 개발 오리진 허용');
   }
+  console.log('[AUTH] JWT 사용 준비 완료. 라우터는 req.user(JWT) → 없으면 req.session.user 순으로 참조 권장.');
 });

@@ -81,7 +81,7 @@
 
 <script setup lang="ts">
 // -------------------------------------------------------
-// PasswordChangeModal.vue (블랙+골드 테마)
+// Modal_password_chagne.vue (블랙+골드 테마)
 // - 최소 변경: 템플릿/로직 유지, 스타일만 다크+골드 적용
 // - PUT /api/update-password (세션 기반)
 // - 주석/로그 최대화

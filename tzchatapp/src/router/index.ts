@@ -2,13 +2,13 @@
 // ----------------------------------------------------------
 // 라우터 설정 (Vue Router v4)
 // - 가독성 위해 글자색 관련 CSS는 각 컴포넌트에서 처리(여기선 로직/가드 집중)
-// - 전역 가드에서 /api/me 호출 시 반드시 공통 axios 인스턴스를 사용
+// - 전역 가드에서 /me 호출 시 반드시 공통 axios 인스턴스를 사용
 //   (상대경로 fetch 사용 금지: dev 서버(8081)로 붙어 500/401 유발)
 // ----------------------------------------------------------
 import { createRouter, createWebHistory } from 'vue-router'
 
-// ✅ 공통 Axios 인스턴스 (baseURL: https://tzchat.duckdns.org, withCredentials: true)
-import api from '@/lib/axiosInstance' // 반드시 이걸로 /api/me 호출
+// ✅ 공통 Axios 인스턴스 (baseURL: 서버 오리진 + /api, withCredentials: true)
+import api from '@/lib/axiosInstance' // 반드시 이걸로 /me 호출
 
 // 기본 페이지
 import LoginPage from '@/views/LoginPage.vue'
@@ -193,11 +193,11 @@ router.beforeEach(async (to, from, next) => {
   try {
     console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
 
-    // ✅ 절대 경로가 아닌, 공통 axios 인스턴스로 호출해야 함
-    const { data } = await api.get('/api/me', { withCredentials: true })
+    // ✅ 공통 axios 인스턴스 사용 + baseURL이 이미 /api 이므로 경로는 '/me'
+    const { data } = await api.get('/me', { withCredentials: true })
 
     if (!data?.ok) {
-      console.warn('⛔ [가드] /api/me ok=false → /login 리디렉션', { to: to.fullPath })
+      console.warn('⛔ [가드] /me ok=false → /login 리디렉션', { to: to.fullPath })
       return next({ path: '/login', query: { redirect: to.fullPath } })
     }
 
@@ -221,7 +221,7 @@ router.beforeEach(async (to, from, next) => {
     // 상세 로그 (요청 URL/상태/응답 메시지)
     const status = err?.response?.status
     const url = `${err?.config?.baseURL || ''}${err?.config?.url || ''}`
-    console.error('❌ [가드] /api/me 확인 오류', { status, url, err })
+    console.error('❌ [가드] /me 확인 오류', { status, url, errMessage: err?.message })
 
     // 401 → 로그인 필요로 판정
     if (status === 401) {
@@ -229,8 +229,7 @@ router.beforeEach(async (to, from, next) => {
       return next({ path: '/login', query: { redirect: to.fullPath } })
     }
 
-    // 5xx 등 서버 오류: 사용자 경험을 위해 리디렉트 대신 진입 허용할 수도 있음
-    // 정책상 로그인 보호 페이지에서는 보수적으로 로그인 페이지로 보냄
+    // 5xx 등 서버 오류: 정책상 로그인 보호 페이지에서는 보수적으로 로그인 페이지로 보냄
     return next({ path: '/login', query: { redirect: to.fullPath, e: status || '500' } })
   }
 })

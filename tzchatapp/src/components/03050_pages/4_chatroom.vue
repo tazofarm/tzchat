@@ -46,7 +46,7 @@
 // - 로그/주석 강화, 구조/로직 최대 유지
 // ------------------------------------------------------
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import axios from '@/lib/axiosInstance'
+import { api } from '@/lib/api' // ✅ 공용 axios 인스턴스(/api 포함 baseURL, withCredentials=true)
 import {
   IonList,
   IonItem,
@@ -55,7 +55,6 @@ import {
   IonIcon,
 } from '@ionic/vue'
 import { useRouter } from 'vue-router'
-// import { io } from 'socket.io-client' // ❌ (삭제) 절대 URL 연결은 혼성콘텐츠 원인
 
 // ✅ Ionicons
 import { chatbubbleEllipsesOutline } from 'ionicons/icons'
@@ -65,8 +64,9 @@ const router = useRouter()
 
 const myId = ref('')
 const chatRooms = ref([])
-// let socket = null // ⬇️ ★ 변경: socket.js 공용 모듈 사용
-import { connectSocket, getSocket } from '@/lib/socket' // ★ 추가: 프론트 전용 소켓 모듈
+
+// ✅ 공용 소켓 모듈(JWT/쿠키 하이브리드 핸드셰이크)
+import { connectSocket, getSocket } from '@/lib/socket'
 
 // -------------------------------------------
 // 유틸: 응답 정규화 + 정렬
@@ -91,23 +91,23 @@ const sortRoomsDesc = (rooms) => {
 // API: 내 정보 + 채팅방 목록
 // -------------------------------------------
 const loadMeAndRooms = async () => {
-  console.time('[LOAD] /api/me + /api/chatrooms')
+  console.time('[LOAD] /me + /chatrooms')
   try {
-    const meRes = await axios.get('/api/me', { withCredentials: true })
+    const meRes = await api.get('/me')
     myId.value = meRes.data?.user?._id || meRes.data?._id || ''
     console.log('👤 Me OK:', { myId: myId.value })
   } catch (err) {
-    console.error('❌ /api/me 실패:', err?.response?.status, err?.response?.data || err?.message)
+    console.error('❌ /me 실패:', err?.response?.status, err?.response?.data || err?.message)
   } finally {
     await loadChatRooms()
-    console.timeEnd('[LOAD] /api/me + /api/chatrooms')
+    console.timeEnd('[LOAD] /me + /chatrooms')
   }
 }
 
 const loadChatRooms = async () => {
-  console.time('[LOAD] /api/chatrooms')
+  console.time('[LOAD] /chatrooms')
   try {
-    const roomRes = await axios.get('/api/chatrooms', { withCredentials: true })
+    const roomRes = await api.get('/chatrooms')
     const raw = normalizeRooms(roomRes.data)
     const mapped = raw.map(r => ({
       ...r,
@@ -120,7 +120,7 @@ const loadChatRooms = async () => {
     console.error('❌ 채팅방 목록 불러오기 실패:', err?.response?.status, err?.response?.data || err?.message)
     chatRooms.value = []
   } finally {
-    console.timeEnd('[LOAD] /api/chatrooms')
+    console.timeEnd('[LOAD] /chatrooms')
   }
 }
 
@@ -128,13 +128,8 @@ const loadChatRooms = async () => {
 // 소켓 초기화
 // -------------------------------------------
 const initSocket = () => {
-  // const host = window.location.hostname || 'localhost'
-  // const url = `http://${host}:2000`
-  // socket = io(url, { withCredentials: true }) // ❌ (삭제) 절대 URL + http → 혼성콘텐츠 차단
-  // console.log('🔌 Socket.IO 연결 시도...', url)
-
-  // ✅ ★ 변경: 현재 오리진(HTTPS) 상대 연결 + 공용 모듈 사용
-  const socket = connectSocket() // 내부: io("/", { path: "/socket.io", transports:["websocket"], withCredentials:true })
+  // ✅ 현재 오리진 기준 + path=/socket.io + withCredentials (공용 모듈)
+  const socket = connectSocket()
   console.log('🔌 [Socket] connectSocket 호출 완료 (origin-relative)')
 
   socket.on('connect', () => {
@@ -143,7 +138,7 @@ const initSocket = () => {
       socket.emit('join', { userId: myId.value })
       console.log('🚪 개인룸 조인 요청:', myId.value)
     } else {
-      console.warn('⚠️ myId 없음 — /api/me 실패했거나 세션 미인식')
+      console.warn('⚠️ myId 없음 — /me 실패했거나 인증 미인식')
     }
   })
 
@@ -212,11 +207,9 @@ onBeforeUnmount(() => {
   const socket = getSocket()
   if (socket) {
     try {
-      // 리스너 정리(선택): 주요 이벤트 해제
       socket.off('chatrooms:badge')
       socket.off('chatrooms:updated')
       socket.off('chatMessage')
-      // 연결 종료
       socket.disconnect()
       console.log('🔌 Socket.IO 연결 해제')
     } catch (e) {
@@ -291,9 +284,6 @@ ion-label p {
   line-height: 1.35;
 }
 
-/* 빈 상태 텍스트는 <ion-text color="medium">로 톤 자동 적용됨
-   (theme-gold.css에서 --ion-color-medium = var(--text-dim)) */
-
-/* (선택) 라벨에 직접 검정 고정이 있었다면 테마 텍스트로 교정 */
+/* 빈 상태 텍스트는 <ion-text color="medium">로 톤 자동 적용됨 */
 .black-text { color: var(--text); }
 </style>

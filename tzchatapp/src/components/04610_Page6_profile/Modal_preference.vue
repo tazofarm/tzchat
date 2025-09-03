@@ -7,8 +7,8 @@
       <select v-model="newPreference" class="select-box">
         <option value="이성친구 - 일반">이성친구 - 일반</option>
         <option value="이성친구 - 특수" disabled>이성친구 - 특수</option>
-        <option value="이성친구 - 특수" disabled>동성친구 - 일반</option>
-        <option value="이성친구 - 특수" disabled>동성친구 - 특수</option>
+        <option value="동성친구 - 일반" disabled>동성친구 - 일반</option>
+        <option value="동성친구 - 특수" disabled>동성친구 - 특수</option>
       </select>
 
       <!-- 메시지 -->
@@ -25,6 +25,12 @@
 </template>
 
 <script setup>
+/* ------------------------------------------------------------------
+   Modal_preference.vue
+   - 성향(preference) 수정 모달
+   - 공통 axios 인스턴스 사용 (세션 쿠키 포함)
+   - 입력 검증 / 에러 핸들링 / 성공 후 부모 반영
+------------------------------------------------------------------- */
 import { ref, onMounted } from 'vue'
 import axios from '@/lib/axiosInstance'
 import { IonButton } from '@ionic/vue'
@@ -44,57 +50,55 @@ const submitPreference = async () => {
   errorMsg.value = ''
   successMsg.value = ''
 
-  const trimmed = newPreference.value.trim()
+  const trimmed = (newPreference.value || '').trim()
 
   if (!trimmed) {
     errorMsg.value = '값을 선택하세요.'
     return
   }
 
-  if (trimmed === props.message) {
+  if (trimmed === (props.message || '').trim()) {
     errorMsg.value = '기존 값과 동일합니다.'
     return
   }
 
   try {
-    const res = await axios.patch('/api/user/preference', {
-      preference: trimmed
-    }, { withCredentials: true })
+    console.log('[Preference] 업데이트 요청:', trimmed)
+    const res = await axios.patch(
+      '/api/user/preference',
+      { preference: trimmed },
+      { withCredentials: true }
+    )
 
-    if (res.data.success) {
-      console.log('[특징 수정 성공]', trimmed)
+    if (res.data?.success) {
+      console.log('[Preference] 업데이트 성공', res.data)
       successMsg.value = '특징이 성공적으로 수정되었습니다.'
       setTimeout(() => {
         emit('updated', trimmed)
         emit('close')
-      }, 1000)
+      }, 800)
     } else {
-      errorMsg.value = res.data.message || '수정 실패'
+      errorMsg.value = res.data?.message || '수정 실패'
     }
   } catch (err) {
-    console.error('[특징 수정 오류]', err)
-
-    if (err.response?.status === 404) {
-      errorMsg.value = 'API 경로가 없습니다. 서버를 확인하세요.'
-    } else if (err.response?.status === 500) {
-      errorMsg.value = '서버 오류가 발생했습니다.'
-    } else {
-      errorMsg.value = '알 수 없는 오류가 발생했습니다.'
-    }
+    console.error('[Preference] 업데이트 오류', err)
+    const status = err?.response?.status
+    if (status === 404) errorMsg.value = 'API 경로가 없습니다. 서버를 확인하세요.'
+    else if (status === 500) errorMsg.value = '서버 오류가 발생했습니다.'
+    else errorMsg.value = '알 수 없는 오류가 발생했습니다.'
   }
 }
 </script>
 
 <style scoped>
 /* ────────────────────────────────────────────────────────────────
-   Preference_Edit_Modal (style scoped) — CSS만 보정
+   Preference_Edit_Modal (style scoped)
    - 오버레이: 딤/블러, safe-area, 스크롤 체인 방지
    - 카드: 폭/패딩/라운드/그림자, 타이포 간격
    - 셀렉트: 터치 타깃(≥44px), 라운드 12px, 포커스 링
    - 버튼: 터치 타깃/라운드/간격 통일(모바일 세로, 넓으면 2분할)
    - 메시지: 가독성/여백
    - 모션 최소화 환경 대응
-   - HTML/JS 변경 없음
 ──────────────────────────────────────────────────────────────── */
 
 .popup-overlay {
@@ -213,5 +217,4 @@ const submitPreference = async () => {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
-
 </style>

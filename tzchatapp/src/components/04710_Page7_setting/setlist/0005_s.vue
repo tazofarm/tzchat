@@ -5,7 +5,7 @@
       <ion-toolbar>
         <!-- 뒤로가기 버튼 -->
         <ion-buttons slot="start">
-          <ion-button class="back-btn" @click="goBack">←</ion-button>
+          <ion-button class="back-btn" @click="goBack" aria-label="뒤로가기">←</ion-button>
         </ion-buttons>
 
         <!-- 가운데 제목 -->
@@ -65,7 +65,7 @@ ion-title {
   min-width: 40px;
 }
 .back-btn:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 6px;
 }
 

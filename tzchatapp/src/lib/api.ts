@@ -10,8 +10,8 @@
 //   5) 그 외: 현재 오리진 + /api
 //
 // - 모든 경우 baseURL은 최종적으로 ".../api" 형식이 되도록 normalize
-// - axios withCredentials = true (세션 쿠키 전송 필수)
-// - 요청/응답 인터셉터에 상세 로그 추가 (디버깅 강화)
+// - axios withCredentials = true (세션/쿠키 전송 유지) + JWT(Bearer) 병행
+// - 요청/응답 인터셉터 상세 로그 + 401 처리(토큰 만료 정리)
 // ------------------------------------------------------
 import axios, {
   type InternalAxiosRequestConfig,
@@ -24,42 +24,33 @@ const OVERRIDE_KEY = 'DEV_API_BASE_URL_OVERRIDE'; // 로컬 테스트용 강제 
 /** 끝 슬래시 제거 + '/api' 1회 보장 */
 function normalize(base: string): string {
   let u = (base || '').trim();
-
-  // 공백/빈문자열 방어
   if (!u) return '/api';
-
-  // 중복 슬래시 정리
   u = u.replace(/\/+$/g, '');
-
-  // 이미 /api 로 끝나면 유지, 아니면 추가
   if (!/\/api$/i.test(u)) u = `${u}/api`;
-
   return u;
 }
 
 /** 최종 baseURL 결정 로직 */
 function resolveBaseURL(): string {
-  // 0) 로컬 오버라이드(테스트용) — 가장 먼저 체크
+  // 0) 로컬 오버라이드
   try {
     const ls = localStorage.getItem(OVERRIDE_KEY);
     if (ls && ls.trim()) {
       const over = normalize(ls);
-      console.log('[api] ⚠️ localStorage override 사용:', over);
+      console.log('[HTTP][CFG] localStorage override:', over);
       return over;
     }
-  } catch {
-    // SSR 등 localStorage 미존재시 무시
-  }
+  } catch {}
 
-  // 1) .env 최우선 (요청하신 4가지 모드에서 모두 이 경로로 해결됨)
+  // 1) .env 최우선
   const ENV_BASE = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined;
   if (ENV_BASE && ENV_BASE.trim()) {
     const envUrl = normalize(ENV_BASE);
-    console.log('[api] 🌐 .env VITE_API_BASE_URL 사용:', envUrl);
+    console.log('[HTTP][CFG] .env VITE_API_BASE_URL:', envUrl);
     return envUrl;
   }
 
-  // 2) 런타임 환경 판단 (Capacitor 등) — .env가 없을 때만 적용됨
+  // 2) 런타임 환경
   const { protocol, hostname, port, origin } = window.location;
   const isHttps = protocol === 'https:';
   const isDevPort = ['8081', '5173', '5174', '3000'].includes(port || '');
@@ -68,105 +59,137 @@ function resolveBaseURL(): string {
     hostname === '127.0.0.1' ||
     /^192\.168\./.test(hostname) ||
     /^10\./.test(hostname);
-
   const isCapacitor =
     protocol === 'capacitor:' ||
     (typeof origin === 'string' && origin.startsWith('capacitor://'));
 
-  // 2-a) Capacitor 앱 — .env가 없을 때만 로컬 백엔드로 폴백(개발 편의)
   if (isCapacitor) {
     const base = normalize(`http://${hostname || 'localhost'}:2000`);
-    console.warn('[api] 📱 Capacitor 감지 — .env 미설정으로 개발 기본값 사용:', base, '| origin=', origin);
+    console.warn('[HTTP][CFG] Capacitor detected → fallback:', base, '| origin=', origin);
     return base;
   }
-
-  // 2-b) HTTPS 페이지 → 같은 오리진
   if (isHttps) {
     const base = normalize(origin);
-    console.log('[api] 🔒 HTTPS 페이지 감지 → 같은 오리진 사용:', base, '| origin=', origin);
+    console.log('[HTTP][CFG] HTTPS origin:', base);
     return base;
   }
-
-  // 2-c) 개발(HTTP dev server) → :2000
   if (!isHttps && (isDevPort || isLocalHost)) {
     const base = normalize(`http://${hostname || 'localhost'}:2000`);
-    console.log('[api] 🧪 DEV 모드 감지 → :2000 사용:', base, '| host=', hostname, '| port=', port);
+    console.log('[HTTP][CFG] DEV http→:2000:', base, '| host=', hostname, '| port=', port);
     return base;
   }
-
-  // 2-d) 그 외 → 현재 오리진
   const fallback = normalize(origin);
-  console.log('[api] ℹ️ 기본 경로 사용:', fallback, '| origin=', origin);
+  console.log('[HTTP][CFG] fallback origin:', fallback);
   return fallback;
 }
 
-/** 최종 baseURL 계산 (앱/웹/원격-dev 모두 커버) */
+/** 최종 baseURL 계산 */
 const FINAL_BASE_URL = resolveBaseURL();
+
+/** ===== JWT 토큰 관리(앱 호환) =====
+ * - 백엔드가 httpOnly 쿠키를 설정하므로 웹은 쿠키만으로도 동작
+ * - 앱/웹뷰 등 쿠키 제약 환경을 위해 Authorization Bearer도 병행
+ */
+const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN';
+
+function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+function setToken(token?: string) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+      console.log('[AUTH][SET] token saved (len):', token.length);
+    }
+  } catch {}
+}
+export function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    console.log('[AUTH][CLR] token removed');
+  } catch {}
+}
+export function getApiBaseURL(): string {
+  return FINAL_BASE_URL;
+}
 
 export const api = axios.create({
   baseURL: FINAL_BASE_URL, // 예: https://tzchat.duckdns.org/api  또는 http://<host>:2000/api
-  withCredentials: true,   // ✅ 세션 쿠키 전달 (크로스사이트 필수)
+  withCredentials: true,   // ✅ 쿠키 전송 유지
   timeout: 15000,
 });
 
 // ------------------------------------------------------
-// 요청 인터셉터 (상세 로그)
-// - cfg.url이 '/'로 시작하지 않으면 보정하여 로그 가독성 강화
-// - 헤더/파라미터/바디를 함께 로깅(민감정보는 서버에서 필터링 권장)
+// 요청 인터셉터 (상세 로그 + Bearer 자동 첨부)
 // ------------------------------------------------------
 api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
   const path = cfg.url ? (cfg.url.startsWith('/') ? cfg.url : `/${cfg.url}`) : '';
   const fullUrl = `${cfg.baseURL || ''}${path}`;
+  const token = getToken();
 
-  // (필요 시) 헤더 보정
-  // if (!cfg.headers) cfg.headers = {} as any;
+  // Authorization Bearer 첨부(이미 지정되어 있지 않을 때만)
+  if (token && !(cfg.headers as any)?.Authorization) {
+    (cfg.headers as any) = { ...(cfg.headers as any), Authorization: `Bearer ${token}` };
+  }
 
-  console.log('✅ [Axios][REQ]', {
+  console.log('[HTTP][REQ]', {
     method: (cfg.method || 'get').toUpperCase(),
     url: fullUrl,
     params: cfg.params,
     data: cfg.data,
     withCredentials: cfg.withCredentials,
+    hasBearer: !!token,
   });
 
-  return cfg; // 타입 그대로 유지
+  return cfg;
 });
 
 // ------------------------------------------------------
-// 응답 인터셉터 (성공/실패 모두 상세 로그)
+// 응답 인터셉터 (성공/실패 로그 + 401 처리)
 // ------------------------------------------------------
 api.interceptors.response.use(
   (res: AxiosResponse) => {
-    console.log('✅ [Axios][RES:OK]', res.status, res.config?.url);
+    console.log('[HTTP][RES]', { status: res.status, url: res.config?.url });
     return res;
   },
   (err: AxiosError) => {
     const status = err.response?.status;
     const data = err.response?.data;
     const url = err.config?.url;
-    console.log('❌ [Axios][RES:ERR]', status, url, err.message, data);
+    console.log('[HTTP][ERR]', { status, url, message: err.message, data });
+
+    // 인증 실패 시 로컬 토큰만 정리(쿠키는 서버에서 clearCookie)
+    if (status === 401) {
+      clearToken();
+    }
     return Promise.reject(err);
   }
 );
 
 // ------------------------------------------------------
-// (선택) 런타임 헬퍼: 현재 baseURL을 노출(디버깅용)
-// ------------------------------------------------------
-export function getApiBaseURL(): string {
-  return FINAL_BASE_URL;
-}
-
-// ------------------------------------------------------
-// (선택) 인증 API 헬퍼 — baseURL이 이미 /api 이므로 경로는 '/login' 등 짧게
+// 인증 API 헬퍼 — baseURL이 이미 /api 이므로 경로는 '/login' 등 짧게
+// - 로그인 성공 시 서버가 쿠키를 설정하며, 동시에 응답 body의 token이 있으면 저장
+// - 로그아웃 시 로컬 토큰 제거
 // ------------------------------------------------------
 export const AuthAPI = {
-  login(payload: { username: string; password: string }) {
-    return api.post('/login', payload);
+  async login(payload: { username: string; password: string }) {
+    const res = await api.post('/login', payload);
+    const token = (res?.data as any)?.token;
+    if (token) setToken(token);
+    return res;
   },
   me() {
     return api.get('/me');
   },
-  logout() {
-    return api.post('/logout');
+  async logout() {
+    try {
+      await api.post('/logout');
+    } finally {
+      clearToken();
+    }
   },
 };

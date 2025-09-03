@@ -100,10 +100,11 @@
 // Swipe Users Page (Tinder-like)
 // - 기능/데이터 로딩/라우팅 로직은 유지
 // - 카드 내부 색상만 다크(블랙) + 텍스트 화이트로 변경
+// - API 호출을 공통 인스턴스(api)로 통일(/api 포함 baseURL)
 // ------------------------------------------------------
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import { api } from '@/lib/api'
 
 // Ionic
 import {
@@ -130,37 +131,36 @@ const errorMessage = ref('')        // 사용자 메시지용 에러
 const currentIndex = ref(0)         // 현재 카드 인덱스 (UI 표시용)
 const swiperRef = ref(null)         // Swiper 인스턴스 참조
 
-// 🔧 공통 디버그: 빌드 환경/엔드포인트 확인
+// 🔧 공통 디버그: 빌드 환경 확인
 console.log('[BUILD INFO]', {
   MODE: import.meta.env.MODE,
-  BASE: import.meta.env.BASE_URL,
-  API: import.meta.env.VITE_API_URL
+  BASE: import.meta.env.BASE_URL
 })
 
 // 🔹 유저 목록 + 내 정보 불러오기 (기존 로직 유지)
 onMounted(async () => {
-  console.time('[LOAD] /api/users')
-  console.time('[LOAD] /api/me')
+  console.time('[LOAD] GET /users')
+  console.time('[LOAD] GET /me')
 
   try {
-    const resUsers = await axios.get('/api/users', { withCredentials: true })
+    const resUsers = await api.get('/users')
     users.value = Array.isArray(resUsers.data?.users) ? resUsers.data.users : []
-    console.log('✅ /api/users OK, count:', users.value.length)
+    console.log('✅ /users OK, count:', users.value.length)
   } catch (error) {
     console.error('❌ 유저 목록 불러오기 실패:', error)
     errorMessage.value = '유저 목록을 불러오지 못했습니다.'
   } finally {
-    console.timeEnd('[LOAD] /api/users')
+    console.timeEnd('[LOAD] GET /users')
   }
 
   try {
-    const resMe = await axios.get('/api/me', { withCredentials: true })
+    const resMe = await api.get('/me')
     nickname.value = resMe.data?.user?.nickname || ''
-    console.log('✅ /api/me OK, nickname:', nickname.value)
+    console.log('✅ /me OK, nickname:', nickname.value)
   } catch (error) {
     console.error('❌ 닉네임 불러오기 실패:', error)
   } finally {
-    console.timeEnd('[LOAD] /api/me')
+    console.timeEnd('[LOAD] GET /me')
     loading.value = false
   }
 })
@@ -202,7 +202,7 @@ const likeCard = async () => {
   console.log('❤️ 관심 표시 시도 → userId:', user._id)
 
   try {
-    // 예: await axios.post('/api/like', { to: user._id }, { withCredentials: true })
+    // 예: await api.post('/like', { to: user._id })
     console.log('✅ 관심 처리 완료(샘플). 다음 카드로 이동.')
     skipCard()
   } catch (e) {

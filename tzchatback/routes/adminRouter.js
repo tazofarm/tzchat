@@ -1,7 +1,7 @@
 // routes/adminRouter.js
 // -----------------------------------------------
 // 관리자 전용 API 라우터 (풀세트)
-// 권한: requireLogin + requireMaster
+// 권한: requireLogin + requireMaster  (✅ JWT 미들웨어에서 req.user 설정 가정)
 // 로그: 접근/성공/에러 로그 상세 출력
 // -----------------------------------------------
 const express = require('express');
@@ -18,8 +18,6 @@ const Notice = require('../models/Notice');
 const Report = require('../models/Report');
 const AppConfig = require('../models/AppConfig');
 
-
-
 // ChatRoom/Message 모델은 기존 프로젝트의 것을 사용
 let ChatRoom, Message;
 try {
@@ -29,17 +27,52 @@ try {
   console.warn('[ADMIN] ChatRoom/Message 모델이 프로젝트에 없거나 경로가 다릅니다.');
 }
 
-// ⭐ 공용 미들웨어
+// ⭐ 공용 미들웨어 (JWT 전제)
 router.use(requireLogin, requireMaster);
+
+// ✅ JWT 전환: 세션 대신 req.user를 사용하기 위한 헬퍼
+function getAdminId(req) {
+  // requireLogin 미들웨어에서 JWT 검증 후 req.user에 {_id, role, ...} 세팅되어 있다고 가정
+  return req?.user?._id || null;
+}
 
 // 유틸: 관리자 액션 로깅
 async function logAdminAction(adminId, action, targetId, meta = {}) {
   try {
     await AdminLog.create({ adminId, action, targetId, meta });
   } catch (e) {
-    console.error('[ADMIN] AdminLog 저장 실패', e);
+    console.error('[ADMIN] AdminLog 저장 실패', { action, targetId, err: e?.message });
   }
 }
+
+// ==============================
+// 0) 공통 요청/응답 로그 미들웨어
+// ==============================
+router.use((req, res, next) => {
+  const adminId = getAdminId(req);
+  console.log('[API][REQ]', {
+    path: `/admin${req.path}`,
+    method: req.method,
+    params: req.params,
+    query: req.query,
+    adminId,
+  });
+  const started = Date.now();
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    const ms = Date.now() - started;
+    const status = res.statusCode;
+    const size = typeof body === 'string' ? body.length : Buffer.byteLength(JSON.stringify(body || {}));
+    console.log('[API][RES]', {
+      path: `/admin${req.path}`,
+      status,
+      ms,
+      size,
+    });
+    return originalJson(body);
+  };
+  next();
+});
 
 // ==============================
 // 1) 서버/시스템 모니터링
@@ -47,22 +80,27 @@ async function logAdminAction(adminId, action, targetId, meta = {}) {
 
 // 1-1. Heartbeat 확장 (서버/버전/업타임/메모리)
 router.get('/heartbeat', async (req, res) => {
-  const now = new Date();
-  const uptimeSec = process.uptime();
-  const mem = process.memoryUsage();
-  const sessionUser = req.session?.user?._id;
+  try {
+    const now = new Date();
+    const uptimeSec = process.uptime();
+    const mem = process.memoryUsage();
+    const adminId = getAdminId(req);
 
-  console.log('[ADMIN] HEARTBEAT', { uid: sessionUser, at: now.toISOString() });
+    console.log('[ADMIN] HEARTBEAT', { adminId, at: now.toISOString() });
 
-  res.json({
-    ok: true,
-    message: '관리자 대시보드 연결 OK',
-    serverTime: now.toISOString(),
-    version: process.version,             // Node.js 버전
-    platform: process.platform,
-    uptimeSec,
-    memory: { rss: mem.rss, heapUsed: mem.heapUsed }
-  });
+    res.json({
+      ok: true,
+      message: '관리자 대시보드 연결 OK',
+      serverTime: now.toISOString(),
+      version: process.version,             // Node.js 버전
+      platform: process.platform,
+      uptimeSec,
+      memory: { rss: mem.rss, heapUsed: mem.heapUsed },
+    });
+  } catch (e) {
+    console.log('[API][ERR]', { path: '/admin/heartbeat', message: e?.message });
+    res.status(500).json({ ok: false, error: 'heartbeat 실패' });
+  }
 });
 
 // 1-2. DB Ping
@@ -92,7 +130,7 @@ router.get('/online', async (req, res) => {
       ok: true,
       sockets: io?.engine?.clientsCount || 0,
       onlineUsers: Array.from(onlineUsers || []),
-      rooms
+      rooms,
     });
   } catch (e) {
     console.error('[ADMIN] online 실패', e);
@@ -125,9 +163,16 @@ router.get('/users', async (req, res) => {
     const match = {};
     if (q) {
       const rx = new RegExp(String(q), 'i');
-      Object.assign(match, { $or: [
-        { username: rx }, { nickname: rx }, { region1: rx }, { region2: rx }, { gender: rx }, { preference: rx }
-      ]});
+      Object.assign(match, {
+        $or: [
+          { username: rx },
+          { nickname: rx },
+          { region1: rx },
+          { region2: rx },
+          { gender: rx },
+          { preference: rx },
+        ],
+      });
     }
     const users = await User.find(match)
       .select('username nickname birthyear gender region1 region2 preference role suspended createdAt last_login')
@@ -166,7 +211,7 @@ router.put('/users/:id/role', async (req, res) => {
     const u = await User.findByIdAndUpdate(req.params.id, { $set: { role } }, { new: true });
     if (!u) return res.status(404).json({ ok: false, error: '유저 없음' });
 
-    await logAdminAction(req.session.user._id, 'setRole', req.params.id, { role });
+    await logAdminAction(getAdminId(req), 'setRole', req.params.id, { role });
     res.json({ ok: true, user: u });
   } catch (e) {
     console.error('[ADMIN] set role 실패', e);
@@ -178,10 +223,14 @@ router.put('/users/:id/role', async (req, res) => {
 router.put('/users/:id/suspend', async (req, res) => {
   try {
     const { suspended } = req.body; // true/false
-    const u = await User.findByIdAndUpdate(req.params.id, { $set: { suspended: !!suspended } }, { new: true });
+    const u = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: { suspended: !!suspended } },
+      { new: true }
+    );
     if (!u) return res.status(404).json({ ok: false, error: '유저 없음' });
 
-    await logAdminAction(req.session.user._id, 'suspend', req.params.id, { suspended: !!suspended });
+    await logAdminAction(getAdminId(req), 'suspend', req.params.id, { suspended: !!suspended });
     res.json({ ok: true, user: u });
   } catch (e) {
     console.error('[ADMIN] suspend 실패', e);
@@ -190,14 +239,18 @@ router.put('/users/:id/suspend', async (req, res) => {
 });
 
 // 2-5. 강제 로그아웃 (세션 강제 만료)
-//  - 세션스토어에서 해당 사용자의 세션들을 찾아 지우는 로직(간단화: 세션ID 인덱스가 없으므로 전체 스캔은 생략)
-//  - 현실적으로는 세션에 userId 인덱스를 두거나, 사용자에 "forceLogoutAt"을 저장하여 클라이언트가 /me에서 감지하도록 구현 권장
+//  - JWT 환경에서는 일반적으로 서버측 세션 파기가 아닌 "토큰 블랙리스트" 또는
+//    사용자 필드 기반 강제만료 플래그로 처리.
+//  - 여기서는 기존 주석을 유지하며 예시 동작만 수행.
 router.post('/users/:id/force-logout', async (req, res) => {
   try {
-    // 간단한 구현: 대상 유저에게 suspended=true로 바꾸고 클라이언트에서 감지하도록(예시)
     await User.findByIdAndUpdate(req.params.id, { $set: { suspended: true } });
-    await logAdminAction(req.session.user._id, 'forceLogout', req.params.id);
-    res.json({ ok: true, message: '강제 로그아웃 플래그 설정(예시). 실제 세션 파기는 환경에 맞춰 구현 필요.' });
+    await logAdminAction(getAdminId(req), 'forceLogout', req.params.id);
+    res.json({
+      ok: true,
+      message:
+        '강제 로그아웃 플래그 설정(예시). 실제 JWT 무효화는 블랙리스트/버전필드/만료 전략 중 택1로 구현 필요.',
+    });
   } catch (e) {
     console.error('[ADMIN] force-logout 실패', e);
     res.status(500).json({ ok: false, error: 'force-logout 실패' });
@@ -226,7 +279,7 @@ router.delete('/chatrooms/:id', async (req, res) => {
   try {
     if (!ChatRoom) return res.status(404).json({ ok: false, error: '모델 없음' });
     await ChatRoom.findByIdAndDelete(req.params.id);
-    await logAdminAction(req.session.user._id, 'deleteRoom', req.params.id);
+    await logAdminAction(getAdminId(req), 'deleteRoom', req.params.id);
     res.json({ ok: true });
   } catch (e) {
     console.error('[ADMIN] delete room 실패', e);
@@ -271,13 +324,17 @@ router.get('/reports', async (req, res) => {
 router.put('/reports/:id/status', async (req, res) => {
   try {
     const { status } = req.body; // 'open'|'warned'|'blocked'|'dismissed'
-    if (!['open','warned','blocked','dismissed'].includes(status)) {
+    if (!['open', 'warned', 'blocked', 'dismissed'].includes(status)) {
       return res.status(400).json({ ok: false, error: 'status 값이 올바르지 않습니다.' });
     }
-    const r = await Report.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true });
+    const r = await Report.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status } },
+      { new: true }
+    );
     if (!r) return res.status(404).json({ ok: false, error: '신고 없음' });
 
-    await logAdminAction(req.session.user._id, 'setReportStatus', req.params.id, { status });
+    await logAdminAction(getAdminId(req), 'setReportStatus', req.params.id, { status });
     res.json({ ok: true, report: r });
   } catch (e) {
     console.error('[ADMIN] set report status 실패', e);
@@ -302,7 +359,7 @@ router.post('/notices', async (req, res) => {
   try {
     const { title, body, isActive, startsAt, endsAt } = req.body;
     const n = await Notice.create({ title, body, isActive, startsAt, endsAt });
-    await logAdminAction(req.session.user._id, 'createNotice', String(n._id));
+    await logAdminAction(getAdminId(req), 'createNotice', String(n._id));
     res.json({ ok: true, notice: n });
   } catch (e) {
     console.error('[ADMIN] create notice 실패', e);
@@ -319,7 +376,7 @@ router.put('/notices/:id', async (req, res) => {
       { new: true }
     );
     if (!n) return res.status(404).json({ ok: false, error: '공지 없음' });
-    await logAdminAction(req.session.user._id, 'updateNotice', req.params.id);
+    await logAdminAction(getAdminId(req), 'updateNotice', req.params.id);
     res.json({ ok: true, notice: n });
   } catch (e) {
     console.error('[ADMIN] update notice 실패', e);
@@ -330,7 +387,7 @@ router.put('/notices/:id', async (req, res) => {
 router.delete('/notices/:id', async (req, res) => {
   try {
     await Notice.findByIdAndDelete(req.params.id);
-    await logAdminAction(req.session.user._id, 'deleteNotice', req.params.id);
+    await logAdminAction(getAdminId(req), 'deleteNotice', req.params.id);
     res.json({ ok: true });
   } catch (e) {
     console.error('[ADMIN] delete notice 실패', e);
@@ -345,8 +402,8 @@ router.get('/stats', async (req, res) => {
   try {
     const [totalUsers, todayUsers, emergencyOn] = await Promise.all([
       User.countDocuments({}),
-      User.countDocuments({ createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } }),
-      User.countDocuments({ 'emergency.isActive': true })
+      User.countDocuments({ createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } }),
+      User.countDocuments({ 'emergency.isActive': true }),
     ]);
 
     res.json({
@@ -354,8 +411,8 @@ router.get('/stats', async (req, res) => {
       stats: {
         totalUsers,
         todayJoin: todayUsers,
-        emergencyOn
-      }
+        emergencyOn,
+      },
     });
   } catch (e) {
     console.error('[ADMIN] stats 실패', e);
@@ -384,7 +441,7 @@ router.put('/config/:key', async (req, res) => {
       { $set: { value } },
       { new: true, upsert: true }
     );
-    await logAdminAction(req.session.user._id, 'setConfig', req.params.key, { value });
+    await logAdminAction(getAdminId(req), 'setConfig', req.params.key, { value });
     res.json({ ok: true, item });
   } catch (e) {
     console.error('[ADMIN] set config 실패', e);

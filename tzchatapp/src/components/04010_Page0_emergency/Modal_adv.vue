@@ -5,101 +5,100 @@
       <h3>Yes? Yes!</h3>
       <h3>네네~ Chat!!</h3>
 
-      
-
       <!-- 🔸 오류/성공 메시지 -->
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
       <p v-if="successMsg" class="success-msg">{{ successMsg }}</p>
 
-      <!-- 🔸 버튼 그룹: 닫기 / 수정 -->
+      <!-- 🔸 버튼 그룹: 닫기 -->
       <div class="button-group">
         <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
-        
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+/* ------------------------------------------------------------------
+   Modal_adv.vue
+   - 광고 안내 모달 (베타)
+   - 전역 axios 인스턴스 사용 준비(향후 서버 연동 대비)
+   - 구조 최소 변경, 로그/에러 핸들링 보강
+------------------------------------------------------------------- */
 import { ref } from 'vue'
-import axios from '@/lib/axiosInstance' // ✅ 공통 설정된 axios 인스턴스
-import { IonButton } from '@ionic/vue'
+import axios from '@/lib/axiosInstance'   // ✅ 공통 설정된 axios 인스턴스
+import { IonButton } from '@ionic/vue'   // SFC 내 사용 등록
 
-// 🔹 Props: 초기 소개 메시지 (부모 컴포넌트로부터 전달됨)
+// 🔹 Props (필요 시 부모가 초기 문구 전달)
 const props = defineProps({
-  message: String
+  message: { type: String, default: '' }
 })
 
-// 🔹 Emits: 모달 닫기 및 업데이트 알림
+// 🔹 Emits
 const emit = defineEmits(['close', 'updated'])
 
-// 🔹 상태 관리
-const newIntro = ref(props.message || '')           // 수정된 소개 내용
-const errorMsg = ref('')                            // 에러 메시지
-const successMsg = ref('')                          // 성공 메시지
+// 🔹 상태
+const newIntro = ref(props.message || '')
+const errorMsg = ref('')
+const successMsg = ref('')
 
-// 🔧 소개 수정 요청 함수
+/**
+ * (옵션) 소개 수정 요청 예시
+ * - 현재 UI에는 노출되지 않지만, 향후 보상형 광고 참여/인증 등의
+ *   서버 상호작용을 위한 예시로 유지합니다.
+ */
 const submitIntro = async () => {
   errorMsg.value = ''
   successMsg.value = ''
   const trimmed = newIntro.value.trim()
 
-  // 🔍 입력 유효성 검사
-  if (trimmed === '') {
+  if (!trimmed) {
     errorMsg.value = '소개를 입력해주세요.'
     return
   }
-
   if (trimmed === props.message) {
     errorMsg.value = '기존 소개와 동일합니다.'
     return
   }
 
   try {
-    console.log('[소개 수정 요청 시작]', trimmed)
-
+    console.log('[ModalAdv] 소개 수정 요청 시작', trimmed)
     const res = await axios.put(
       '/api/update-selfintro',
       { selfintro: trimmed },
       { withCredentials: true }
     )
 
-    if (res.data.success) {
-      console.log('[소개 수정 성공]', res.data)
+    if (res.data?.success) {
+      console.log('[ModalAdv] 소개 수정 성공', res.data)
       successMsg.value = '소개가 성공적으로 수정되었습니다.'
       setTimeout(() => {
-        emit('updated', trimmed) // 부모에게 새로운 값 전달
-        emit('close')            // 모달 닫기
-      }, 1000)
+        emit('updated', trimmed)
+        emit('close')
+      }, 800)
     } else {
-      errorMsg.value = res.data.message || '소개 수정 실패'
-      console.warn('[소개 수정 실패]', errorMsg.value)
+      errorMsg.value = res.data?.message || '소개 수정 실패'
+      console.warn('[ModalAdv] 소개 수정 실패', errorMsg.value)
     }
-
   } catch (err) {
-    console.error('[소개 수정 오류]', err)
-
-    if (err.code === 'ERR_NETWORK') {
-      console.error('[네트워크 오류] 백엔드 서버가 꺼졌거나 CORS 설정이 잘못되었을 수 있습니다.')
+    console.error('[ModalAdv] 소개 수정 오류', err)
+    if (err?.code === 'ERR_NETWORK') {
+      console.error('[네트워크 오류] 서버 미동작/CORS 가능성')
     }
-
     errorMsg.value = '서버 오류가 발생했습니다.'
   }
 }
 </script>
 
 <style scoped>
-/* ── ModalAdv (보상형 광고 beta): CSS 보정만 적용 ─────────────────────────
+/* ── ModalAdv (보상형 광고 beta): CSS 보정 ─────────────────────────
    - 오버레이: 전체 덮기, 배경 블러/딤, 스크롤 체인 방지
    - 콘텐츠 카드: 가독성(검정), 라운드, 그림자, 반응형 폭/패딩
    - 제목 타이포 스케일 통일, 간격 정리
    - 버튼: 터치 타깃(≥40px), 라운드/포커스 링
    - 오류/성공 메시지 가독성
    - safe-area(inset), 모션 축소 환경 대응
-   - HTML/JS 변경 없음
-────────────────────────────────────────────────────────────────────── */
+──────────────────────────────────────────────────────────────── */
 
-/* 오버레이(뒷배경) */
 .popup-overlay {
   position: fixed;
   inset: 0;
@@ -107,28 +106,27 @@ const submitIntro = async () => {
   align-items: center;
   justify-content: center;
 
-  background-color: rgba(0, 0, 0, 0.45); /* 딤 */
+  background-color: rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);             /* 가벼운 블러 */
+  backdrop-filter: blur(2px);
 
   padding: env(safe-area-inset-top, 0px)
            env(safe-area-inset-right, 0px)
            env(safe-area-inset-bottom, 0px)
            env(safe-area-inset-left, 0px);
 
-  overscroll-behavior: contain;           /* 스크롤 체인/바운스 방지 */
+  overscroll-behavior: contain;
   z-index: 1000;
   cursor: default;
 }
 
-/* 콘텐츠 카드 */
 .popup-content {
-  width: min(92vw, 360px);                /* 반응형 폭 */
-  max-height: min(86vh, 640px);           /* 너무 커지지 않도록 */
-  overflow: auto;                         /* 내용 많을 때 스크롤 */
+  width: min(92vw, 360px);
+  max-height: min(86vh, 640px);
+  overflow: auto;
 
   background: #ffffff;
-  color: #000000;                         /* 기본 글자색: 검정 */
+  color: #000000;
   border: 1px solid #eaeaea;
   border-radius: 14px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.20);
@@ -149,12 +147,8 @@ const submitIntro = async () => {
   letter-spacing: 0.1px;
   text-wrap: balance;
 }
-.popup-content h3:first-of-type {
-  margin-top: 2px;
-}
-.popup-content h3:last-of-type {
-  margin-bottom: 10px;
-}
+.popup-content h3:first-of-type { margin-top: 2px; }
+.popup-content h3:last-of-type { margin-bottom: 10px; }
 
 /* 버튼 그룹 */
 .button-group {
@@ -164,12 +158,12 @@ const submitIntro = async () => {
   margin-top: 12px;
 }
 
-/* Ion 버튼 톤/사이즈(닫기 버튼 등) */
+/* Ion 버튼 톤/사이즈 */
 .button-group ion-button {
   --border-radius: 12px;
   --padding-start: 12px;
   --padding-end: 12px;
-  min-height: 40px;                       /* 터치 타깃 */
+  min-height: 40px;
   font-weight: 600;
 }
 
@@ -182,19 +176,6 @@ const submitIntro = async () => {
 }
 .error-msg { color: #c0392b; }
 .success-msg { color: #2d7a33; }
-
-/* (컴포넌트에 이미 포함됨) 소개 입력창 공통 톤 - 재확인용 */
-.intro-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: clamp(14px, 2.8vw, 15px);
-  border: 1px solid #d9d9d9;
-  border-radius: 10px;
-  resize: none;
-  line-height: 1.4;
-  color: #000;
-  background: #fff;
-}
 
 /* 접근성: 키보드 포커스 링 */
 :focus-visible {
@@ -224,5 +205,4 @@ const submitIntro = async () => {
     transform: translateY(0) scale(1);
   }
 }
-
 </style>

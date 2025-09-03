@@ -1,54 +1,90 @@
 // middlewares/authMiddleware.js
 // ------------------------------------------------------
-// 로그인 여부 확인 미들웨어(requireLogin)
-// - 세션/쿠키 유무를 상세 로그로 남겨 401 원인 파악에 도움
-// - CORS 프리플라이트(OPTIONS)는 통과시켜야 함
-// - 예외 상황(req.session 미정의)도 안전 처리
+// 로그인 보호 미들웨어 (세션 → JWT 하이브리드)
+// - 기존 API 유지: module.exports = requireLogin
+// - 작동 순서:
+//   1) 세션(req.session.user._id)이 있으면 통과 (하위 호환)
+//   2) 없으면 JWT(Bearer 헤더 > httpOnly 쿠키 순) 검증
+//   3) 성공 시 req.auth 및 req.session.user 최소객체 설정(요청 범위)
+// - 실패 시 401 반환
+// - 로그 규격: [AUTH][REQ]/[AUTH][OK]/[AUTH][ERR]
 // ------------------------------------------------------
 
-/**
- * 로그인한 사용자만 통과.
- * - 성공: next()
- * - 실패: 401 { ok:false, message:'로그인이 필요합니다.' }
- */
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
+const JWT_COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+
+/** Authorization/Cookie에서 JWT 추출 */
+function extractJwt(req) {
+  // 1) Authorization: Bearer <token>
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) {
+    return auth.slice(7);
+  }
+
+  // 2) Cookie: tzchat.jwt=<token>
+  const cookieHeader = req.headers.cookie || '';
+  if (cookieHeader && cookieHeader.includes(`${JWT_COOKIE_NAME}=`)) {
+    try {
+      const pair = cookieHeader
+        .split(';')
+        .map(v => v.trim())
+        .find(v => v.startsWith(`${JWT_COOKIE_NAME}=`));
+      if (pair) return decodeURIComponent(pair.split('=')[1]);
+    } catch (e) {
+      console.log('[AUTH][ERR]', { step: 'cookie-parse', message: e?.message });
+    }
+  }
+
+  return null;
+}
+
+/** 세션/JWT 하이브리드 로그인 보호 */
 function requireLogin(req, res, next) {
-  // 1) CORS 사전요청은 항상 통과 (중간에서 401 막지 않도록)
-  if (req.method === 'OPTIONS') {
-    // 프리플라이트는 인증 검사 대상 아님
-    return res.sendStatus(204);
+  const path = req.originalUrl || req.path || '';
+  console.log('[AUTH][REQ]', { path, hasSession: !!(req.session && req.session.user && req.session.user._id) });
+
+  // 1) 세션 우선(하위 호환)
+  const sid = req.session?.user?._id ? String(req.session.user._id) : '';
+  if (sid) {
+    req.auth = { userId: sid, via: 'session' };
+    console.log('[AUTH][OK]', { via: 'session', userId: sid, path });
+    return next();
   }
 
-  // 2) 디버그용 진단 정보 수집
-  const cookieHeader = req.headers.cookie || null;
-  const hasCookieHeader = !!cookieHeader;
-  const sidFromCookieParser = req.cookies ? req.cookies['tzchat.sid'] : undefined; // cookie-parser 사용 시
-  const xfProto = req.headers['x-forwarded-proto'] || '(none)';
-  const info = {
-    path: req.originalUrl,
-    method: req.method,
-    sessionID: req.sessionID || '(no sessionID)',
-    hasSessionObject: !!req.session,
-    hasSessionUser: !!(req.session && req.session.user),
-    hasCookieHeader,
-    sidCookieExists: typeof sidFromCookieParser !== 'undefined',
-    xForwardedProto: xfProto,
-  };
-
-  // 3) 세션/유저 체크
-  if (!req.session || !req.session.user) {
-    console.warn('[AUTH][FAIL] requireLogin: no session user', info);
-    return res.status(401).json({ ok: false, message: '로그인이 필요합니다.' });
+  // 2) JWT 시도
+  const token = extractJwt(req);
+  if (!token) {
+    console.log('[AUTH][ERR]', { step: 'extract', code: 'NO_TOKEN', path });
+    return res.status(401).json({ message: '로그인이 필요합니다.' });
   }
 
-  // 4) 통과 로그(필요 시 더 조용히 하려면 level 낮추기)
-  console.log('[AUTH][PASS] requireLogin', {
-    path: req.originalUrl,
-    method: req.method,
-    sessionID: req.sessionID,
-    userId: req.session.user._id,
-  });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = decoded?.sub ? String(decoded.sub) : '';
+    if (!userId) {
+      console.log('[AUTH][ERR]', { step: 'decode', code: 'NO_SUB', path });
+      return res.status(401).json({ message: '로그인이 필요합니다.' });
+    }
 
-  return next();
+    // 요청 범위에서 하위 호환을 위해 req.session.user 최소 객체 주입
+    // (실제 세션 저장은 하지 않음; 다른 라우터가 req.session.user를 참조해도 동작)
+    if (!req.session) req.session = {}; // express-session이 없는 경우 방어
+    if (!req.session.user) req.session.user = { _id: userId };
+
+    req.auth = { userId, via: 'jwt', tokenPresent: true };
+    console.log('[AUTH][OK]', { via: 'jwt', userId, path });
+    return next();
+  } catch (err) {
+    console.log('[AUTH][ERR]', {
+      step: 'verify',
+      code: err?.name,
+      message: err?.message,
+      path
+    });
+    return res.status(401).json({ message: '로그인이 필요합니다.' });
+  }
 }
 
 module.exports = requireLogin;

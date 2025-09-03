@@ -29,7 +29,6 @@
           </colgroup>
           <tbody>
 
-
               <tr
               class="editable-row"
               @click="goMembership"
@@ -46,7 +45,6 @@
                 <span class="inline-cta">구독하기</span>
               </td>
             </tr>
-
 
             <!-- 출생년도 -->
             <tr>
@@ -78,7 +76,6 @@
               
             </tr>
 
-
             <!-- 비밀번호 변경 -->
             <tr
               class="editable-row"
@@ -93,7 +90,6 @@
               <td class="pf-td editable-text">변경하기</td>
             </tr>
 
-
             <!-- 닉네임 -->
             <tr
               @click="openPopup(4, user.nickname)"
@@ -107,11 +103,6 @@
               </td>
               <td class="pf-td editable-text">{{ user.nickname }}</td>
             </tr>
-
-
-
-
-
 
             <!-- 지역 -->
             <tr
@@ -140,7 +131,6 @@
               </td>
               <td class="pf-td editable-text">{{ user.preference }}</td>
             </tr>
-
 
             <!-- 결혼유무 
             <tr
@@ -172,11 +162,6 @@
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
 
-
-
-
-
-
             <!-- 가입/마지막 접속 (주석 유지) -->
             <!--
             <tr>
@@ -200,11 +185,6 @@
         </table>
       </div>
       <br />
-
-
-
-      
-    
 
       <!-- ✅ 친구 찾기 설정 카드 -->
       <div v-if="user" class="card pf-scope">
@@ -265,8 +245,6 @@
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
 
-
-
             <!-- 결혼유무
             <tr
               class="editable-row"
@@ -281,7 +259,6 @@
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
             -->
-
 
             <!-- 상대매칭율
             <tr
@@ -299,8 +276,6 @@
             -->
 
             <!-- 전화번호 제외
-
-
             <tr
               class="editable-row"
               @click="openSearchPreferenceModal"
@@ -313,9 +288,7 @@
               </td>
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
-
             -->
-
 
           </tbody>
         </table>
@@ -339,10 +312,6 @@
 <br></br>
 <br></br>
 <br></br>
-
-
-
-
 
     <!-- ✅ 모달들 -->
     <PopupModal_1
@@ -504,10 +473,6 @@ function goMembership() {
   console.log('[profile] goMembership → /home/subscribe')
   router.push('/home/setting/0001') // 필요 시 실제 라우트로 변경
 }
-
-
-
-
 
 /* null, '', undefined → '전체' */
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
@@ -1112,7 +1077,6 @@ const logout = async () => {
 /* 로딩 */
 .loading-text { color: var(--text-muted); text-align: center; font-size: 14px; margin: 14px 0; }
 
-
 /* 회원 등급 행의 '구독하기' 뱃지형 CTA */
 .pf-scope .inline-cta {
   margin-left: 8px;
@@ -1125,13 +1089,6 @@ const logout = async () => {
 .pf-scope .editable-row:hover .inline-cta {
   background: rgba(212, 175, 55, 0.12);
 }
-
-
-
-
-
-
-
 
 /* 초소형 화면 */
 @media (max-width: 360px) {

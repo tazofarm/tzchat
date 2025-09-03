@@ -100,13 +100,13 @@
 <script setup>
 /* ------------------------------------------------------
    ✅ 변경 요약
-   - Black + Gold 테마 유지, 섹션 타이틀 가시성 대폭 강화
-   - 로직/이벤트 명/데이터 흐름 변경 없음
-   - 풍부한 로그와 방어 코드 유지
+   - API: '@/lib/api' 인스턴스 사용(/api 포함, withCredentials+JWT)
+   - Socket: '@/lib/socket' 헬퍼로 연결(JWT handshake 지원)
+   - 로직/이벤트/데이터 흐름은 유지, 로그 강화
 ------------------------------------------------------ */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import { api } from '@/lib/api'                 // ← 공통 axios 인스턴스(/api 포함)
 import {
   IonPage, IonContent, IonModal,
   IonText, IonList, IonItem, IonLabel, IonToggle, IonIcon
@@ -127,8 +127,8 @@ import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
 import { applyTotalFilter } from '@/components/04210_Page2_target/Filter_total'
 import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
 
-/* 🧩 Socket.IO 클라이언트 */
-import { io } from 'socket.io-client'
+/* 🧩 Socket.IO 공통 헬퍼 */
+import { connectSocket as connectSharedSocket } from '@/lib/socket'
 
 const nickname = ref('')
 const emergencyOn = ref(false)
@@ -158,8 +158,7 @@ const icons = {
 /* 빌드 정보 로깅 */
 console.log('[BUILD INFO]', {
   MODE: import.meta.env.MODE,
-  BASE: import.meta.env.BASE_URL,
-  API: import.meta.env.VITE_API_URL
+  BASE: import.meta.env.BASE_URL
 })
 
 /* 남은 시간 포맷 */
@@ -255,9 +254,9 @@ function removeMeFromList(myId) {
 /* 상태 변경(ON/OFF) */
 const updateEmergencyState = async (newState) => {
   try {
-    const endpoint = newState ? '/api/emergencyon' : '/api/emergencyoff'
+    const endpoint = newState ? '/emergencyon' : '/emergencyoff' // api baseURL이 이미 /api 포함
     console.time(`[API] ${endpoint}`)
-    const res = await axios.put(endpoint, {}, { withCredentials: true })
+    const res = await api.put(endpoint)
     console.timeEnd(`[API] ${endpoint}`)
 
     emergencyOn.value = newState
@@ -318,10 +317,10 @@ async function fetchRelations() {
   try {
     console.time('[Users] relations')
     const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
-      axios.get('/api/friends', { withCredentials: true }),
-      axios.get('/api/blocks', { withCredentials: true }),
-      axios.get('/api/friend-requests/sent', { withCredentials: true }),
-      axios.get('/api/friend-requests/received', { withCredentials: true }),
+      api.get('/friends'),
+      api.get('/blocks'),
+      api.get('/friend-requests/sent'),
+      api.get('/friend-requests/received'),
     ])
 
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
@@ -342,9 +341,9 @@ async function fetchRelations() {
 
 /* 목록 로드 + 필터 + 정렬 */
 const fetchEmergencyUsers = async () => {
-  console.time('[LOAD] /api/emergencyusers')
+  console.time('[LOAD] /emergencyusers')
   try {
-    const res = await axios.get('/api/emergencyusers', { withCredentials: true })
+    const res = await api.get('/emergencyusers')
     let list = res.data?.users || []
     const me = currentUser.value
 
@@ -379,7 +378,7 @@ const fetchEmergencyUsers = async () => {
   } catch (err) {
     console.error('❌ 목록 로딩 실패:', err)
   } finally {
-    console.timeEnd('[LOAD] /api/emergencyusers')
+    console.timeEnd('[LOAD] /emergencyusers')
   }
 }
 
@@ -417,31 +416,32 @@ const clearCountdown = () => {
   remainingSeconds.value = 0
 }
 
-/* Socket.IO */
-function connectSocket() {
+/* Socket.IO (공통 헬퍼) */
+function initSocket() {
   try {
-    const SERVER_URL = import.meta.env.VITE_API_URL
-    socket.value = io(SERVER_URL, { withCredentials: true, transports: ['websocket'] })
+    const s = connectSharedSocket()
+    socket.value = s
 
-    socket.value.on('connect', () => {
-      console.log('🔌 [socket] connected:', socket.value.id)
-      socket.value.emit('subscribe', { room: 'emergency' })
+    s.on('connect', () => {
+      console.log('🔌 [socket] connected:', s.id)
+      // 서버에서 필요 시 구독 처리 (예: emergency 방)
+      try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {}
     })
 
-    socket.value.on('emergency:refresh', async (payload) => {
+    s.on('emergency:refresh', async (payload) => {
       console.log('📡 [socket] emergency:refresh:', payload)
       await fetchEmergencyUsers()
     })
-    socket.value.on('emergency:userOn', async (payload) => {
+    s.on('emergency:userOn', async (payload) => {
       console.log('📡 [socket] emergency:userOn:', payload)
       await fetchEmergencyUsers()
     })
-    socket.value.on('emergency:userOff', async (payload) => {
+    s.on('emergency:userOff', async (payload) => {
       console.log('📡 [socket] emergency:userOff:', payload)
       await fetchEmergencyUsers()
     })
 
-    socket.value.on('user:lastLogin', async ({ userId, last_login }) => {
+    s.on('user:lastLogin', async ({ userId, last_login }) => {
       console.log('📡 [socket] user:lastLogin:', { userId, last_login })
       let found = false
       emergencyUsers.value = emergencyUsers.value.map(u => {
@@ -460,16 +460,16 @@ function connectSocket() {
       }
     })
 
-    socket.value.on('disconnect', (reason) => console.warn('🔌 [socket] disconnected:', reason))
-    socket.value.on('connect_error', (err) => console.error('❌ [socket] connect_error:', err.message))
+    s.on('disconnect', (reason) => console.warn('🔌 [socket] disconnected:', reason))
+    s.on('connect_error', (err) => console.error('❌ [socket] connect_error:', err?.message))
   } catch (e) {
     console.error('❌ [socket] 초기화 실패:', e)
   }
 }
-function disconnectSocket() {
+function cleanupSocket() {
   try {
     if (socket.value) {
-      socket.value.emit('unsubscribe', { room: 'emergency' })
+      try { socket.value.emit('unsubscribe', { room: 'emergency' }) } catch (_) {}
       socket.value.disconnect()
       console.log('🔌 [socket] disconnected by client')
     }
@@ -482,9 +482,9 @@ function disconnectSocket() {
 
 /* 마운트/언마운트 */
 onMounted(async () => {
-  console.time('[LOAD] /api/me')
+  console.time('[LOAD] /me')
   try {
-    const me = (await axios.get('/api/me', { withCredentials: true })).data.user
+    const me = (await api.get('/me')).data.user
     currentUser.value = me
     nickname.value = me?.nickname || ''
     emergencyOn.value = me?.emergency?.isActive === true
@@ -499,19 +499,19 @@ onMounted(async () => {
       await updateEmergencyState(false)
     }
 
-    connectSocket()
+    initSocket()
     await fetchEmergencyUsers()
   } catch (err) {
     console.error('❌ 사용자 정보 로딩 실패:', err)
   } finally {
-    console.timeEnd('[LOAD] /api/me')
+    console.timeEnd('[LOAD] /me')
     isLoading.value = false
   }
 })
 
 onBeforeUnmount(() => {
   clearCountdown()
-  disconnectSocket()
+  cleanupSocket()
 })
 </script>
 

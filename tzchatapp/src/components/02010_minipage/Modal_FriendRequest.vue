@@ -47,11 +47,13 @@
 // --------------------------------------------------------------
 // ModalFriendRequest.vue
 // - 친구 신청 모달
-// - 핵심: fetch body의 key `toUserId` → `to` (백엔드 규격 일치)
-// - 구조 최대 유지, 주석/로그 풍부, 에러 핸들링 보강
+// - 핵심: 요청 body key는 `to` 사용 (백엔드 규격 일치)
+// - 공통 axios 인스턴스 사용(토큰/쿠키 처리 일원화)
+// - 구조 유지, 에러/로그 강화
 // --------------------------------------------------------------
 import { ref, onMounted } from 'vue'
 import { IonButton } from '@ionic/vue'
+import axios from '@/lib/axiosInstance' // ✅ 공통 인스턴스
 
 const props = defineProps({
   toUserId: { type: String, required: true },
@@ -85,39 +87,25 @@ async function onSubmit () {
   successMsg.value = ''
 
   try {
-    console.log('[ModalFriendRequest] submit start', {
-      to: props.toUserId, // ✅ 서버가 요구하는 key는 to
-      msgLen: message.value.length
-    })
-
-    // ⚠️ 프록시(vite.config) 사용 시: '/api/...' 그대로 사용
-    // 프록시 미사용 시: 'http://localhost:2000/api/...' 로 변경
-    const res = await fetch('/api/friend-request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        to: props.toUserId,              // ✅ 핵심 수정: toUserId → to
-        message: message.value || ''
-      })
-    })
-
-    const data = await res.json().catch(() => ({}))
-    console.log('[ModalFriendRequest] submit response', { status: res.status, ok: res.ok, data })
-
-    if (!res.ok) {
-      const msg = data?.error || data?.message || '친구 신청에 실패했습니다.'
-      errorMsg.value = msg
-      console.error('[ModalFriendRequest] submit failed:', msg)
-      return
+    const payload = {
+      to: props.toUserId,              // ✅ 핵심: toUserId → to
+      message: message.value || ''
     }
+    console.log('[ModalFriendRequest] submit start', { ...payload, msgLen: message.value.length })
+
+    // ✅ 공통 인스턴스 사용(Authorization/Cookie 일원화)
+    const { status, data } = await axios.post('/api/friend-request', payload, { withCredentials: true })
+    console.log('[ModalFriendRequest] submit response', { status, data })
 
     successMsg.value = '친구 신청이 전송되었습니다.'
     emit('requestSent', data)
     setTimeout(() => emit('close'), 300)
   } catch (err) {
-    console.error('[ModalFriendRequest] submit error:', err)
-    errorMsg.value = '네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.'
+    const status = err?.response?.status
+    const data = err?.response?.data
+    const msg = data?.error || data?.message || err?.message || '친구 신청에 실패했습니다.'
+    errorMsg.value = msg
+    console.error('[ModalFriendRequest] submit failed:', { status, msg, data })
   } finally {
     isSubmitting.value = false
   }
@@ -146,13 +134,13 @@ async function onSubmit () {
 /* 모달 박스 */
 .popup-modal {
   width: min(560px, 92vw);
-  background: var(--panel);                /* ✅ 다크 패널 */
+  background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 16px;
   box-shadow: 0 10px 30px rgba(0,0,0,.35),
-              0 0 0 1px rgba(255,213,79,.06) inset; /* 은은한 골드 인셋 */
+              0 0 0 1px rgba(255,213,79,.06) inset;
   padding: 14px;
-  color: var(--text);                      /* ✅ 텍스트 기본 */
+  color: var(--text);
 }
 
 /* 헤더 */
@@ -177,19 +165,19 @@ async function onSubmit () {
   padding: 10px;
   line-height: 1.4;
   font-size: 14px;
-  color: var(--text);                      /* ✅ 텍스트 */
-  background: #141414;                    /* 다크 입력 배경 */
+  color: var(--text);
+  background: #141414;
   outline: none;
 }
 .message-input::placeholder { color: var(--text-dim); }
 .message-input:focus {
   border-color: var(--gold);
-  box-shadow: 0 0 0 3px rgba(255,213,79,.20); /* 골드 포커스 링 */
+  box-shadow: 0 0 0 3px rgba(255,213,79,.20);
 }
 
 /* 메시지 */
 .error-msg { margin-top: 8px; font-size: 13px; color: var(--danger); }
-.success-msg { margin-top: 8px; font-size: 13px; color: #1db954; } /* 성공 그린톤 */
+.success-msg { margin-top: 8px; font-size: 13px; color: #1db954; }
 
 /* 풋터 */
 .modal-footer {

@@ -206,14 +206,14 @@
 
 <script setup>
 // ===============================================
-// 유지: 로직 동일 / 보강: 클릭영역, 다크테마 가독성, 로그
+// 유지: 로직 동일 / 보강: 경로 정리(/api 제거), 소켓 연결 공통화
 // ===============================================
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import axios from '@/lib/axiosInstance'
 import { IonButton, IonIcon } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 import ModalFriendMessage from '@/components/04310_Page3_list/Modal_FriendMessage.vue'
-import { io } from 'socket.io-client'
+import { connectSocket, getSocket } from '@/lib/socket'
 
 import {
   sendOutline, paperPlaneOutline, mailOpenOutline, mailOutline,
@@ -252,17 +252,17 @@ function removeById (listRef, id, key = '_id') {
   const before = listRef.value.length
   listRef.value = listRef.value.filter(x => x?.[key] !== id)
   const after = listRef.value.length
-  console.log(`[FriendsList] removeById ${id}: ${before} → ${after}`)
+  console.log('[UI][RES]', { page:'3_list', step:'removeById', id, before, after })
 }
 
 /* ===== 브로드캐스트 ===== */
 function broadcastFriendsState () {
   try {
     const payload = { hasNew: hasAnyNew() }
-    console.log('[FriendsList] broadcastFriendsState →', payload)
+    console.log('[UI][MSG]', { page:'3_list', step:'broadcastFriendsState', payload })
     window.dispatchEvent(new CustomEvent('friends:state', { detail: payload }))
   } catch (err) {
-    console.warn('[FriendsList] broadcastFriendsState 실패:', err)
+    console.log('[UI][ERR]', { page:'3_list', step:'broadcastFriendsState', message: err?.message })
   }
 }
 const onRequestState = () => broadcastFriendsState()
@@ -286,10 +286,10 @@ function upsert (listRef, item, key = '_id') {
   broadcastFriendsState()
 }
 
-/* ===== 공통: 프로필 이동 (제공하신 패턴 그대로) ===== */
+/* ===== 공통: 프로필 이동 ===== */
 const goToUserProfile = (userId) => {
-  if (!userId) return console.warn('❗ userId 없음')
-  console.log('➡️ 유저 프로필 페이지 이동:', userId)
+  if (!userId) return console.log('[UI][ERR]', { page:'3_list', step:'goToUserProfile', message:'userId missing' })
+  console.log('[UI][REQ]', { page:'3_list', step:'goToUserProfile', userId })
   router.push(`/home/user/${userId}`)
 }
 
@@ -305,157 +305,143 @@ const handleClick = (user) => {
   goToUserProfile(user._id)
 }
 
-/* ===== API 리프레시 ===== */
+/* ===== API 리프레시 (baseURL=/api 이므로 경로는 짧게) ===== */
 async function refreshSent () {
-  const res = await axios.get('/api/friend-requests/sent', { withCredentials: true })
+  const res = await axios.get('/friend-requests/sent')
   sentRequests.value = res.data.map(it => {
     const prev = sentRequests.value.find(x => x._id === it._id)
     return prev ? { ...it, _isNew: !!prev._isNew } : { ...it, _isNew: false }
   })
-  console.log('[FriendsList] refreshSent →', sentRequests.value)
+  console.log('[UI][RES]', { page:'3_list', step:'refreshSent', count: sentRequests.value.length })
   broadcastFriendsState()
 }
 async function refreshReceived () {
-  const res = await axios.get('/api/friend-requests/received', { withCredentials: true })
+  const res = await axios.get('/friend-requests/received')
   receivedRequests.value = res.data.map(it => {
     const prev = receivedRequests.value.find(x => x._id === it._id)
     return prev ? { ...it, _isNew: !!prev._isNew } : { ...it, _isNew: false }
   })
-  console.log('[FriendsList] refreshReceived →', receivedRequests.value)
+  console.log('[UI][RES]', { page:'3_list', step:'refreshReceived', count: receivedRequests.value.length })
   broadcastFriendsState()
 }
 async function refreshFriends () {
-  const res = await axios.get('/api/friends', { withCredentials: true })
+  const res = await axios.get('/friends')
   friends.value = res.data
-  console.log('[FriendsList] refreshFriends →', friends.value.length, '명')
+  console.log('[UI][RES]', { page:'3_list', step:'refreshFriends', count: friends.value.length })
 }
 async function refreshBlocks () {
-  const res = await axios.get('/api/blocks', { withCredentials: true })
+  const res = await axios.get('/blocks')
   blocks.value = res.data
-  console.log('[FriendsList] refreshBlocks →', blocks.value.length, '명')
+  console.log('[UI][RES]', { page:'3_list', step:'refreshBlocks', count: blocks.value.length })
 }
 
 /* ===== 모달 ===== */
 const openMessageModal = (request) => {
   selectedRequest.value = request
-  console.log('[FriendsList] 인사말 모달 오픈 →', request?._id)
+  console.log('[UI][REQ]', { page:'3_list', step:'openMessageModal', requestId: request?._id })
 }
 
 /* ===================================================
-   ✅ 액션 함수(실제 API 호출) + 템플릿 래퍼(이름 충돌 방지)
-   - 취소:    DELETE /api/friend-request/:id
-   - 수락:    PUT    /api/friend-request/:id/accept
-   - 거절:    PUT    /api/friend-request/:id/reject
-   - 차단:    PUT    /api/friend-request/:id/block
+   ✅ 액션 함수(실제 API 호출)
+   - 취소:    DELETE /friend-request/:id
+   - 수락:    PUT    /friend-request/:id/accept
+   - 거절:    PUT    /friend-request/:id/reject
+   - 차단:    PUT    /friend-request/:id/block
 =================================================== */
-// --- 실제 호출 함수 ---
 async function cancelFriendRequest (idOrObj) {
   try {
     const id = typeof idOrObj === 'string' ? idOrObj : idOrObj?._id
-    if (!id) return console.warn('[FriendsList] cancelFriendRequest: id 없음', idOrObj)
-    console.log('[FriendsList] 친구신청 취소 요청 →', id)
+    if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'cancelFriendRequest', message:'id missing' })
+    console.log('[API][REQ]', { path:'/friend-request/:id', method:'DELETE', id })
 
-    await axios.delete(`/api/friend-request/${id}`, { withCredentials: true })
+    await axios.delete(`/friend-request/${id}`)
 
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
     broadcastFriendsState()
 
-    console.log('%c[FriendsList] 친구신청 취소 완료', 'color:#0bd60b', id)
+    console.log('[API][RES]', { path:'/friend-request/:id', status:200, action:'cancel', id })
   } catch (err) {
-    console.error('[FriendsList] 친구신청 취소 실패:', err?.response?.data || err?.message || err)
+    console.log('[API][ERR]', { path:'/friend-request/:id', action:'cancel', message: err?.response?.data || err?.message })
   }
 }
 async function acceptFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] acceptFriendRequest: id 없음', payload)
-    console.log('[FriendsList] 친구신청 수락 요청 →', id)
+    if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'acceptFriendRequest', message:'id missing' })
+    console.log('[API][REQ]', { path:'/friend-request/:id/accept', method:'PUT', id })
 
-    await axios.put(`/api/friend-request/${id}/accept`, {}, { withCredentials: true })
+    await axios.put(`/friend-request/${id}/accept`, {})
 
     removeById(receivedRequests, id)
     await refreshFriends()
     broadcastFriendsState()
 
     if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
-    console.log('%c[FriendsList] 친구신청 수락 완료', 'color:#0bd60b', id)
+    console.log('[API][RES]', { path:'/friend-request/:id/accept', status:200, id })
   } catch (err) {
-    console.error('[FriendsList] 친구신청 수락 실패:', err?.response?.data || err?.message || err)
+    console.log('[API][ERR]', { path:'/friend-request/:id/accept', message: err?.response?.data || err?.message })
   }
 }
 async function rejectFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] rejectFriendRequest: id 없음', payload)
-    console.log('[FriendsList] 친구신청 거절 요청 →', id)
+    if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'rejectFriendRequest', message:'id missing' })
+    console.log('[API][REQ]', { path:'/friend-request/:id/reject', method:'PUT', id })
 
-    await axios.put(`/api/friend-request/${id}/reject`, {}, { withCredentials: true })
+    await axios.put(`/friend-request/${id}/reject`, {})
 
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
     broadcastFriendsState()
 
     if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
-    console.log('%c[FriendsList] 친구신청 거절 완료', 'color:#0bd60b', id)
+    console.log('[API][RES]', { path:'/friend-request/:id/reject', status:200, id })
   } catch (err) {
-    console.error('[FriendsList] 친구신청 거절 실패:', err?.response?.data || err?.message || err)
+    console.log('[API][ERR]', { path:'/friend-request/:id/reject', message: err?.response?.data || err?.message })
   }
 }
 async function blockFriendRequest (payload) {
   try {
     const id = typeof payload === 'string' ? payload : payload?._id
-    if (!id) return console.warn('[FriendsList] blockFriendRequest: id 없음', payload)
-    console.log('[FriendsList] 친구신청 차단 요청 →', id)
+    if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'blockFriendRequest', message:'id missing' })
+    console.log('[API][REQ]', { path:'/friend-request/:id/block', method:'PUT', id })
 
-    await axios.put(`/api/friend-request/${id}/block`, {}, { withCredentials: true })
+    await axios.put(`/friend-request/${id}/block`, {})
 
     removeById(receivedRequests, id)
     await refreshBlocks()
     broadcastFriendsState()
 
     if (selectedRequest.value?.['_id'] === id) selectedRequest.value = null
-    console.log('%c[FriendsList] 친구신청 차단 완료', 'color:#0bd60b', id)
+    console.log('[API][RES]', { path:'/friend-request/:id/block', status:200, id })
   } catch (err) {
-    console.error('[FriendsList] 친구신청 차단 실패:', err?.response?.data || err?.message || err)
+    console.log('[API][ERR]', { path:'/friend-request/:id/block', message: err?.response?.data || err?.message })
   }
 }
 
-// --- 템플릿용 래퍼(이름 충돌 방지 + 런타임 가드 + 추가 로그) ---
-function onCancelClick (id) {
-  const t = typeof cancelFriendRequest
-  console.log('[FriendsList] onCancelClick 호출 → typeof cancelFriendRequest =', t, 'id=', id)
-  if (t !== 'function') {
-    console.error('[FriendsList] cancelFriendRequest가 함수가 아닙니다:', cancelFriendRequest)
-    refreshSent().catch(() => {})
-    refreshReceived().catch(() => {})
-    return
-  }
+/* ===== 템플릿에서 참조하는 핸들러 래퍼 (누락 보완) ===== */
+const onCancelClick = (id) => {
+  console.log('[UI][REQ]', { page:'3_list', step:'onCancelClick', id })
   cancelFriendRequest(id)
 }
-function onAcceptClick (payload) {
-  const t = typeof acceptFriendRequest
-  console.log('[FriendsList] onAcceptClick → typeof acceptFriendRequest =', t, 'payload=', payload?._id || payload)
-  if (t !== 'function') return console.error('[FriendsList] acceptFriendRequest가 함수가 아닙니다:', acceptFriendRequest)
+const onAcceptClick = (payload) => {
+  console.log('[UI][REQ]', { page:'3_list', step:'onAcceptClick', payload })
   acceptFriendRequest(payload)
 }
-function onRejectClick (payload) {
-  const t = typeof rejectFriendRequest
-  console.log('[FriendsList] onRejectClick → typeof rejectFriendRequest =', t, 'payload=', payload?._id || payload)
-  if (t !== 'function') return console.error('[FriendsList] rejectFriendRequest가 함수가 아닙니다:', rejectFriendRequest)
+const onRejectClick = (payload) => {
+  console.log('[UI][REQ]', { page:'3_list', step:'onRejectClick', payload })
   rejectFriendRequest(payload)
 }
-function onBlockClick (payload) {
-  const t = typeof blockFriendRequest
-  console.log('[FriendsList] onBlockClick → typeof blockFriendRequest =', t, 'payload=', payload?._id || payload)
-  if (t !== 'function') return console.error('[FriendsList] blockFriendRequest가 함수가 아닙니다:', blockFriendRequest)
+const onBlockClick = (payload) => {
+  console.log('[UI][REQ]', { page:'3_list', step:'onBlockClick', payload })
   blockFriendRequest(payload)
 }
 
 /* ===== 소켓 ===== */
 function bindSocketHandlers () {
   if (!socket) return
-  console.log('[FriendsList] Socket 바인딩')
+  console.log('[SOCKET][MSG]', { roomId:'friends', from:'server', type:'bind-start' })
 
   socket.on('friendRequest:created', (req) => {
     const me = myId.value; if (!me) return
@@ -493,16 +479,16 @@ function bindSocketHandlers () {
 onMounted(async () => {
   try {
     console.log('%c[FriendsList] 초기 로드 시작', 'color:#d4af37')
-    const me = await axios.get('/api/me', { withCredentials: true })
+    const me = await axios.get('/me')
     myId.value = me.data.user?._id || null
     nickname.value = me.data.user?.nickname || ''
-    console.log('[FriendsList] me:', myId.value, nickname.value)
+    console.log('[UI][RES]', { page:'3_list', step:'me', userId: myId.value, nickname: nickname.value })
 
     const [s, r, f, b] = await Promise.all([
-      axios.get('/api/friend-requests/sent', { withCredentials: true }),
-      axios.get('/api/friend-requests/received', { withCredentials: true }),
-      axios.get('/api/friends', { withCredentials: true }),
-      axios.get('/api/blocks', { withCredentials: true })
+      axios.get('/friend-requests/sent'),
+      axios.get('/friend-requests/received'),
+      axios.get('/friends'),
+      axios.get('/blocks')
     ])
 
     sentRequests.value     = s.data.map(it => ({ ...it, _isNew: false }))
@@ -511,29 +497,32 @@ onMounted(async () => {
     blocks.value  = b.data
 
     broadcastFriendsState()
-    console.log('[FriendsList] 초기 데이터 동기화 완료')
+    console.log('[UI][RES]', { page:'3_list', step:'bootstrap', sent: sentRequests.value.length, received: receivedRequests.value.length, friends: friends.value.length, blocks: blocks.value.length })
 
-    const url = import.meta.env.VITE_SOCKET_URL || window.location.origin
-    socket = io(url, { withCredentials: true, transports: ['websocket'], autoConnect: true })
-    socket.on('connect', () => {
-      console.log('%c[FriendsList] Socket 연결됨', 'color:#d4af37')
-      socket.emit('join', { userId: myId.value })
-    })
-    bindSocketHandlers()
+    // ✅ 공통 소켓 모듈 사용 (원격/앱/웹 동일 오리진/자격증명 처리)
+    socket = connectSocket()
+    if (socket) {
+      socket.on('connect', () => {
+        console.log('%c[FriendsList] Socket 연결됨', 'color:#d4af37')
+        socket.emit('join', { userId: myId.value })
+      })
+      bindSocketHandlers()
+    }
 
     window.addEventListener('friends:requestState', onRequestState)
   } catch (err) {
-    console.error('[FriendsList] 초기 로드/소켓 연결 실패:', err)
+    console.log('[UI][ERR]', { page:'3_list', step:'mounted', message: err?.message || err })
   }
 })
 
 onUnmounted(() => {
   try {
-    if (socket) { socket.off(); socket.disconnect(); socket = null }
+    const s = getSocket()
+    if (s) { s.off('friendRequest:created'); s.off('friendRequest:accepted'); s.off('friendRequest:rejected'); s.off('friendRequest:cancelled'); s.off('block:created') }
     window.removeEventListener('friends:requestState', onRequestState)
-    console.log('[FriendsList] 언마운트: 소켓/리스너 정리 완료')
+    console.log('[UI][RES]', { page:'3_list', step:'unmounted:cleanup' })
   } catch (e) {
-    console.warn('[FriendsList] 언마운트 정리 중 경고:', e)
+    console.log('[UI][ERR]', { page:'3_list', step:'unmounted', message: e?.message || e })
   }
 })
 </script>

@@ -4,9 +4,6 @@ import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
 
-// ✅ axios 인스턴스 초기화 로그가 부트 초기에 찍히도록(기능 변화 없음)
-import '@/lib/axiosInstance'
-
 // 🔔 Web/PWA 푸시 등록 (신규 추가)
 import { registerWebPush } from './push/webPush'
 
@@ -173,25 +170,15 @@ app.use(IonicVue) // 필요 시 옵션: { mode: 'md' } 등
 app.use(router)
 
 /* -------------------------------------------------------
- * 6-1) (중요) 커스텀 엘리먼트 인식 설정
- *  - Vue가 <emoji-picker>를 일반 컴포넌트로 탐색하지 않도록 지정
+ * ⚠️ 커스텀 엘리먼트 인식 설정(빌드타임 처리)
+ * - 이전에는 app.config.compilerOptions.isCustomElement에서 처리했으나
+ *   현재는 vite의 @vitejs/plugin-vue 옵션(template.compilerOptions)로 이동했습니다.
+ *   → 런타임 경고 방지 및 설정 일원화.
  * ----------------------------------------------------- */
-const prevIsCustomElement = app.config.compilerOptions.isCustomElement
-app.config.compilerOptions.isCustomElement = (tag: string) => {
-  const isEmoji = tag === 'emoji-picker'
-  if (isEmoji) {
-    // 디버그 로그: 실제 적용 여부 추적
-    console.log('🔧 Treat as custom element:', tag)
-    return true
-  }
-  // 기존 설정이 있으면 보존
-  return typeof prevIsCustomElement === 'function'
-    ? prevIsCustomElement(tag)
-    : false
-}
+console.log('[UI][RES]', { step: 'custom-element-rule', where: 'vite-plugin-vue(template.compilerOptions)' })
 
 /* -------------------------------------------------------
- * 6-2) 🔔 WebPush 등록
+ * 6-2) 🔔 WebPush 등록 (신규)
  *  - 앱 시작 시 1회만 호출
  *  - 권한 요청 → FCM 토큰 발급 → 서버 /api/push/register 로 전송
  *  - 실패해도 앱 부트는 계속 진행

@@ -7,7 +7,7 @@
       </ion-toolbar>
     </ion-header>
 
-    <!-- [유지/개선] 한 페이지(뷰포트) 내에 들어오도록 scrollY 비활성 + 내부 레이아웃 컴팩트 -->
+    <!-- [MODIFIED] 한 페이지(뷰포트) 내에 들어오도록 scrollY 비활성 + 내부 레이아웃 컴팩트 -->
     <ion-content :fullscreen="true" :scroll-y="false">
       <div class="container onepage">
         <!-- (옵션) 디버그용 빌드/환경 로그 -->
@@ -78,8 +78,7 @@
           <!-- 출생년도 -->
           <div class="form-row">
             <label for="birthyear">출생년도</label>
-            <!-- ✅ 숫자 바인딩 보장: v-model.number -->
-            <select id="birthyear" name="birthyear" v-model.number="form.birthyear" required>
+            <select id="birthyear" name="birthyear" v-model="form.birthyear" required>
               <option value="" disabled>출생년도를 선택하세요</option>
               <option v-for="y in birthyearOptions" :key="y" :value="y">{{ y }}년</option>
             </select>
@@ -151,12 +150,11 @@
  * SignupPage - 일반 폼 구조 (컴팩트 1페이지 레이아웃 적용)
  * - 지역2에 '전체' 옵션 제거 (회원가입에서는 정확한 지점 선택)
  * - 로그/에러로그 충분히 출력
- * - ✅ API 경로: `${API_PREFIX}/signup` 사용 (이중 /api 방지 + 서버 /api 프리픽스와 정합)
  * -----------------------------------------------------*/
 import { IonPage, IonHeader, IonToolbar, IonTitle, IonContent } from '@ionic/vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import axios, { API_PREFIX } from '@/lib/axiosInstance' // API_PREFIX 사용
+import { api, http, API_PREFIX } from '@/lib/axiosInstance' // [MODIFIED] 공용 래퍼 사용
 // regions.js는 named export 입니다.
 import { regions } from '@/data/regions'
 
@@ -226,7 +224,7 @@ const isValid = computed(() =>
 )
 
 // (옵션) 환경/베이스 URL 표시
-const axiosBaseUrl = (axios.defaults.baseURL || '(none)')
+const axiosBaseUrl = (api.defaults.baseURL || '(none)') // [MODIFIED]
 const envLabel = import.meta.env.PROD ? 'PROD' : 'DEV'
 
 onMounted(() => {
@@ -235,9 +233,6 @@ onMounted(() => {
 })
 
 // 제출
-const errorMsg = ref('')
-const successMsg = ref('')
-
 async function onSubmit() {
   if (!isValid.value) {
     console.warn('⛔ [Signup] Invalid form:', JSON.parse(JSON.stringify(form.value)))
@@ -260,8 +255,8 @@ async function onSubmit() {
   console.log('📝 [Signup] Submit payload:', { ...payload, password: '(hidden)' })
 
   try {
-    // ✅ 중요한 부분: `${API_PREFIX}/signup` 사용
-    const res = await axios.post(`${API_PREFIX}/signup`, payload)
+    // [MODIFIED] 경로/프리픽스 통일: `${API_PREFIX}/signup`
+    const res = await http.post(`${API_PREFIX}/signup`, payload)
     console.log('✅ [Signup] API OK:', res.status, res.data)
     successMsg.value = '회원가입이 완료되었습니다.'
     router.push('/login')
@@ -272,6 +267,10 @@ async function onSubmit() {
     submitting.value = false
   }
 }
+
+const errorMsg = ref('')
+const successMsg = ref('')
+
 </script>
 
 <style scoped>
@@ -283,16 +282,16 @@ async function onSubmit() {
 
 /* 툴바(헤더) 높이 */
 ion-toolbar {
-  --min-height: 44px;
+  --min-height: 44px;   /* 기본 약 56px → 줄임 */
   --padding-top: 0px;
   --padding-bottom: 0px;
 }
 
 /* 타이틀 글씨 크기 */
 ion-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #fcfafa; /* 헤더 다크 배경 대비 */
+  font-size: 16px;      /* 기본 약 20px → 줄임 */
+  font-weight: 600;     /* 가독성 유지 */
+  color: #fcfafa;          /* 검정 글씨 */
 }
 
 /* (변경 없음) 공용 로그 */
@@ -304,23 +303,24 @@ ion-title {
   color: #111;
 }
 
-/* 컨테이너가 헤더를 제외한 뷰포트 높이를 꽉 채우도록 제한 */
+/* [MODIFIED] 컨테이너가 헤더를 제외한 뷰포트 높이를 꽉 채우도록 제한 */
 .container.onepage {
   width: min(640px, 92vw);
   margin: 4px auto 0;
   padding: 6px 4px 0;
   color: #111;
+  /* ion-header(툴바) 높이를 뺀 영역 계산: 기기별 툴바 대략 56px 가정 */
   max-height: calc(100vh - 56px);
   display: flex;
   align-items: flex-start;
 }
 
-/* ion-content 자체 스크롤 off일 때 내부 넘침 방지 */
+/* [MODIFIED] ion-content 자체 스크롤 off일 때 내부 넘침 방지 */
 :host {
   display: block;
 }
 
-/* 폼 레이아웃을 컴팩트하게 */
+/* [MODIFIED] 폼 레이아웃을 컴팩트하게 */
 .form.compact {
   display: grid;
   grid-auto-rows: min-content;
@@ -328,7 +328,7 @@ ion-title {
   width: 100%;
 }
 
-/* 개별 행 간 간격 축소 */
+/* [MODIFIED] 개별 행 간 간격 축소 */
 .form-row {
   display: grid;
   row-gap: 4px;
@@ -340,10 +340,10 @@ ion-title {
   font-weight: 600;
   font-size: 12px;
   letter-spacing: 0.1px;
-  color: #fcfafa; /* 어두운 배경 대비 */
+  color: #fcfafa;
 }
 
-/* 입력류 높이 축소 + 패딩 조정 */
+/* [MODIFIED] 입력류 높이 축소 + 패딩 조정 */
 .form-row input[type="text"],
 .form-row input[type="password"],
 .form-row select {
@@ -355,7 +355,7 @@ ion-title {
   outline: none;
   background: #fff;
   color: #111;
-  font-size: 10px; /* iOS 확대 방지 기준 */
+  font-size: 10px;
   transition: box-shadow .15s, border-color .15s;
   -webkit-appearance: none;
 }
@@ -378,7 +378,7 @@ ion-title {
   box-shadow: 0 0 0px 1000px #fff inset;
 }
 
-/* 라디오 그룹 간격 축소 */
+/* [MODIFIED] 라디오 그룹 간격 축소 */
 .radio-group {
   display: flex;
   gap: 14px;
@@ -397,11 +397,11 @@ ion-title {
   color: #fcfafa;
 }
 
-/* 지역 인라인 레이아웃: 간격/최소폭 축소 */
+/* [MODIFIED] 지역 인라인 레이아웃: 간격/최소폭 축소 */
 .region-row {
   display: flex;
   gap: 8px;
-  flex-wrap: nowrap;  /* 한 줄 유지 */
+  flex-wrap: nowrap;
   align-items: end;
   margin-top: 2px;
 }
@@ -410,14 +410,14 @@ ion-title {
   min-width: 0;
 }
 
-/* 버튼 열 간격/높이 축소 */
+/* [MODIFIED] 버튼 열 간격/높이 축소 */
 .button-col {
   display: grid;
   row-gap: 4px;
   margin-top: 0px;
 }
 
-/* 버튼 높이/폰트 */
+/* [MODIFIED] 버튼 높이/폰트 축소 */
 .btn {
   height: 44px;
   border-radius: 10px;
@@ -447,7 +447,7 @@ ion-title {
 /* 고스트 버튼 */
 .btn.ghost { background: #fff; color: #111; border-color: #dcdcdc; }
 
-/* 힌트/메시지 */
+/* [MODIFIED] 힌트/메시지: 줄 간격/크기 축소 */
 .hint {
   margin: 2px 2px 0;
   font-size: 10px;
@@ -456,13 +456,13 @@ ion-title {
 .hint.error { color: #c0392b; }
 .hint.success { color: #2d7a33; }
 
-/* 폼 전체를 뷰포트에 맞춰 수직 압축 (헤더 제외) */
+/* [MODIFIED] 폼 전체를 뷰포트에 맞춰 수직 압축 (헤더 제외) */
 .onepage .form {
-  max-height: calc(100vh - 56px - 8px); /* 헤더(약 56px) + 위 여백 8px */
-  overflow: hidden; /* 스크롤 금지 */
+  max-height: calc(100vh - 56px - 8px);
+  overflow: hidden;
 }
 
-/* 초소형 강제 스케일(옵션) */
+/* [MODIFIED][옵션] 초소형 강제 스케일 */
 @media (max-height: 640px) {
   .onepage {
     transform: scale(0.98);

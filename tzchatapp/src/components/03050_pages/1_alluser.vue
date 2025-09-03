@@ -2,8 +2,6 @@
   <!-- ⚠️ Ionic 레이아웃 일치성: IonPage/IonContent 래퍼 필수 -->
   <ion-page>
     <ion-content>
-
-
       <!-- 🔹 회원 목록 제목 -->
       <div class="ion-padding ion-text-center">
         <h2 class="black-text">회원 목록</h2>
@@ -45,7 +43,6 @@
       <ion-text v-else color="medium">
         <p class="ion-text-center">표시할 사용자가 없습니다.</p>
       </ion-text>
-
     </ion-content>
   </ion-page>
 </template>
@@ -54,7 +51,8 @@
 // ⚠️ 가독성 + 유지보수: 주석 및 로그 최대화
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/axiosInstance' // 공통 인스턴스( baseURL = <origin>/api, withCredentials = true )
+import { refreshSocketAuth, disconnectSocket } from '@/lib/socket' // JWT 갱신/종료 (옵션)
 
 // Ionic 컴포넌트 (import만 하고 안 쓰면 트리쉐이킹/타입 경고 가능)
 import {
@@ -72,51 +70,58 @@ const loading = ref(true)           // 로딩 플래그(로딩/빈 상태 구분
 const errorMessage = ref('')        // 사용자 메시지용 에러
 
 // 🔧 공통 디버그: 빌드 환경/엔드포인트 확인 (dev/prod 동일화 점검)
-console.log('[BUILD INFO]', {
-  MODE: import.meta.env.MODE,
-  BASE: import.meta.env.BASE_URL,
-  API: import.meta.env.VITE_API_URL
+console.log('[UI]', {
+  mode: import.meta.env.MODE,
+  base: import.meta.env.BASE_URL,
+  VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL
 })
 
 // 🔹 유저 목록 + 내 정보 불러오기
 onMounted(async () => {
-  console.time('[LOAD] /api/users')
-  console.time('[LOAD] /api/me')
+  console.time('[LOAD] GET /users')
+  console.time('[LOAD] GET /me')
 
   try {
-    // ⚠️ 세션/쿠키 필요 API는 withCredentials 통일 → dev/prod 차이 제거
-    const resUsers = await axios.get('/api/users', { withCredentials: true })
+    // ✅ 공통 axios 인스턴스 사용: baseURL이 이미 /api 이므로 경로는 '/users'
+    const resUsers = await axios.get('/users')
     users.value = Array.isArray(resUsers.data?.users) ? resUsers.data.users : []
-    console.log('✅ /api/users OK, count:', users.value.length)
+    console.log('[HTTP][OK]', { path: '/users', count: users.value.length })
   } catch (error) {
-    console.error('❌ 유저 목록 불러오기 실패:', error)
+    console.error('[HTTP][ERR]', { path: '/users', message: error?.message, status: error?.response?.status })
     errorMessage.value = '유저 목록을 불러오지 못했습니다.'
   } finally {
-    console.timeEnd('[LOAD] /api/users')
+    console.timeEnd('[LOAD] GET /users')
   }
 
   try {
-    const resMe = await axios.get('/api/me', { withCredentials: true })
+    const resMe = await axios.get('/me')
     nickname.value = resMe.data?.user?.nickname || ''
-    console.log('✅ /api/me OK, nickname:', nickname.value)
+    console.log('[HTTP][OK]', { path: '/me', nickname: nickname.value })
   } catch (error) {
-    console.error('❌ 닉네임 불러오기 실패:', error)
+    console.error('[HTTP][ERR]', { path: '/me', message: error?.message, status: error?.response?.status })
     // 닉네임 실패는 치명적이지 않으므로 메시지는 생략하고 로그만 남김
   } finally {
-    console.timeEnd('[LOAD] /api/me')
+    console.timeEnd('[LOAD] GET /me')
     loading.value = false
   }
 })
 
 // 🔹 로그아웃
 const logout = async () => {
-  console.log('➡️ 로그아웃 시도')
+  console.log('[UI] 로그아웃 시도')
   try {
-    await axios.post('/api/logout', {}, { withCredentials: true })
-    console.log('✅ 로그아웃 성공 → /login 이동')
+    // ✅ baseURL=/api → 경로는 '/logout'
+    await axios.post('/logout')
+    // 로컬 JWT 토큰이 있다면 정리(앱/WebView 대응)
+    try {
+      localStorage.removeItem('TZCHAT_AUTH_TOKEN')
+      refreshSocketAuth()
+      disconnectSocket()
+    } catch {}
+    console.log('[UI] 로그아웃 성공 → /login 이동')
     router.replace('/login') // replace로 히스토리 정리
   } catch (err) {
-    console.error('❌ 로그아웃 실패:', err)
+    console.error('[HTTP][ERR]', { path: '/logout', message: err?.message, status: err?.response?.status })
     errorMessage.value = '로그아웃에 실패했습니다.'
   }
 }
@@ -124,10 +129,10 @@ const logout = async () => {
 // ✅ 유저 클릭 시 페이지로 이동
 const goToUserProfile = (userId) => {
   if (!userId) {
-    console.warn('⚠️ 유효하지 않은 userId:', userId)
+    console.warn('[UI] 유효하지 않은 userId:', userId)
     return
   }
-  console.log('➡️ 사용자 프로필 페이지로 이동:', userId)
+  console.log('[UI] 사용자 프로필 페이지로 이동:', userId)
   router.push(`/home/user/${userId}`)
 }
 </script>
@@ -236,5 +241,4 @@ ion-text p.ion-text-center {
   .top-bar { padding: 8px 10px; gap: 8px; }
   ion-list { margin: 6px; }
 }
-
 </style>

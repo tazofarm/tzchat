@@ -1,38 +1,126 @@
 // routes/authRouter.js
 // ------------------------------------------------------
-// 인증 및 계정 관련 라우터
+// 인증 및 계정 관련 라우터 (JWT 전환)
 // - 회원가입, 로그인/로그아웃, 내 정보(/me), 비밀번호 변경, 탈퇴/취소
-// - 세션/쿠키 동작 안정화를 위해 regenerate → save 순서 보장
-// - 로그 최대화(요청 RAW, 파싱값, 세션ID, 쿠키/남은시간 등)
+// - ✅ 세션 하위 호환: 세션이 있으면 사용, 없으면 JWT 우선 사용
+// - ✅ Web/App 동시 지원: httpOnly 쿠키 + JSON 응답 token 병행
+// - 로그 최대화(요청 RAW, 파싱값, 토큰/쿠키 유무, 처리 경로)
 // ------------------------------------------------------
 
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const sharp = require('sharp');                 // ✅ 이미지 압축용 (현재 파일에서는 직접 사용 X)
-const bcrypt = require('bcrypt');               // ✅ 비밀번호 해시/검증용
+const sharp = require('sharp');                 // (현 파일에서 직접 사용 X, 유지)
+const bcrypt = require('bcrypt');               // 비밀번호 해시/검증
+const jwt = require('jsonwebtoken');            // ✅ JWT
 const User = require('../models/User');
-const FriendRequest = require('../models/FriendRequest'); // ✅ 참조 중 (현재 파일에서 직접 사용 X)
-const ChatRoom = require('../models/ChatRoom');           // ✅ 참조 중 (현재 파일에서 직접 사용 X)
-const Message = require('../models/Message');             // ✅ 참조 중 (현재 파일에서 직접 사용 X)
-const requireLogin = require('../middlewares/authMiddleware'); // ✅ 공용 미들웨어
+const FriendRequest = require('../models/FriendRequest'); // (직접 사용 X, 유지)
+const ChatRoom = require('../models/ChatRoom');           // (직접 사용 X, 유지)
+const Message = require('../models/Message');             // (직접 사용 X, 유지)
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency');
 
 const router = express.Router();
 
-/** 유틸: 민감정보 마스킹 */
+// ===== 환경값 =====
+const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // 앱/웹 공통 만료
+const COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+
+// ===== 유틸: 민감정보 마스킹 =====
 function maskPassword(obj) {
-  const copy = { ...obj };
+  const copy = { ...(obj || {}) };
   if (copy.password) copy.password = '(hidden)';
   if (copy.current) copy.current = '(hidden)';
   if (copy.next) copy.next = '(hidden)';
   return copy;
 }
 
-/** 유틸: 안전 트림 */
+// ===== 유틸: 안전 트림 =====
 function s(v) {
   return (v || '').toString().trim();
+}
+
+// ===== 유틸: JWT 발급 & 쿠키 설정 =====
+function signToken(user) {
+  // 최소 정보만 탑재 (sub=사용자ID)
+  return jwt.sign(
+    { sub: String(user._id), nickname: user.nickname || '' },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+}
+
+function setJwtCookie(req, res, token) {
+  // NOTE: prod/https 환경 가정 — SameSite=None + Secure
+  // 세션 시절과 동일하게 리버스 프록시 뒤에서 동작하므로 secure 권장
+  // 앱(WebView) 호환 목적. (Capacitor/Android는 쿠키 미사용 가능성 → token도 JSON으로 반환)
+  const isSecure = true; // 운영/원격-DEV 공통 HTTPS 프록시 뒤 가정
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'none',
+    secure: isSecure,
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7일 (JWT_EXPIRES_IN과 맞춤)
+  });
+  console.log('[AUTH][COOKIE]', { name: COOKIE_NAME, set: true, httpOnly: true, sameSite: 'none', secure: isSecure });
+}
+
+// ===== 유틸: JWT 추출 & 검증 =====
+function extractToken(req) {
+  // 1) Authorization: Bearer <token>
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+
+  // 2) Cookie: tzchat.jwt=<token>
+  const cookieHeader = req.headers.cookie || '';
+  if (cookieHeader.includes(`${COOKIE_NAME}=`)) {
+    try {
+      const target = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith(`${COOKIE_NAME}=`));
+      if (target) return decodeURIComponent(target.split('=')[1]);
+    } catch (e) {
+      console.log('[AUTH][DBG] 쿠키 파싱 실패:', e?.message);
+    }
+  }
+  return null;
+}
+
+async function authFromJwtOrSession(req, res, next) {
+  try {
+    // 0) 세션 하위 호환: 세션 기반 로그인 유지
+    if (req.session?.user?._id) {
+      req.auth = { userId: String(req.session.user._id), via: 'session' };
+      console.log('[AUTH][OK] 세션 인증', { userId: req.auth.userId });
+      return next();
+    }
+
+    // 1) JWT 시도
+    const token = extractToken(req);
+    if (!token) {
+      console.log('[AUTH][ERR]', { step: 'extract', message: '토큰 없음' });
+      return res.status(401).json({ ok: false, message: '로그인이 필요합니다.' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      console.log('[AUTH][ERR]', { step: 'verify', message: e?.message });
+      return res.status(401).json({ ok: false, message: '토큰이 유효하지 않습니다.' });
+    }
+
+    if (!decoded?.sub) {
+      console.log('[AUTH][ERR]', { step: 'decode', message: 'sub 누락' });
+      return res.status(401).json({ ok: false, message: '토큰이 유효하지 않습니다.' });
+    }
+
+    req.auth = { userId: String(decoded.sub), via: 'jwt', token };
+    console.log('[AUTH][OK] JWT 인증', { userId: req.auth.userId });
+    return next();
+  } catch (err) {
+    console.log('[AUTH][ERR]', { step: 'unknown', message: err?.message });
+    return res.status(401).json({ ok: false, message: '인증 실패' });
+  }
 }
 
 // ======================================================
@@ -40,202 +128,154 @@ function s(v) {
 // ======================================================
 /**
  * ✅ 회원가입 API (로그인 불필요)
- * - region1, region2 저장 추가
+ * - region1, region2 저장 포함
  * - birthyear 숫자 변환
  * - 중복/필수값 검증 & 상세 로그
  */
 router.post('/signup', async (req, res) => {
-  // 원본 body 로깅(패스워드 마스킹)
-  console.log('🧾 [회원가입 요청 RAW]', maskPassword(req.body || {}));
+  console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
 
-  // body 구조 분해 (지역 포함)
   let { username, password, nickname, gender, birthyear, region1, region2 } = req.body || {};
-
   try {
-    // 문자열 안전 처리
     username = s(username);
     nickname = s(nickname);
     gender   = s(gender);
     region1  = s(region1);
     region2  = s(region2);
-
-    // 출생년도 숫자 변환
     const birthYearNum = birthyear ? parseInt(String(birthyear), 10) : undefined;
 
-    console.log('🔎 [회원가입 파싱 값]', {
-      username, nickname, gender, birthYearNum, region1, region2
-    });
-
-    // 필수값 검증
     if (!username || !password || !nickname || !gender || !birthYearNum || !region1 || !region2) {
-      console.warn('⛔ [회원가입 실패] 필수 항목 누락');
+      console.log('[API][RES] /signup 400 필수누락');
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
-    // 아이디/닉네임 중복
     const [userExists, nicknameExists] = await Promise.all([
       User.findOne({ username }).lean(),
       User.findOne({ nickname }).lean(),
     ]);
     if (userExists) {
-      console.warn('⛔ [회원가입 실패] 아이디 중복:', username);
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_USERNAME', username });
       return res.status(409).json({ ok: false, message: '아이디 중복' });
     }
     if (nicknameExists) {
-      console.warn('⛔ [회원가입 실패] 닉네임 중복:', nickname);
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_NICKNAME', nickname });
       return res.status(409).json({ ok: false, message: '닉네임 중복' });
     }
 
-    // 비밀번호 해시
     const hashed = await bcrypt.hash(String(password), 10);
-
-    // ✅ 사용자 생성 (region1/region2 포함 저장)
-    const user = new User({
+    const user = await User.create({
       username,
       password: hashed,
       nickname,
       gender,
       birthyear: birthYearNum,
-      region1,                 // ✅ 저장
-      region2,                 // ✅ 저장
+      region1,
+      region2,
       last_login: null
     });
 
-    await user.save();
-
-    console.log('✅ [회원가입 성공]', {
-      username: user.username,
-      region1: user.region1,
-      region2: user.region2,
-      _id: user._id.toString()
-    });
-
+    console.log('[API][RES] /signup 201', { userId: String(user._id), username });
     return res.status(201).json({ ok: true, message: '회원가입 성공' });
   } catch (err) {
-    console.error('❌ [회원가입 오류]', err);
+    console.log('[AUTH][ERR]', { step: 'signup', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
 
 // ======================================================
-// 로그인 / 로그아웃
+// 로그인 / 로그아웃 (JWT)
 // ======================================================
 /**
- * ✅ 로그인 API (로그인 불필요)
- * - 세션 재발급(req.session.regenerate) → 저장(req.session.save) 완료 후 응답
- *   → 응답 헤더에 Set-Cookie가 안정적으로 실림
- * - 응답은 { ok: true, message: '로그인 성공', nickname } 유지
+ * ✅ 로그인
+ * - 자격 증명 확인 → JWT 발급
+ * - httpOnly 쿠키 설정 + JSON으로 token 반환 (앱 호환)
+ * - (하위호환) 세션도 세팅 가능하지만 기본은 JWT 사용 권장
  */
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
   const safeUsername = s(username);
 
-  try {
-    console.log('[로그인 시도]', {
-      username: safeUsername,
-      ua: req.get('user-agent'),
-      origin: req.get('origin') || '(none)',
-      cookie: req.headers.cookie ? '(present)' : '(none)',
-    });
+  console.log('[API][REQ] /login', {
+    username: safeUsername,
+    ua: req.get('user-agent'),
+    origin: req.get('origin') || '(none)',
+    hasCookie: !!req.headers.cookie
+  });
 
+  try {
     const user = await User.findOne({ username: safeUsername });
     if (!user) {
-      console.warn('[로그인 실패] 아이디 없음:', safeUsername);
+      console.log('[AUTH][ERR]', { step: 'login', code: 'NO_USER', username: safeUsername });
       return res.status(401).json({ ok: false, message: '아이디 없음' });
     }
 
     const isMatch = await bcrypt.compare(String(password || ''), String(user.password));
     if (!isMatch) {
-      console.warn('[로그인 실패] 비밀번호 틀림:', safeUsername);
+      console.log('[AUTH][ERR]', { step: 'login', code: 'BAD_PASSWORD', username: safeUsername });
       return res.status(401).json({ ok: false, message: '비밀번호 틀림' });
     }
 
-    // 마지막 로그인 시간 업데이트(베스트-에포트)
+    // 로그인 시간 갱신(베스트 에포트)
     user.last_login = new Date();
-    await user.save().catch((e) => {
-      console.warn('[로그인] last_login 저장 경고:', e?.message);
-    });
+    user.save().catch(() => {});
 
-    // ★★★ 핵심: 세션 재발급 → 사용자 세션 주입 → 저장 → 응답
-    req.session.regenerate((regenErr) => {
-      if (regenErr) {
-        console.error('[로그인 오류] session.regenerate 실패:', regenErr);
-        return res.status(500).json({ ok: false, message: '세션 오류' });
-      }
-
-      // 세션에 최소 정보만 저장 (민감/대용량 금지)
+    const token = signToken(user);
+    setJwtCookie(req, res, token); // 웹용 쿠키
+    // (선택) 세션 하위 호환 — 다른 라우터가 아직 세션을 볼 수 있게
+    if (req.session) {
       req.session.user = { _id: user._id, nickname: user.nickname };
+    }
 
-      // (선택) 방어적 헤더: 캐시 금지 (중복 로그인 관련 혼동 방지)
-      res.setHeader('Cache-Control', 'no-store');
-
-      // 저장 완료 후에만 응답 → Set-Cookie 확정
-      req.session.save((saveErr) => {
-        if (saveErr) {
-          console.error('[로그인 오류] session.save 실패:', saveErr);
-          return res.status(500).json({ ok: false, message: '세션 저장 오류' });
-        }
-
-        console.log('[로그인 성공]', {
-          sessionID: req.sessionID,
-          user: user.username,
-          cookieSetHint: 'Set-Cookie는 브라우저 개발자도구/네트워크 탭에서 확인',
-        });
-
-        // 응답 본문은 프론트에서 분기하기 쉽게 ok/메시지 포함
-        return res.status(200).json({ ok: true, message: '로그인 성공', nickname: user.nickname });
-      });
-    });
+    console.log('[API][RES] /login 200', { username: safeUsername, userId: String(user._id) });
+    return res.status(200).json({ ok: true, message: '로그인 성공', nickname: user.nickname, token });
   } catch (err) {
-    console.error('[로그인 오류] 예외:', err);
+    console.log('[AUTH][ERR]', { step: 'login', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
 
 /**
- * ✅ 로그아웃 API (로그인 필요)
- * - 세션 파괴 + 쿠키 정리
- * - main.js에서 쿠키 이름을 'tzchat.sid'로 설정했으므로 동일하게 정리
- * - SameSite=None + Secure 모드에서 클라이언트/프록시 환경에 따라
- *   clearCookie 시 옵션을 맞춰주는 편이 안전
+ * ✅ 로그아웃
+ * - JWT 쿠키 제거(클라이언트 저장 토큰은 클라에서 삭제 필요)
+ * - 세션 하위 호환: 세션도 파기 시도
  */
-router.post('/logout', requireLogin, (req, res) => {
-  const userId = req.session?.user?._id;
-  console.log('[로그아웃 요청]', { userId, sessionID: req.sessionID });
+router.post('/logout', async (req, res) => {
+  const userId = req.session?.user?._id || '(jwt-only)';
+  console.log('[API][REQ] /logout', { userId });
 
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('[로그아웃 오류] session.destroy 실패:', err);
-      return res.status(500).json({ ok: false, message: '로그아웃 실패' });
+  try {
+    // 쿠키 제거
+    res.clearCookie(COOKIE_NAME, {
+      path: '/',
+      sameSite: 'none',
+      secure: true,
+      httpOnly: true,
+    });
+
+    // 세션 하위 호환 파기
+    if (req.session) {
+      await new Promise((resolve) => req.session.destroy(() => resolve()));
     }
-    try {
-      // main.js 세션 설정과 일치하도록 쿠키 이름/옵션 지정
-      res.clearCookie('tzchat.sid', {
-        path: '/',
-        // SameSite=None + Secure 환경에서 일부 브라우저/프록시가 옵션 불일치 시 쿠키를 안 지우는 경우가 있어 일치 권장
-        sameSite: 'none',
-        secure: true,
-        httpOnly: true,
-      });
-    } catch (e) {
-      console.warn('[로그아웃] clearCookie 중 경고:', e?.message);
-    }
-    console.log('[로그아웃 완료]', { userId });
+
+    console.log('[API][RES] /logout 200');
     return res.json({ ok: true, message: '로그아웃 완료' });
-  });
+  } catch (err) {
+    console.log('[AUTH][ERR]', { step: 'logout', message: err?.message });
+    return res.status(500).json({ ok: false, message: '로그아웃 실패' });
+  }
 });
 
 // ======================================================
 // 내 정보(/me) & 공개 유저 목록 & 내 친구 ID 목록
 // ======================================================
 /**
- * ✅ 로그인한 유저의 정보 반환 (친구/차단 목록 포함, 로그인 필요)
- * - emergency.remainingSeconds 계산을 computeRemaining()로 통일
- * - 남은 시간이 0이면 서버 상태를 OFF로 동기화
+ * ✅ /me
+ * - JWT 또는 세션으로 인증
+ * - emergency.remainingSeconds 계산 & 만료 시 자동 OFF
  */
-router.get('/me', requireLogin, async (req, res) => {
-  console.time('[LOAD] GET /api/me');
-  const userId = req.session.user._id;
+router.get('/me', authFromJwtOrSession, async (req, res) => {
+  console.time('[API][TIMING] GET /api/me');
+  const userId = req.auth.userId;
 
   try {
     const user = await User.findById(userId)
@@ -244,13 +284,12 @@ router.get('/me', requireLogin, async (req, res) => {
       .lean();
 
     if (!user) {
-      console.warn('[me 조회 실패] 유저 없음:', userId);
-      console.timeEnd('[LOAD] GET /api/me');
+      console.timeEnd('[API][TIMING] GET /api/me');
+      console.log('[AUTH][ERR]', { step: 'me', code: 'NO_USER', userId });
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
 
     const remaining = computeRemaining(user?.emergency?.activatedAt);
-
     let isActive = user?.emergency?.isActive === true;
     let activatedAt = user?.emergency?.activatedAt || null;
 
@@ -260,7 +299,7 @@ router.get('/me', requireLogin, async (req, res) => {
       });
       isActive = false;
       activatedAt = null;
-      console.log(`🧹[ME] 만료 감지 → 자동 OFF (user=${userId})`);
+      console.log('[AUTH][DBG]', { step: 'me', message: 'emergency auto-off' });
     }
 
     const modifiedUser = {
@@ -273,13 +312,11 @@ router.get('/me', requireLogin, async (req, res) => {
       },
     };
 
-    console.log(`[ME] duration=${EMERGENCY_DURATION_SECONDS}s, remaining=${modifiedUser.emergency.remainingSeconds}s, user=${user.username}`);
-    console.timeEnd('[LOAD] GET /api/me');
-
+    console.timeEnd('[API][TIMING] GET /api/me');
     return res.json({ ok: true, user: modifiedUser, durationSeconds: EMERGENCY_DURATION_SECONDS });
   } catch (err) {
-    console.timeEnd('[LOAD] GET /api/me');
-    console.error('[me 조회 오류]', err);
+    console.timeEnd('[API][TIMING] GET /api/me');
+    console.log('[AUTH][ERR]', { step: 'me', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
@@ -293,27 +330,24 @@ router.get('/users', async (req, res) => {
       .select('username nickname birthyear gender region1 region2 preference');
     return res.json({ ok: true, users });
   } catch (err) {
-    console.error('❌ 전체 유저 목록 조회 실패:', err);
+    console.log('[AUTH][ERR]', { step: 'listUsers', message: err?.message });
     return res.status(500).json({ ok: false, message: '유저 조회 실패' });
   }
 });
 
 /**
- * ✅ 로그인한 사용자의 친구 ID 목록 반환 (로그인 필요)
+ * ✅ 내 친구 ID 목록 (로그인 필요)
  */
-router.get('/my-friends', requireLogin, async (req, res) => {
+router.get('/my-friends', authFromJwtOrSession, async (req, res) => {
   try {
-    const myId = req.session.user._id;
-
+    const myId = req.auth.userId;
     const me = await User.findById(myId).select('friendlist');
-    if (!me) {
-      return res.status(404).json({ ok: false, message: '사용자 없음' });
-    }
+    if (!me) return res.status(404).json({ ok: false, message: '사용자 없음' });
 
-    console.log('[친구 목록 조회]', myId);
+    console.log('[API][RES] /my-friends', { userId: myId, count: me.friendlist?.length || 0 });
     return res.json({ ok: true, friendIds: me.friendlist });
   } catch (err) {
-    console.error('❌ 친구목록 조회 실패:', err);
+    console.log('[AUTH][ERR]', { step: 'myFriends', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
@@ -322,101 +356,95 @@ router.get('/my-friends', requireLogin, async (req, res) => {
 // 비밀번호 변경 & 계정 탈퇴/취소
 // ======================================================
 /**
- * ✅ 비밀번호 변경 (로그인 필요)
+ * ✅ 비밀번호 변경 (JWT/세션 인증)
  * PUT /api/update-password
  * body: { current: string, next: string }
  */
-router.put('/update-password', requireLogin, async (req, res) => {
-  const userId = req.session.user._id;
+router.put('/update-password', authFromJwtOrSession, async (req, res) => {
+  const userId = req.auth.userId;
   const { current, next } = req.body || {};
 
-  // 1) 입력값 1차 검증
   if (!current || !next) {
     return res.status(400).json({ ok: false, message: '현재/새 비밀번호를 모두 입력해 주세요.' });
-  }
+    }
   if (String(next).length < 4) {
     return res.status(400).json({ ok: false, message: '새 비밀번호는 4자 이상을 권장합니다.' });
   }
 
   try {
-    console.info('[accountRouter] password change requested by', userId);
+    console.log('[AUTH][REQ] update-password', { userId });
 
-    // 2) 유저 조회 (스키마에 select:false면 +password 필요)
     const user = await User.findById(userId).select('+password');
     if (!user) {
-      console.warn('[accountRouter] user not found:', userId);
       return res.status(404).json({ ok: false, message: '사용자를 찾을 수 없습니다.' });
     }
 
-    // 3) 기존 비밀번호 일치 확인
     const isMatch = await bcrypt.compare(String(current), String(user.password));
     if (!isMatch) {
-      console.warn('[accountRouter] wrong current password for', userId);
       return res.status(400).json({ ok: false, message: '현재 비밀번호가 올바르지 않습니다.' });
     }
 
-    // 4) 동일 비밀번호 재사용 방지
     const isReuse = await bcrypt.compare(String(next), String(user.password));
     if (isReuse) {
       return res.status(400).json({ ok: false, message: '이전과 다른 새 비밀번호를 사용해 주세요.' });
     }
 
-    // 5) 새 비밀번호 해시 후 저장
-    const saltRounds = 10;
-    const hash = await bcrypt.hash(String(next), saltRounds);
-    user.password = hash;
-
+    user.password = await bcrypt.hash(String(next), 10);
     await user.save();
 
-    console.info('[accountRouter] password changed for', userId);
+    console.log('[AUTH][RES] update-password OK', { userId });
     return res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
   } catch (err) {
-    console.error('[accountRouter] update-password error:', err);
+    console.log('[AUTH][ERR]', { step: 'updatePassword', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류로 비밀번호 변경에 실패했습니다.' });
   }
 });
-
 
 // 🕒 유예기간 (14일)
 const DELETION_GRACE_DAYS = 14;
 
 /**
- * [1] 탈퇴 신청 (로그인 필요)
+ * [1] 탈퇴 신청 (JWT/세션 인증)
  */
-router.post('/account/delete-request', requireLogin, async (req, res) => {
+router.post('/account/delete-request', authFromJwtOrSession, async (req, res) => {
   try {
-    const userId = req.session.user._id;
+    const userId = req.auth.userId;
     const now = new Date();
     const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
 
-    const user = await User.findByIdAndUpdate(userId, {
+    await User.findByIdAndUpdate(userId, {
       status: 'pendingDeletion',
       deletionRequestedAt: now,
       deletionDueAt: due
     }, { new: true });
 
-    console.log(`[탈퇴신청] user=${userId}, dueAt=${due.toISOString()}`);
-    req.session.destroy(() => {}); // 세션 종료(응답은 유지)
+    // JWT는 서버 상태와 무관 — 클라에서 토큰 삭제 필요
+    res.clearCookie(COOKIE_NAME, {
+      path: '/',
+      sameSite: 'none',
+      secure: true,
+      httpOnly: true,
+    });
 
-    return res.json({ ok: true, message: '탈퇴가 신청되었습니다. ' + DELETION_GRACE_DAYS + '일 후 영구 삭제됩니다.' });
+    console.log('[AUTH][RES] delete-request OK', { userId, dueAt: due.toISOString() });
+    return res.json({ ok: true, message: `탈퇴가 신청되었습니다. ${DELETION_GRACE_DAYS}일 후 영구 삭제됩니다.` });
   } catch (err) {
-    console.error('[탈퇴신청 오류]', err);
+    console.log('[AUTH][ERR]', { step: 'deleteRequest', message: err?.message });
     return res.status(500).json({ ok: false, error: '탈퇴 신청 실패' });
   }
 });
 
 /**
- * [2] 탈퇴 취소 (유예기간 내, 로그인 필요)
+ * [2] 탈퇴 취소 (JWT/세션 인증)
  */
-router.post('/account/undo-delete', requireLogin, async (req, res) => {
+router.post('/account/undo-delete', authFromJwtOrSession, async (req, res) => {
   try {
-    const userId = req.session.user._id;
+    const userId = req.auth.userId;
     const user = await User.findById(userId);
 
     if (!user || user.status !== 'pendingDeletion') {
       return res.status(400).json({ ok: false, error: '탈퇴 신청 상태가 아닙니다.' });
     }
-
     if (user.deletionDueAt < new Date()) {
       return res.status(400).json({ ok: false, error: '이미 삭제 예정일이 지났습니다.' });
     }
@@ -426,10 +454,10 @@ router.post('/account/undo-delete', requireLogin, async (req, res) => {
     user.deletionDueAt = null;
     await user.save();
 
-    console.log(`[탈퇴취소] user=${userId}`);
+    console.log('[AUTH][RES] undo-delete OK', { userId });
     return res.json({ ok: true, message: '탈퇴가 취소되었습니다.' });
   } catch (err) {
-    console.error('[탈퇴취소 오류]', err);
+    console.log('[AUTH][ERR]', { step: 'undoDelete', message: err?.message });
     return res.status(500).json({ ok: false, error: '탈퇴 취소 실패' });
   }
 });

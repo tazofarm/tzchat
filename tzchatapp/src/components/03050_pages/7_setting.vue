@@ -20,17 +20,14 @@
       </ion-button>
     </div>
 
-    <!-- 오른쪽: 로그아웃
+    <!-- 오른쪽: 로그아웃 (현재 숨김)
     <div class="top-right">
       <ion-button size="small" class="btn-danger" @click="logout">
         <ion-icon :icon="icons.logOutOutline" slot="start" />
         로그아웃
       </ion-button>
     </div>
-
-       -->
-
-
+    -->
   </div>
 
   <!-- 🔹 리스트 (0001~0020 + 회원탈퇴) -->
@@ -38,32 +35,12 @@
     <div class="list-wrap">
       <ul class="list">
         <!-- 번호 리스트 -->
-        
         <li class="list-item" @click="goPage('/home/setting/0001')">구독신청하기</li>
         <li class="list-item" @click="goPage('/home/setting/0002')">알림설정</li>
         <li class="list-item" @click="goPage('/home/setting/0003')">공지사항</li>
-
-        
         <li class="list-item" @click="goPage('/home/setting/0004')">건의하기</li>
         <li class="list-item" @click="goPage('/home/setting/0005')">개인정보 처리방침</li>
         <li class="list-item" @click="goPage('/home/setting/0006')">서비스 이용약관</li>
-        <!--
-        <li class="list-item" @click="goPage('/home/setting/0007')">0007</li>
-        <li class="list-item" @click="goPage('/home/setting/0008')">0008</li>
-        <li class="list-item" @click="goPage('/home/setting/0009')">0009</li>
-        <li class="list-item" @click="goPage('/home/setting/0010')">0010</li>
-        <li class="list-item" @click="goPage('/home/setting/0011')">0011</li>
-        <li class="list-item" @click="goPage('/home/setting/0012')">0012</li>
-        <li class="list-item" @click="goPage('/home/setting/0013')">0013</li>
-        <li class="list-item" @click="goPage('/home/setting/0014')">0014</li>
-        <li class="list-item" @click="goPage('/home/setting/0015')">0015</li>
-        <li class="list-item" @click="goPage('/home/setting/0016')">0016</li>
-        <li class="list-item" @click="goPage('/home/setting/0017')">0017</li>
-        <li class="list-item" @click="goPage('/home/setting/0018')">0018</li>
-        <li class="list-item" @click="goPage('/home/setting/0019')">0019</li>
-        
-        -->
-
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">
@@ -71,24 +48,11 @@
           <span>로그아웃</span>
         </li>
 
-        <!-- 회원탈퇴 버튼
-
-        <li class="withdraw-button" @click="withdraw">
-          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-          <span>회원탈퇴</span>
-        </li>
-         -->
-          <!-- 회원탈퇴 버튼 -->
-
-
+        <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="goPage('/home/setting/0020')">
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
           <span>회원탈퇴</span>
         </li>
-
-       
-        
-        
       </ul>
     </div>
   </section>
@@ -104,7 +68,7 @@ import {
   logOutOutline,
   trashOutline
 } from 'ionicons/icons'
-import axios from '@/lib/axiosInstance'
+import { api, AuthAPI } from '@/lib/api'
 
 const router = useRouter()
 const icons = { happyOutline, settingsOutline, logOutOutline, trashOutline }
@@ -115,12 +79,12 @@ const meRole = ref<string>('')
 /** 로그인 사용자 정보 가져오기 */
 onMounted(async () => {
   try {
-    const meRes = await axios.get('/api/me', { withCredentials: true })
+    const meRes = await api.get('/me')
     nickname.value = meRes.data?.user?.nickname || ''
     meRole.value = meRes.data?.user?.role || ''
     console.log('[SettingsSections] me:', { nickname: nickname.value, role: meRole.value })
   } catch (err) {
-    console.error('❌ /api/me 실패:', err)
+    console.error('❌ GET /me 실패:', err)
   }
 })
 
@@ -139,7 +103,7 @@ const goAdmin = () => {
 /** 로그아웃 */
 const logout = async () => {
   try {
-    await axios.post('/api/logout', {}, { withCredentials: true })
+    await AuthAPI.logout()
     console.info('[SettingsSections] 로그아웃 성공 → /login')
     router.push('/login')
   } catch (err) {
@@ -147,11 +111,16 @@ const logout = async () => {
   }
 }
 
-/** 회원탈퇴 */
-const withdraw = () => {
-  console.log('[SettingsSections] 회원탈퇴 클릭됨')
-  alert('회원탈퇴 기능이 실행됩니다.')
+/** (예시) 회원탈퇴 직접 실행 시 사용할 수 있는 헬퍼
+const withdraw = async () => {
+  try {
+    await api.post('/account/delete-request')
+    router.push('/login')
+  } catch (e) {
+    console.error('❌ 탈퇴 요청 실패:', e)
+  }
 }
+*/
 </script>
 
 <style scoped>
@@ -238,7 +207,7 @@ const withdraw = () => {
   transform: translateY(1px);
 }
 
-/* 회원탈퇴 버튼 */
+/* 회원탈퇴/로그아웃 버튼 */
 .withdraw-button {
   display: flex;
   align-items: center;

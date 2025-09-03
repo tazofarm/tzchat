@@ -5,13 +5,13 @@
   "type": "module",
   "description": "An Ionic project",
   "scripts": {
-    "dev": "cross-env VITE_API_BASE_URL=http://localhost:2000/api VITE_SOCKET_URL=http://localhost:2000 vite --host 0.0.0.0 --port 8081 --mode development",
-    "dev:remote": "cross-env VITE_API_BASE_URL=https://tzchat.duckdns.org/api VITE_SOCKET_URL=https://tzchat.duckdns.org vite --host 0.0.0.0 --port 8081 --mode dev-remote",
+    "dev": "vite --host 0.0.0.0 --port 8081 --mode development",
+    "dev:remote": "cross-env VITE_API_BASE_URL=https://tzchat.duckdns.org vite --host 0.0.0.0 --port 8081 --mode dev-remote",
     "build": "vite build",
     "preview": "vite preview",
     "build:web": "vue-tsc && vite build --mode web",
     "build:app": "vue-tsc && vite build --mode production",
-    "build:app:remote": "cross-env VITE_API_BASE_URL=https://tzchat.duckdns.org/api VITE_SOCKET_URL=https://tzchat.duckdns.org vue-tsc && vite build --mode app-remote",
+    "build:app:remote": "cross-env VITE_API_BASE_URL=https://tzchat.duckdns.org vue-tsc && vite build --mode production",
     "test:e2e": "cypress run",
     "test:unit": "vitest",
     "lint": "eslint ."

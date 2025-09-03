@@ -19,7 +19,18 @@ export default defineConfig(({ command, mode }) => {
   console.log('API in dev -> proxy to http://localhost:2000 via /api')
   console.log('✅ Vue template will treat <emoji-picker> as custom element (build-time)')
   console.log('================================================')
- 
+
+  // ✅ 백엔드가 Secure+None 쿠키(JWT) 발급을 위해 X-Forwarded-Proto=HTTPS를 기대하는 환경을 고려
+  //    - main.js 로그 지시: "proxy_set_header X-Forwarded-Proto $scheme;"
+  //    - Vite dev/preview 프록시에서도 헤더를 명시적으로 추가하여 로컬에서 쿠키 문제 방지
+  const PROXY_COMMON = {
+    target: 'http://localhost:2000',
+    changeOrigin: true,
+    headers: {
+      'X-Forwarded-Proto': 'https', // ★ dev에서도 백엔드가 secure 쿠키를 세팅하도록 힌트
+    },
+  } as const
+
   return {
     // 🔒 dev/build 동일 경로 기준
     base: '/',
@@ -53,14 +64,12 @@ export default defineConfig(({ command, mode }) => {
       strictPort: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:2000',
-          changeOrigin: true,
+          ...PROXY_COMMON,
         },
         // (있다면) 소켓도 동일 경로 사용
         '/socket.io': {
-          target: 'http://localhost:2000',
+          ...PROXY_COMMON,
           ws: true,
-          changeOrigin: true,
         },
       },
     },
@@ -72,13 +81,11 @@ export default defineConfig(({ command, mode }) => {
       // 필요시 프록시도 동일하게 두면 외형·데이터 타이밍까지 맞추기 쉬움
       proxy: {
         '/api': {
-          target: 'http://localhost:2000',
-          changeOrigin: true,
+          ...PROXY_COMMON,
         },
         '/socket.io': {
-          target: 'http://localhost:2000',
+          ...PROXY_COMMON,
           ws: true,
-          changeOrigin: true,
         },
       },
     },

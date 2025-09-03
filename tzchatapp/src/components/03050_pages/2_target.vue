@@ -71,10 +71,12 @@
    - 통합 필터: filter_total.js (관계/지역/성향/출생년도/친구허용)
    - 정렬: 마지막 접속(최근순) 내림차순
    - 변경 최소 / 주석·로그 최대
+   - ✅ API: '@/lib/api' (withCredentials + Bearer 병행)
+   - ✅ Socket: '@/lib/socket' (쿠키+JWT 하이브리드)
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import { api } from '@/lib/api' // ✅ 공용 axios 인스턴스(/api 포함 baseURL)
 
 // Ionic
 import {
@@ -102,8 +104,8 @@ import { applyTotalFilter } from '@/components/04210_Page2_target/Filter_total'
 // ✅ 관계 제외 Set 생성 유틸
 import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List' // ✅ NEW
 
-// 🔥 Socket.IO 클라이언트
-import { io } from 'socket.io-client'
+// 🔌 Socket.IO 클라이언트 래퍼(JWT/세션 하이브리드)
+import { connectSocket, getSocket } from '@/lib/socket'
 
 /** =========================================================
  *  상태
@@ -206,12 +208,11 @@ const goToUserProfile = (userId) => {
 async function fetchRelations() {
   try {
     console.time('[Users] relations')
-    // 프로젝트 API 응답 형태에 맞게 조정하세요.
     const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
-      axios.get('/api/friends', { withCredentials: true }),
-      axios.get('/api/blocks', { withCredentials: true }),
-      axios.get('/api/friend-requests/sent', { withCredentials: true }),
-      axios.get('/api/friend-requests/received', { withCredentials: true }),
+      api.get('/friends'),
+      api.get('/blocks'),
+      api.get('/friend-requests/sent'),
+      api.get('/friend-requests/received'),
     ])
 
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
@@ -258,32 +259,30 @@ const scheduleRender = debounce(() => {
 
 /** =========================================================
  *  Socket.IO
+ *  - 커넥션은 '@/lib/socket' 사용(쿠키+JWT 핸드셰이크 지원)
  * ======================================================= */
-function connectSocket(me) {
+function initUsersSocket(me) {
   if (socket.value && socket.value.connected) return
 
-  const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:2000'
+  // 공용 커넥터로 연결(원본 설정: path=/socket.io, withCredentials, JWT auth)
+  const s = connectSocket()
+  socket.value = s
 
-  socket.value = io(SOCKET_URL, {
-    transports: ['websocket'],
-    withCredentials: true,
+  s.on('connect', () => {
+    if (LOG.socket) console.log('✅ [Socket] connected:', s.id)
+    try { s.emit('users:join', { scope: 'list' }) } catch (_) {}
   })
 
-  socket.value.on('connect', () => {
-    if (LOG.socket) console.log('✅ [Socket] connected:', socket.value.id)
-    socket.value.emit('users:join', { scope: 'list' })
-  })
-
-  socket.value.on('disconnect', (reason) => {
+  s.on('disconnect', (reason) => {
     console.warn('⚠️ [Socket] disconnected:', reason)
   })
 
-  socket.value.on('connect_error', (err) => {
+  s.on('connect_error', (err) => {
     console.error('❌ [Socket] connect_error:', err?.message || err)
   })
 
   // 🔥 서버가 보내는 “전체 새로고침”
-  socket.value.on('users:refresh', (payload) => {
+  s.on('users:refresh', (payload) => {
     if (LOG.socket) console.log('🟦 [Socket] users:refresh 수신, 길이=', payload?.length)
     try {
       applyFilterAndSort(payload || [], me)
@@ -293,7 +292,7 @@ function connectSocket(me) {
   })
 
   // 🔥 서버가 보내는 “부분 패치(단일 유저 변화)”
-  socket.value.on('users:patch', (u) => {
+  s.on('users:patch', (u) => {
     if (LOG.patch) console.log('🟨 [Socket] users:patch 수신:', u?._id, u?.nickname)
     try {
       if (!u || !u._id) return
@@ -319,7 +318,7 @@ function connectSocket(me) {
   })
 
   // 🔥 “마지막 접속만 갱신”
-  socket.value.on('users:last_login', ({ userId, last_login }) => {
+  s.on('users:last_login', ({ userId, last_login }) => {
     if (LOG.patch) console.log('🟩 [Socket] users:last_login:', userId, last_login)
     const idx = users.value.findIndex(x => x._id === userId)
     if (idx >= 0) {
@@ -329,7 +328,7 @@ function connectSocket(me) {
   })
 
   // (선택) 관계 변동 이벤트가 있다면 여기서 excludeIds 갱신 가능
-  // socket.value.on('relations:changed', async () => {
+  // s.on('relations:changed', async () => {
   //   await fetchRelations()
   // })
 }
@@ -342,7 +341,7 @@ onMounted(async () => {
     console.time('[Users] init')
 
     // 1) 내 정보 로딩
-    const me = (await axios.get('/api/me', { withCredentials: true })).data.user
+    const me = (await api.get('/me')).data.user
     currentUser.value = me
     nickname.value = me?.nickname || ''
     if (LOG.init) console.log('✅ 사용자 정보 로딩 완료:', me)
@@ -352,17 +351,13 @@ onMounted(async () => {
 
     // 3) 서버 검색
     const regionFilter = me.search_regions || []
-    const res = await axios.post(
-      '/api/search/users',
-      { regions: regionFilter },
-      { withCredentials: true }
-    )
+    const res = await api.post('/search/users', { regions: regionFilter })
 
     // 4) 통합 필터(관계 제외 포함) + 정렬
     applyFilterAndSort(res.data || [], me)
 
-    // 5) 소켓 연결
-    connectSocket(me)
+    // 5) 소켓 연결(쿠키/ JWT 하이브리드)
+    initUsersSocket(me)
   } catch (e) {
     console.error('❌ 초기 로딩 실패:', e)
   } finally {
@@ -373,11 +368,12 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   try {
-    if (socket.value) {
+    const s = getSocket()
+    if (s) {
       if (LOG.socket) console.log('🔌 [Socket] disconnect()')
-      socket.value.disconnect()
-      socket.value = null
+      s.disconnect()
     }
+    socket.value = null
   } catch (e) {
     console.error('❌ 소켓 정리 실패:', e)
   }
@@ -386,7 +382,7 @@ onBeforeUnmount(() => {
 /** (옵션) 로그아웃 예시 */
 const logout = async () => {
   try {
-    await axios.post('/api/logout', {}, { withCredentials: true })
+    await api.post('/logout')
     router.push('/login')
   } catch (e) {
     console.error('❌ 로그아웃 실패:', e)

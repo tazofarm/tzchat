@@ -1,13 +1,12 @@
 // src/lib/axiosInstance.ts
 // ------------------------------------------------------
-// ✅ 단일 axios 인스턴스 + http 래퍼
-// - baseURL = ORIGIN(도메인/포트)만 사용 (/api 붙이지 않음)  ← 원칙 유지
-//   └ 단, 환경에 따라 baseURL 끝에 /api 가 들어올 수 있으므로
-//      요청 인터셉터에서 "/api/api/..." 이중 경로를 자동 보정합니다.
-// - 각 호출부는 `${API_PREFIX}/...` 사용 (하위 호환)
+// ✅ 단일 axios 인스턴스 + http 래퍼 (세션/JWT 병행)
+// - baseURL = ORIGIN(도메인/포트)만 사용 (/api 붙이지 않음)
+// - 각 호출부는 `${API_PREFIX}/...` 사용 (⚠️ 단, 아래 인터셉터가 자동 보정해 줌)
 // - 인터셉터/로깅/withCredentials 일원화
+// - ✅ JWT(Bearer) 지원: setAuthToken()으로 주입 시 자동 Authorization 헤더
 // - 하위호환: default export = api (axios 인스턴스)
-//            named export = { api, http, API_PREFIX, getApiBaseURL }
+//            named export = { api, http, API_PREFIX, getApiBaseURL, setAuthToken, clearAuthToken, getAuthToken }
 // ------------------------------------------------------
 
 import axios, {
@@ -19,34 +18,30 @@ import axios, {
 
 // ===== ENV =====
 // 우선순위: VITE_API_BASE_URL → VITE_API_ORIGIN → (브라우저 origin 폴백)
-// dev:remote / build:app:remote 에서는 cross-env로 VITE_API_BASE_URL 주입 권장
 const ENV_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   (import.meta.env.VITE_API_ORIGIN as string | undefined) ??
   '';
 
-// API 경로 접두사(반드시 앞쪽에 슬래시 포함). 예: '/api'
+// (export 제거) — 마지막에 일괄 export
 const API_PREFIX = (import.meta.env.VITE_API_PREFIX || '/api') as string;
+
+// JWT 로컬 스토리지 키(선택)
+const JWT_STORAGE_KEY =
+  (import.meta.env.VITE_JWT_STORAGE_KEY as string | undefined) || 'tzchat.jwt';
 
 // 브라우저 환경 폴백(개발 중 base 미설정 사고 방지)
 function computeFallbackBase(): string {
-  // Capacitor 앱의 window.origin은 'capacitor://localhost' 이므로
-  // 이 값 그대로는 백엔드 호출에 적합하지 않습니다.
-  // 앱 빌드 시에는 반드시 VITE_API_BASE_URL을 설정해 주세요.
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin;
   }
   return '';
 }
 
-// 최종 baseURL 결정
 const RESOLVED_BASE =
   (ENV_BASE && String(ENV_BASE).trim()) || computeFallbackBase();
 
-// baseURL 진단 로그 (검은색 콘솔 기본 출력)
 if (!RESOLVED_BASE) {
-  // baseURL 누락시 상대경로가 개발서버(예: :8081)로 향하는 문제를 눈에 띄게 경고
-  // 실제 동작은 유지(로그로만 경고)
   // eslint-disable-next-line no-console
   console.warn(
     '[Axios][INIT][WARN] baseURL이 설정되지 않았습니다. ' +
@@ -58,104 +53,178 @@ if (!RESOLVED_BASE) {
 // ===== Getter =====
 const getApiBaseURL = () => RESOLVED_BASE;
 
+// ===== JWT In-Memory Holder (옵션) =====
+let AUTH_TOKEN: string | null = null;
+
+function loadTokenFromStorage(): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const v = window.localStorage?.getItem(JWT_STORAGE_KEY);
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+function persistToken(token: string | null) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage?.setItem(JWT_STORAGE_KEY, token);
+    else window.localStorage?.removeItem(JWT_STORAGE_KEY);
+  } catch {
+    /* noop */
+  }
+}
+
+// 초기 로드 시 저장소에서 복구(선택)
+AUTH_TOKEN = loadTokenFromStorage();
+
+// 외부에서 사용할 토큰 제어 함수(선택 사용)
+function setAuthToken(token: string) {
+  AUTH_TOKEN = token || null;
+  persistToken(AUTH_TOKEN);
+  console.log('[AUTH][RES]', { step: 'setAuthToken', hasToken: !!AUTH_TOKEN });
+}
+function clearAuthToken() {
+  AUTH_TOKEN = null;
+  persistToken(null);
+  console.log('[AUTH][RES]', { step: 'clearAuthToken' });
+}
+function getAuthToken() {
+  return AUTH_TOKEN;
+}
+
+// ===== URL 보정 유틸 =====
+function ensureLeadingSlash(u: string) {
+  return u.startsWith('/') ? u : '/' + u;
+}
+function normalizePrefix(p: string) {
+  const pref = p.startsWith('/') ? p : '/' + p;
+  return pref.endsWith('/') ? pref.slice(0, -1) : pref;
+}
+const PREFIX = normalizePrefix(API_PREFIX);
+
+// 상대경로 요청을 `${API_PREFIX}`로 자동 보정
+function normalizeRequestUrl(raw?: string): { url: string; prefixed: boolean } {
+  let u = raw || '';
+  // 절대 URL(http/https)은 그대로 둠
+  if (/^https?:\/\//i.test(u)) return { url: u, prefixed: false };
+  // 빈 값 또는 해시/쿼리만 오는 경우 방어
+  if (!u || u.startsWith('?') || u.startsWith('#')) {
+    const fixed = `${PREFIX}${ensureLeadingSlash(u || '')}`;
+    return { url: fixed, prefixed: true };
+  }
+  // 항상 선행 슬래시
+  u = ensureLeadingSlash(u);
+  // 이미 프리픽스가 붙어 있으면 그대로
+  if (u === PREFIX || u.startsWith(PREFIX + '/')) {
+    return { url: u, prefixed: false };
+  }
+  // 그 외에는 프리픽스 부착
+  return { url: `${PREFIX}${u}`, prefixed: true };
+}
+
 // ===== Axios Instance =====
 const api: AxiosInstance = axios.create({
-  baseURL: RESOLVED_BASE, // ❗ '/api'를 붙이지 않습니다. (단, 인터셉터에서 이중 보정)
-  withCredentials: true,  // ⭐ 세션/쿠키 전달 필수
-  timeout: 20000,         // 네트워크 품질 고려 여유 확대(기본 20s)
+  baseURL: RESOLVED_BASE, // ❗ '/api' 금지 → /api/api 방지 (프리픽스는 url에서 처리)
+  withCredentials: true,  // 세션/쿠키(JWT 쿠키 포함) 전달
+  timeout: 15000,
   headers: {
     'X-Requested-With': 'XMLHttpRequest',
   },
 });
 
 // 초기 설정 로그
-console.log('[Axios][INIT]', {
+console.log('[API][RES]', {
+  path: 'axios:init',
   baseURL: RESOLVED_BASE,
-  API_PREFIX,
+  API_PREFIX: PREFIX,
   mode: import.meta.env.MODE,
+  jwtInMemory: !!AUTH_TOKEN,
 });
 
-// ===== Interceptors (request: 경로 자동 보정 + 로깅) =====
+// ===== Interceptors (logging + JWT + URL 보정) =====
 api.interceptors.request.use(
   (config) => {
-    // URL이 절대경로인지/상대경로인지 표시
-    const isAbs = /^https?:\/\//i.test(config.url || '');
+    const originalUrl = config.url || '';
 
-    // ----------- 🔧 이중 /api 자동 보정 로직 -----------
-    // 상황:
-    //  1) baseURL 이 "https://host/api" 로 끝나고
-    //  2) 호출부 url 이 "/api/..." 로 시작하면
-    // 최종 URL이 "https://host/api/api/..." 가 되어 404 발생.
-    //
-    // 해결:
-    //  - 위 조건일 때 url 의 선행 "/api" 한 번만 제거하여
-    //    최종 "https://host/api/..." 가 되도록 보정.
-    try {
-      if (!isAbs) {
-        const base = (config.baseURL || '').replace(/\/+$/, ''); // 끝 슬래시 제거
-        let url = config.url || '';
+    // 1) URL 자동 프리픽스 보정
+    const { url, prefixed } = normalizeRequestUrl(originalUrl);
+    config.url = url;
 
-        // base가 /api 로 끝나고, url이 /api 로 시작하면 → url 쪽의 /api 1회 제거
-        if (/\/api$/.test(base) && /^\/api(\/|$)/.test(url)) {
-          const before = url;
-          url = url.replace(/^\/api(\/|$)/, '/');
-          console.log('🛠️ [Axios][REQ][FIX] /api 중복 제거:', { before, after: url, base });
-        }
-
-        // base + url 결합 시 중복 슬래시 예방 (예: "//")
-        url = url.replace(/\/{2,}/g, '/');
-        config.url = url;
+    // 2) Authorization 미설정 & 인메모리 토큰 존재 시 자동 주입
+    if (AUTH_TOKEN) {
+      const h: any = config.headers || (config.headers = {} as any);
+      if (typeof h.set === 'function') {
+        if (!h.get('Authorization')) h.set('Authorization', `Bearer ${AUTH_TOKEN}`);
+      } else {
+        if (!h.Authorization) h.Authorization = `Bearer ${AUTH_TOKEN}`;
       }
-    } catch (e) {
-      console.warn('⚠️ [Axios][REQ][FIX] 경로 보정 중 예외:', e);
     }
-    // ----------- /이중 /api 자동 보정 -----------
 
-    console.log('✅ [Axios][REQ]', {
-      baseURL: config.baseURL,
-      url: config.url,
-      absolute: isAbs,
+    // Authorization 프리뷰(보안을 위해 값은 숨김)
+    let hasAuthHeader = false;
+    try {
+      const h: any = config.headers;
+      hasAuthHeader =
+        typeof h?.get === 'function' ? !!h.get('Authorization') : !!h?.Authorization;
+    } catch { /* noop */ }
+
+    console.log('[API][REQ]', {
+      path: config.url,
       method: config.method,
+      base: config.baseURL,
       withCredentials: config.withCredentials,
-      headers: config.headers,
+      prefixed,
+      from: originalUrl,
+      headersPreview: { Authorization: hasAuthHeader ? '***' : undefined },
       params: config.params,
-      data: config.data,
+      hasBody: !!config.data,
     });
 
     if (!config.baseURL) {
-      console.warn(
-        '⚠️ [Axios][REQ][WARN] config.baseURL이 비어 있습니다. ' +
-          '상대경로가 로컬 개발 서버로 갈 수 있습니다.'
-      );
+      console.warn('[API][WARN]', {
+        path: config.url,
+        message: 'config.baseURL이 비어 있어 상대경로가 현재 오리진으로 전송될 수 있습니다.',
+      });
     }
     return config;
   },
   (error) => {
-    console.error('❌ [Axios][REQ:ERR]', error);
+    console.log('[API][ERR]', { step: 'request', message: (error as any)?.message });
     return Promise.reject(error);
   }
 );
 
-// ===== Interceptors (response: 로깅) =====
 api.interceptors.response.use(
   (res) => {
-    console.log('✅ [Axios][RES]', {
+    console.log('[API][RES]', {
+      path: res.config?.url,
       status: res.status,
-      url: res.config?.url,
-      data: res.data,
+      ms: (res as any)?.elapsedTime,
+      preview:
+        typeof res.data === 'object'
+          ? JSON.stringify(res.data).slice(0, 200)
+          : String(res.data).slice(0, 200),
     });
     return res;
   },
   (err: AxiosError) => {
-    // 공통 에러 로그(+핵심 필드)
-    console.error('❌ [Axios][RES:ERR]', {
-      message: err.message,
-      code: err.code,
-      url: err.config?.url,
+    console.log('[API][ERR]', {
+      path: err.config?.url,
       method: err.config?.method,
       status: err.response?.status ?? 'NO_STATUS',
-      data: err.response?.data,
+      code: err.code,
+      message: err.message,
+      preview:
+        typeof err.response?.data === 'object'
+          ? JSON.stringify(err.response.data).slice(0, 200)
+          : String(err.response?.data || '').slice(0, 200),
     });
+
+    if (err.response?.status === 401) {
+      console.warn('[AUTH][ERR]', { step: 'response', code: 401, message: 'Unauthorized' });
+    }
+
     return Promise.reject(err);
   }
 );
@@ -165,13 +234,10 @@ export type HttpResponse<T = any> = Promise<AxiosResponse<T>>;
 
 // ===== http Wrapper =====
 // 모든 호출부는 `${API_PREFIX}/...` 형태로 전달하세요.
-// 예) http.post(`${API_PREFIX}/login`, payload)
-//
-// 절대 URL(https://…)을 주면 baseURL 무시하고 그대로 호출됩니다.
-// 상대 경로(/api/…)를 주면 baseURL + 상대경로로 호출됩니다.
+// (단, 실수로 '/me'처럼 주더라도 인터셉터가 자동으로 `${API_PREFIX}`를 붙여줍니다.)
 const http = {
   get<T = any>(url: string, config?: AxiosRequestConfig): HttpResponse<T> {
-    console.log('🌐[HTTP][GET]', url, config || {});
+    console.log('[API][REQ]', { path: url, method: 'GET' });
     return api.get<T>(url, config);
   },
   post<T = any>(
@@ -179,7 +245,7 @@ const http = {
     data?: any,
     config?: AxiosRequestConfig
   ): HttpResponse<T> {
-    console.log('🌐[HTTP][POST]', url, { data, ...(config || {}) });
+    console.log('[API][REQ]', { path: url, method: 'POST' });
     return api.post<T>(url, data, config);
   },
   put<T = any>(
@@ -187,7 +253,7 @@ const http = {
     data?: any,
     config?: AxiosRequestConfig
   ): HttpResponse<T> {
-    console.log('🌐[HTTP][PUT]', url, { data, ...(config || {}) });
+    console.log('[API][REQ]', { path: url, method: 'PUT' });
     return api.put<T>(url, data, config);
   },
   patch<T = any>(
@@ -195,15 +261,23 @@ const http = {
     data?: any,
     config?: AxiosRequestConfig
   ): HttpResponse<T> {
-    console.log('🌐[HTTP][PATCH]', url, { data, ...(config || {}) });
+    console.log('[API][REQ]', { path: url, method: 'PATCH' });
     return api.patch<T>(url, data, config);
   },
   delete<T = any>(url: string, config?: AxiosRequestConfig): HttpResponse<T> {
-    console.log('🌐[HTTP][DELETE]', url, config || {});
+    console.log('[API][REQ]', { path: url, method: 'DELETE' });
     return api.delete<T>(url, config);
   },
 };
 
 // ===== Exports =====
-export default api;                              // 레거시: 기본(default) axios 인스턴스
-export { api, http, API_PREFIX, getApiBaseURL }; // 병행 제공(호출부 일괄 치환 최소화)
+export default api; // 레거시: default 로 axios 인스턴스 제공
+export {
+  api,
+  http,
+  API_PREFIX,
+  getApiBaseURL,
+  setAuthToken,
+  clearAuthToken,
+  getAuthToken,
+};

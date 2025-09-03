@@ -1,7 +1,7 @@
 <template>
   <div class="popup-overlay" @click.self="$emit('close')">
-    <div class="popup-content">
-      <h3>지역 수정</h3>
+    <div class="popup-content" role="dialog" aria-modal="true" aria-labelledby="region-edit-title">
+      <h3 id="region-edit-title">지역 수정</h3>
 
       <div class="select-group">
         <label for="region1">지역1 (시/도)</label>
@@ -17,25 +17,35 @@
         </select>
       </div>
 
-      <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
-      <p v-if="successMsg" class="success-msg">{{ successMsg }}</p>
+      <p v-if="errorMsg" class="error-msg" role="alert">{{ errorMsg }}</p>
+      <p v-if="successMsg" class="success-msg" role="status">{{ successMsg }}</p>
 
       <div class="button-group">
         <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
-        <ion-button expand="block" color="primary" @click="submitRegion">수정</ion-button>
+        <ion-button
+          expand="block"
+          color="primary"
+          @click="submitRegion"
+          :disabled="isSubmitting"
+        >
+          {{ isSubmitting ? '수정 중…' : '수정' }}
+        </ion-button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { IonButton } from '@ionic/vue'
 import axios from '@/lib/axiosInstance'
 import { regions } from '@/data/regions.js'
 
 // props 및 emit 정의
-const props = defineProps({ message: String }) // 예: '서울 강남구'
+const props = defineProps({
+  // 예: '서울 강남구' 또는 '서울특별시 강남구'
+  message: { type: String, default: '' }
+})
 const emit = defineEmits(['close', 'updated'])
 
 // 상태 변수
@@ -45,14 +55,31 @@ const region2Options = ref([])
 
 const errorMsg = ref('')
 const successMsg = ref('')
+const isSubmitting = ref(false)
 
 // 초기 세팅: message를 기반으로 selectedRegion1/2 설정
 onMounted(() => {
-  const [r1, r2] = props.message.split(' ')
-  selectedRegion1.value = r1 || ''
-  selectedRegion2.value = r2 || ''
-  region2Options.value = regions[r1] || []
+  applyInitialMessage(props.message)
 })
+
+watch(
+  () => props.message,
+  (val) => applyInitialMessage(val),
+  { immediate: false }
+)
+
+function applyInitialMessage(msg = '') {
+  try {
+    const [r1, r2] = (msg || '').split(' ')
+    selectedRegion1.value = r1 || ''
+    selectedRegion2.value = r2 || ''
+    region2Options.value = regions[r1] || []
+  } catch {
+    selectedRegion1.value = ''
+    selectedRegion2.value = ''
+    region2Options.value = []
+  }
+}
 
 // 지역1 변경 시 하위 옵션 재설정
 const onRegion1Change = () => {
@@ -65,8 +92,8 @@ const submitRegion = async () => {
   errorMsg.value = ''
   successMsg.value = ''
 
-  const r1 = selectedRegion1.value
-  const r2 = selectedRegion2.value
+  const r1 = (selectedRegion1.value || '').trim()
+  const r2 = (selectedRegion2.value || '').trim()
 
   if (!r1 || !r2) {
     errorMsg.value = '지역을 모두 선택하세요.'
@@ -74,37 +101,42 @@ const submitRegion = async () => {
   }
 
   const combined = `${r1} ${r2}`
-  if (combined === props.message) {
+  if (combined === (props.message || '').trim()) {
     errorMsg.value = '기존 지역과 동일합니다.'
     return
   }
 
   try {
-    const res = await axios.patch('/api/user/region', {
-      region1: r1,
-      region2: r2
-    }, { withCredentials: true })
+    isSubmitting.value = true
+    const res = await axios.patch(
+      '/api/user/region',
+      { region1: r1, region2: r2 },
+      { withCredentials: true }
+    )
 
-    if (res.data.message) {
-      console.log('[지역 수정 성공]', combined)
+    // 서버가 일관되게 { ok: true } 또는 { message: '...' }를 줄 수 있음
+    if (res.data?.ok || res.data?.message) {
+      console.log('[Modal_region] 지역 수정 성공 →', combined)
       successMsg.value = '지역이 성공적으로 수정되었습니다.'
       setTimeout(() => {
         emit('updated', combined)
         emit('close')
-      }, 1000)
+      }, 900)
     } else {
-      errorMsg.value = res.data.message || '수정 실패'
+      errorMsg.value = res.data?.message || '수정 실패'
     }
   } catch (err) {
-    console.error('[지역 수정 오류]', err)
-    errorMsg.value = '서버 오류가 발생했습니다.'
+    console.error('[Modal_region] 서버 오류', err)
+    errorMsg.value = err?.response?.data?.message || '서버 오류가 발생했습니다.'
+  } finally {
+    isSubmitting.value = false
   }
 }
 </script>
 
 <style scoped>
 /* ──────────────────────────────────────────────────────────────
-   지역 수정 모달 - CSS 보정(HTML/JS 변경 없음)
+   지역 수정 모달 - CSS 보정(HTML/JS 변경 최소)
    목적
    - 모바일 가독성(검정 글씨) & 터치 타깃 강화(≥44px)
    - 안전영역(safe-area) / 작은 화면 스크롤 안정성
@@ -245,5 +277,4 @@ const submitRegion = async () => {
   from { opacity: 0; transform: translateY(6px) scale(.98); }
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
-
 </style>

@@ -244,7 +244,7 @@
 /* -----------------------------------------------------------
  * PageuserProfile.vue (TS 안전한 오류 처리)
  * - axios 에러 안전 처리: isAxiosError / extractError
- * - 라우터 기반 연동(변경 최소)
+ * - 공통 axios 인스턴스 사용(쿠키/기본설정 유지)
  * - 주석/로그 최대
  * ----------------------------------------------------------- */
 import {
@@ -253,7 +253,8 @@ import {
 } from '@ionic/vue'
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios, { isAxiosError } from 'axios' // ✅ isAxiosError 활용
+import axios from '@/lib/axiosInstance'          // ✅ 공통 인스턴스
+import { isAxiosError } from 'axios'             // ✅ 유틸은 axios 본체에서 임포트
 
 // 아이콘
 import {
@@ -321,7 +322,6 @@ const isSubmitting = ref(false)
 /** ✅ 공통: 에러 추출/로그 유틸 (TS 안전) */
 function extractError(e: unknown) {
   if (isAxiosError(e)) {
-    // axios 에러: 서버 응답이 있으면 우선 출력
     return e.response?.data ?? e.message;
   }
   if (e instanceof Error) return e.message;

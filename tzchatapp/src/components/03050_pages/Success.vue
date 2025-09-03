@@ -2,7 +2,7 @@
 import { IonButton } from '@ionic/vue'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance' // ✅ 변경
+import axios from '@/lib/axiosInstance' // ✅ 공통 인스턴스
 
 const router = useRouter()
 const nickname = ref('')
@@ -13,7 +13,8 @@ const goHome = () => {
 
 const logout = async () => {
   try {
-    const res = await axios.post('/api/logout', {}, { withCredentials: true }) // ✅ 절대주소 → 상대주소
+    // ✅ 공통 인스턴스(baseURL=/api) 사용 → 경로에서 /api 접두어 제거
+    const res = await axios.post('/logout', {})
     console.log('로그아웃 응답:', res.data)
     router.push('/login')
   } catch (error) {
@@ -23,7 +24,8 @@ const logout = async () => {
 
 onMounted(async () => {
   try {
-    const res = await axios.get('/api/me', { withCredentials: true }) // ✅ 절대주소 → 상대주소
+    // ✅ 공통 인스턴스 사용 → 경로에서 /api 접두어 제거
+    const res = await axios.get('/me')
     console.log('세션 사용자 정보:', res.data)
     nickname.value = res.data.user?.nickname || ''
   } catch (error) {
@@ -34,7 +36,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-
 /* ── adminMainpage.vue: CSS 보정만 적용 ──
    - 가독성: 기본 글씨 검정 유지
    - 모바일 터치 타깃(≥48px) / 버튼 일관 규격
@@ -44,11 +45,11 @@ onMounted(async () => {
 
 /* 컨테이너 */
 .admin-mainpage {
-  color: #000;                         /* 기본 텍스트 톤 고정 */
+  color: #000;
   padding: 16px 20px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  max-width: 800px;                    /* 데스크톱에서 너무 넓지 않게 */
-  margin: 0 auto;                      /* 중앙 정렬 */
+  max-width: 800px;
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
@@ -82,7 +83,7 @@ onMounted(async () => {
   gap: 8px;
 
   width: 100%;
-  min-height: 48px;                    /* 터치 타깃 */
+  min-height: 48px;
   padding: 12px 14px;
 
   font-size: clamp(15px, 3vw, 16px);
@@ -94,7 +95,7 @@ onMounted(async () => {
 
   background: #fff;
   color: #000;
-  text-align: left;                    /* 번호+텍스트 왼쪽 정렬 */
+  text-align: left;
   cursor: pointer;
 
   transition: background .15s, transform .06s ease-out, box-shadow .15s;
@@ -127,8 +128,4 @@ onMounted(async () => {
   .admin-mainpage { padding: 14px 14px; }
   .menu-btn { padding: 12px; }
 }
-
-
-
 </style>
-

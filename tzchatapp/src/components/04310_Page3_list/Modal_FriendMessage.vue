@@ -57,9 +57,10 @@
 // - 받은 친구 신청의 인사말 확인 + 수락/거절/차단 처리
 // - 변경 최소: API 호출을 모달 내부에 추가
 // - 주석/로그 풍부, 에러메시지 그대로 노출
+// - ✅ axios 인스턴스 통일(@/lib/axiosInstance) / withCredentials 유지
 // --------------------------------------------------------------
 import { ref } from 'vue'
-import axios from 'axios'
+import axios from '@/lib/axiosInstance'
 import { IonModal, IonButton } from '@ionic/vue'
 
 const props = defineProps({

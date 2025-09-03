@@ -2,7 +2,8 @@
 // ------------------------------------------------------------
 // 친구 신청/수락/거절/차단/목록 라우터
 // - 변경 최소화 원칙 준수
-// - ★ 신규: 누적 카운터($inc) 반영
+// - ✅ 인증 전환: 세션 우선, 없으면 JWT(Bearer/쿠키) 검증 (Web/App 병행)
+// - ★ 누적 카운터($inc) 반영
 //   * 신청 생성: from.sentRequestCountTotal++, to.receivedRequestCountTotal++
 //   * 수락(처음 pending→accepted 전이): 양쪽 acceptedChatCountTotal++
 // - ★ 수락 로직은 findOneAndUpdate로 원자적 전이 보장(중복 증가 방지)
@@ -21,17 +22,89 @@ const bcrypt = require('bcrypt'); // 비밀번호 해시/검증용 (현재 파�
 const mongoose = require('mongoose');
 const { isValidObjectId } = mongoose;
 
+const jwt = require('jsonwebtoken'); // ✅ JWT 검증용 (프로젝트 전체 공용 의존성 가정)
+
 const User = require('../models/User');
 const FriendRequest = require('../models/FriendRequest');
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
 
-const requireLogin = require('../middlewares/authMiddleware');
+// (기존) requireLogin은 더 이상 사용하지 않음. 하위호환을 위해 import 유지만 하되 미사용.
+// const requireLogin = require('../middlewares/authMiddleware');
+
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency'); // (현재 파일 내 미사용) 기존 유지
 const router = express.Router();
 
 // 🔔 푸시 발송 모듈 (기존 유지)
 const { sendPushToUser } = require('../push/sender');
+
+/** ============================
+ *  인증 유틸 (세션 → JWT 순)
+ *  - 세션에 user._id가 있으면 그대로 사용
+ *  - 없으면 JWT 쿠키/Authorization Bearer에서 토큰 추출 후 검증
+ *  - 성공 시 req._uid에 사용자 ID 저장
+ * ============================ */
+const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
+const JWT_COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+
+function log(...args) {
+  try { console.log('[friendRouter]', ...args); } catch (_) {}
+}
+function logErr(...args) {
+  try { console.error('[friendRouter][ERR]', ...args); } catch (_) {}
+}
+
+function extractJwtFromReq(req) {
+  // 1) Authorization: Bearer <token>
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+
+  // 2) Cookie: tzchat.jwt=<token>
+  const cookieHeader = req.headers.cookie || '';
+  if (cookieHeader.includes(`${JWT_COOKIE_NAME}=`)) {
+    try {
+      const target = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith(`${JWT_COOKIE_NAME}=`));
+      if (target) return decodeURIComponent(target.split('=')[1]);
+    } catch (e) {
+      logErr('쿠키 파싱 실패', e?.message);
+    }
+  }
+  return null;
+}
+
+function getUserIdFromSession(req) {
+  return req.session?.user?._id ? String(req.session.user._id) : '';
+}
+
+function getUserIdFromJwt(req) {
+  const token = extractJwtFromReq(req);
+  if (!token) return '';
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded?.sub ? String(decoded.sub) : '';
+  } catch (e) {
+    logErr('JWT 검증 실패', e?.message);
+    return '';
+  }
+}
+
+/** 세션/JWT 하이브리드 보호 미들웨어 */
+function requireAuth(req, res, next) {
+  const sid = getUserIdFromSession(req);
+  if (sid) {
+    req._uid = sid;
+    log('[AUTH] 세션 인증', { userId: sid, path: req.method + ' ' + req.path });
+    return next();
+  }
+  const jid = getUserIdFromJwt(req);
+  if (jid) {
+    req._uid = jid;
+    log('[AUTH] JWT 인증', { userId: jid, path: req.method + ' ' + req.path });
+    return next();
+  }
+  logErr('인증 실패', { path: req.method + ' ' + req.path });
+  return res.status(401).json({ message: '로그인이 필요합니다.' });
+}
 
 /** 공통: 프로필에 필요한 필드(간단 프로젝션) */
 const USER_MIN_FIELDS = 'username nickname birthyear gender';
@@ -45,19 +118,11 @@ async function populateRequest(doc) {
   ]);
 }
 
-/** 간단 로그 유틸 */
-function log(...args) {
-  try { console.log('[friendRouter]', ...args); } catch (_) {}
-}
-function logErr(...args) {
-  try { console.error('[friendRouter][ERR]', ...args); } catch (_) {}
-}
-
 /** ============================
  *  📨 친구 신청 (A → B)
  * ============================ */
-router.post('/friend-request', requireLogin, async (req, res) => {
-  const fromId = String(req.session?.user?._id || '');
+router.post('/friend-request', requireAuth, async (req, res) => {
+  const fromId = String(req._uid || '');
   const rawBody = req.body; // 디버그용
   const { to, message } = rawBody || {};
   const toId = String(to || '');
@@ -65,6 +130,7 @@ router.post('/friend-request', requireLogin, async (req, res) => {
   // 0) 입력값 로그 (민감정보 제외)
   log('POST /friend-request :: incoming', {
     hasSession: !!req.session?.user?._id,
+    via: req._uid === getUserIdFromSession(req) ? 'session' : 'jwt',
     fromId,
     body: { to: toId, messageLen: (message || '').length }
   });
@@ -72,7 +138,7 @@ router.post('/friend-request', requireLogin, async (req, res) => {
   try {
     // 1) 기본 유효성 + ObjectId 검증
     if (!fromId) {
-      logErr('no-session-user');
+      logErr('no-auth-user');
       return res.status(401).json({ message: '로그인이 필요합니다.' });
     }
     if (!toId) {
@@ -198,9 +264,9 @@ router.post('/friend-request', requireLogin, async (req, res) => {
 /** ============================
  *  🗑️ 친구 신청 취소
  * ============================ */
-router.delete('/friend-request/:id', requireLogin, async (req, res) => {
+router.delete('/friend-request/:id', requireAuth, async (req, res) => {
   try {
-    const fromId = String(req.session.user._id);
+    const fromId = String(req._uid);
     const { id } = req.params;
 
     const deleted = await FriendRequest
@@ -225,9 +291,9 @@ router.delete('/friend-request/:id', requireLogin, async (req, res) => {
 /** ============================
  *  📬 내가 받은 친구 신청 리스트
  * ============================ */
-router.get('/friend-requests/received', requireLogin, async (req, res) => {
+router.get('/friend-requests/received', requireAuth, async (req, res) => {
   try {
-    const myId = req.session.user._id;
+    const myId = req._uid;
     const requests = await FriendRequest.find({ to: myId, status: 'pending' })
       .sort({ createdAt: -1 })
       .populate('from', USER_MIN_FIELDS);
@@ -241,9 +307,9 @@ router.get('/friend-requests/received', requireLogin, async (req, res) => {
 /** ============================
  *  📤 내가 보낸 친구 신청 리스트
  * ============================ */
-router.get('/friend-requests/sent', requireLogin, async (req, res) => {
+router.get('/friend-requests/sent', requireAuth, async (req, res) => {
   try {
-    const myId = req.session.user._id;
+    const myId = req._uid;
     const requests = await FriendRequest.find({ from: myId, status: 'pending' })
       .sort({ createdAt: -1 })
       .populate('to', USER_MIN_FIELDS);
@@ -256,10 +322,11 @@ router.get('/friend-requests/sent', requireLogin, async (req, res) => {
 
 /** ============================
  *  🤝 친구 신청 수락
+ *  - pending → accepted 원자적 전이
  * ============================ */
-router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
+router.put('/friend-request/:id/accept', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const { id } = req.params;
 
     // 1) 원자적 전이
@@ -337,9 +404,9 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
 /** ============================
  *  ❌ 친구 신청 거절
  * ============================ */
-router.put('/friend-request/:id/reject', requireLogin, async (req, res) => {
+router.put('/friend-request/:id/reject', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const { id } = req.params;
 
     const request = await FriendRequest.findOneAndUpdate(
@@ -367,9 +434,9 @@ router.put('/friend-request/:id/reject', requireLogin, async (req, res) => {
 /** ============================
  *  🚫 친구 차단 (받은 신청에서 즉시 차단)
  * ============================ */
-router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
+router.put('/friend-request/:id/block', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const { id } = req.params;
 
     const request = await FriendRequest.findOneAndUpdate(
@@ -407,9 +474,9 @@ router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
 /** ============================
  *  👥 친구 리스트 조회
  * ============================ */
-router.get('/friends', requireLogin, async (req, res) => {
+router.get('/friends', requireAuth, async (req, res) => {
   try {
-    const me = req.session.user._id;
+    const me = req._uid;
     const user = await User.findById(me).populate('friendlist', USER_MIN_FIELDS);
     res.json(user?.friendlist || []);
   } catch (err) {
@@ -421,9 +488,9 @@ router.get('/friends', requireLogin, async (req, res) => {
 /** ============================
  *  🚫 차단 리스트 조회
  * ============================ */
-router.get('/blocks', requireLogin, async (req, res) => {
+router.get('/blocks', requireAuth, async (req, res) => {
   try {
-    const me = req.session.user._id;
+    const me = req._uid;
     const user = await User.findById(me).populate('blocklist', USER_MIN_FIELDS);
     res.json(user?.blocklist || []);
   } catch (err) {
@@ -435,9 +502,9 @@ router.get('/blocks', requireLogin, async (req, res) => {
 /** ============================
  *  👤 유저 프로필 + 친구/차단 여부 (★ isBlocked 추가)
  * ============================ */
-router.get('/users/:id', requireLogin, async (req, res) => {
+router.get('/users/:id', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const targetId = String(req.params.id);
 
     const targetUser = await User.findById(targetId).lean();
@@ -460,9 +527,9 @@ router.get('/users/:id', requireLogin, async (req, res) => {
 /** ============================
  *  🗑️ 친구 삭제
  * ============================ */
-router.delete('/friend/:id', requireLogin, async (req, res) => {
+router.delete('/friend/:id', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const targetId = String(req.params.id);
 
     const me = await User.findById(myId);
@@ -491,9 +558,9 @@ router.delete('/friend/:id', requireLogin, async (req, res) => {
  *  - 진행 중인 친구 신청(pending)이 양방향 존재하면 모두 rejected 처리
  *  - 소켓 이벤트 emit.blockCreated (옵션)
  * ============================ */
-router.put('/block/:id', requireLogin, async (req, res) => {
+router.put('/block/:id', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const targetId = String(req.params.id);
 
     log('PUT /block/:id :: incoming', { myId, targetId });
@@ -565,9 +632,9 @@ router.put('/block/:id', requireLogin, async (req, res) => {
 /** ============================
  *  🔓 차단 해제
  * ============================ */
-router.delete('/block/:id', requireLogin, async (req, res) => {
+router.delete('/block/:id', requireAuth, async (req, res) => {
   try {
-    const myId = String(req.session.user._id);
+    const myId = String(req._uid);
     const targetId = String(req.params.id);
 
     const me = await User.findById(myId);
