@@ -1,4 +1,4 @@
-// front/src/api/auth.ts
+// src/api/auth.ts
 // ------------------------------------------------------
 // 인증 API (JWT + 쿠키 하이브리드 대응)
 // - 로그인 성공 시 token 있으면 setAuthToken()으로 저장(웹/앱 공용)
@@ -14,11 +14,14 @@ function mask(t?: string | null) {
 
 export async function login(username: string, password: string) {
   console.log('[AUTH][REQ] login', { username, len: (password || '').length });
-  const r = await api.post('/api/login', { username, password });
+
+  // ✅ baseURL에는 이미 "/api"가 포함되어 있으므로 경로는 짧게 사용
+  const r = await api.post('/login', { username, password });
   const data = r.data || {};
+
   if (data?.token) {
-    // 로컬스토리지에 지속 저장(persist=true) — 앱/웹 자동 인증
-    setAuthToken(data.token, true);
+    // 단일 인자 시그니처로 변경(영속 저장은 기본 동작)
+    setAuthToken(data.token);
     console.log('[AUTH][RES] login ok (token)', { mask: mask(data.token), nickname: data.nickname });
   } else {
     console.log('[AUTH][RES] login ok (cookie-only)', { nickname: data.nickname });
@@ -28,14 +31,15 @@ export async function login(username: string, password: string) {
 
 export async function me() {
   console.log('[AUTH][REQ] me');
-  const r = await api.get('/api/me'); // 쿠키 또는 Bearer로 인증
+  // ✅ baseURL이 /api 포함 → '/me'로 호출
+  const r = await api.get('/me'); // 쿠키 또는 Bearer로 인증
   console.log('[AUTH][RES] me', { ok: r?.data?.ok === true });
   return r.data;
 }
 
 export async function logout() {
   console.log('[AUTH][REQ] logout');
-  const r = await api.post('/api/logout');
+  const r = await api.post('/logout');
   // 서버 쿠키는 clearCookie, 클라이언트 저장 토큰도 정리
   clearAuthToken();
   console.log('[AUTH][RES] logout', { ok: r?.data?.ok === true });
