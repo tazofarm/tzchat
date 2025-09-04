@@ -59,9 +59,8 @@
 /**
  * LoginPage.vue
  * ------------------------------------------------------
- * 변경 사항
- * - API_PREFIX 제거: api 인스턴스의 baseURL이 이미 "/api" 포함
- * - JWT 병행: AuthAPI.login 사용(서버 쿠키+응답 token 저장), 소켓 auth 갱신
+ * - API_PREFIX 제거: api 인스턴스(baseURL이 이미 "/api" 포함)
+ * - JWT 병행: AuthAPI.login 사용(서버 쿠키 + 응답 token 저장), 소켓 auth 갱신
  * - 진입 시 /me 체크: 401은 정상(미로그인)으로 간주
  * - 성공/실패 분기 로직 강화 + 상세 로그([UI]/[HTTP])
  */
@@ -84,7 +83,7 @@ onMounted(async () => {
   try {
     const me = await api.get('/me')
     console.log('[UI][RES] already signed-in', { user: me?.data?.user?.username })
-    // 이미 로그인되어 있다면 필요 시 홈으로 이동 가능
+    // 필요 시 자동 이동:
     // return router.push('/home/2page')
   } catch (e) {
     const status = e?.response?.status
@@ -107,25 +106,35 @@ const login = async () => {
   message.value = ''
 
   try {
+    const id = (username.value || '').trim()
+    const pw = password.value
+
     console.log('[UI][REQ] login submit', {
-      username: username.value,
-      pw: password.value ? '(hidden)' : '(empty)'
+      username: id,
+      pw: pw ? '(hidden)' : '(empty)'
     })
 
     // ✅ 로그인 요청 (서버: httpOnly 쿠키 설정 / 응답: token 포함 시 저장)
     const res = await AuthAPI.login({
-      username: username.value,
-      password: password.value,
+      username: id,
+      password: pw,
     })
 
     console.log('[HTTP][RES] /login', {
       status: res.status,
-      hasToken: !!res?.data?.token,
+      hasToken: !!(res?.data?.token ?? res?.data?.data?.token),
       nickname: res?.data?.nickname
     })
 
+    // 민감정보 정리
+    password.value = ''
+
     // JWT 갱신을 소켓에 반영(웹뷰/앱 환경 대비)
-    refreshSocketAuth()
+    try {
+      refreshSocketAuth()
+    } catch (sockErr) {
+      console.log('[SOCKET][ERR] refreshSocketAuth', { message: sockErr?.message })
+    }
 
     // ✅ 로그인 직후 /me 재검증
     try {
@@ -283,7 +292,7 @@ const login = async () => {
   will-change: transform;
 }
 .login-box button:hover { background: #2980b9; }
-login-box button:active { transform: translateY(1px); }
+.login-box button:active { transform: translateY(1px); } /* ⬅️ 오타 수정(. 누락 보완) */
 .login-box button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* 키보드 포커스 */
