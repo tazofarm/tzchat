@@ -7,23 +7,28 @@ import router from './router'
 // 🔔 Web/PWA 푸시 등록 (신규 추가)
 import { registerWebPush } from './push/webPush'
 
+// ✅ API 환경 유틸
+import { getApiBaseURL, debugApiConfig } from '@/lib/api'
+
+// ✅ 소켓 연결 유틸(확장자 없이 임포트)
+import { connectSocket } from '@/lib/socket'
+
 /* -------------------------------------------------------
  * ✅ Ionicons: 아이콘 등록 (중요)
  * ----------------------------------------------------- */
 import { addIcons } from 'ionicons'
 import {
   warningOutline,
-  locateOutline,        // ✅ bullseyeOutline 대체 아이콘
+  locateOutline,
   peopleOutline,
   chatbubblesOutline,
   personCircleOutline,
   settingsOutline,
 } from 'ionicons/icons'
 
-// 아이콘 등록(필요한 것만)
 addIcons({
   warningOutline,
-  locateOutline,        // ✅ 교체 반영
+  locateOutline,
   peopleOutline,
   chatbubblesOutline,
   personCircleOutline,
@@ -60,27 +65,41 @@ import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
 
 /* -------------------------------------------------------
- * 3) 테마/커스텀 CSS는 마지막
+ * 3) 테마/커스텀 CSS
  * ----------------------------------------------------- */
 import '@/theme/variables.css'
 import '@/theme/mobile-utilities.css'
-// import '@/assets/3000.css'  // ✅ 사용 안 함
+// import '@/assets/3000.css'
 
 /* -------------------------------------------------------
- * 4) (중요) 이모지 픽커 웹컴포넌트 로드
- *    - 이 한 줄로 <emoji-picker>가 브라우저에 등록됩니다.
+ * 4) 이모지 픽커 웹컴포넌트 로드
  * ----------------------------------------------------- */
 import 'emoji-picker-element'
 console.log('😀 emoji-picker-element loaded')
 
 /* -------------------------------------------------------
- * 5) 진단 로그
+ * 5) 진단 로그 + API/WS 설정 확인 (중요)
  * ----------------------------------------------------- */
 const isDev = import.meta.env.DEV
 console.log(`🚀 Booting tzchat... (env: ${isDev ? 'DEV' : 'PROD'})`)
 console.log('🌐 location:', window.location.href)
 
-// 핵심 CSS가 로드되었는지 간단 체크(ion-button의 display 값을 본다)
+// 🔎 API 최종 설정 전부 출력
+try {
+  debugApiConfig() // ← 최종 baseURL, MODE, VITE_MODE, ENV 적용 여부 전체 로그
+  const mode = import.meta.env.MODE
+  const envBase = (import.meta as any)?.env?.VITE_API_BASE_URL
+  const finalBase = getApiBaseURL()
+  console.log('[HTTP][CFG]', { step: 'bootstrap', mode, envBase, finalBase })
+  // dev-remote인데도 localhost로 향하면 즉시 경고
+  if (mode === 'dev-remote' && /localhost:2000\/api/i.test(finalBase)) {
+    console.warn('⚠️ dev-remote지만 API가 localhost:2000을 가리킵니다. VITE_API_BASE_URL / VITE_MODE / --mode 설정을 확인하세요.')
+  }
+} catch (e: any) {
+  console.warn('[HTTP][CFG]', { step: 'bootstrap-warn', message: e?.message })
+}
+
+// 핵심 CSS가 로드되었는지 간단 체크
 function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
   document.body.appendChild(probe)
@@ -89,7 +108,7 @@ function checkIonicBasicStyle() {
   probe.remove()
 }
 
-// CSS 변수(테마)가 적용되었는지 확인
+// CSS 변수(테마) 확인
 function logPrimaryColorVar() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
@@ -166,22 +185,13 @@ async function checkIonicHydrationSafe() {
  * 6) 앱 부트스트랩
  * ----------------------------------------------------- */
 const app = createApp(App)
-app.use(IonicVue) // 필요 시 옵션: { mode: 'md' } 등
+app.use(IonicVue)
 app.use(router)
 
-/* -------------------------------------------------------
- * ⚠️ 커스텀 엘리먼트 인식 설정(빌드타임 처리)
- * - 이전에는 app.config.compilerOptions.isCustomElement에서 처리했으나
- *   현재는 vite의 @vitejs/plugin-vue 옵션(template.compilerOptions)로 이동했습니다.
- *   → 런타임 경고 방지 및 설정 일원화.
- * ----------------------------------------------------- */
 console.log('[UI][RES]', { step: 'custom-element-rule', where: 'vite-plugin-vue(template.compilerOptions)' })
 
 /* -------------------------------------------------------
- * 6-2) 🔔 WebPush 등록 (신규)
- *  - 앱 시작 시 1회만 호출
- *  - 권한 요청 → FCM 토큰 발급 → 서버 /api/push/register 로 전송
- *  - 실패해도 앱 부트는 계속 진행
+ * 6-2) 🔔 WebPush 등록
  * ----------------------------------------------------- */
 registerWebPush()
   .then(() => console.log('🔔 WebPush 등록 플로우 완료(요청/토큰/등록)'))
@@ -192,16 +202,21 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
-    // DOM이 정착된 뒤 진단
+    // ✅ 소켓 연결 (실제 오리진 로그 확인)
+    try {
+      const sock = connectSocket()
+      console.log('🔌 Socket bootstrap invoked. connected?', !!sock?.connected)
+    } catch (e: any) {
+      console.warn('⚠️ socket bootstrap error:', e?.message)
+    }
+
+    // DOM 안정 후 진단
     await nextTick()
     logLoadedAssets()
     checkIonicBasicStyle()
     logPrimaryColorVar()
-
-    // (개선된) Hydration 체크
     await checkIonicHydrationSafe()
 
-    // (검증) 커스텀 엘리먼트 등록 여부 로그
     console.log('🧩 customElements.has("emoji-picker"):', customElements.get('emoji-picker') ? 'YES' : 'NO')
   })
   .catch(err => {
