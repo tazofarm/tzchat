@@ -3,16 +3,21 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const sharp = require('sharp'); // ✅ 이미지 압축용
-const bcrypt = require('bcrypt'); // ✅ [추가] 비밀번호 해시/검증용 (아래에서 사용함)
+const bcrypt = require('bcrypt'); // ✅ 비밀번호 해시/검증용
 const User = require('../models/User');
-const FriendRequest = require('../models/FriendRequest'); // ✅ 누락된 import 추가
+const FriendRequest = require('../models/FriendRequest');
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
-const requireLogin = require('../middlewares/authMiddleware');
+// const requireLogin = require('../middlewares/authMiddleware'); // ❌ 세션 전용일 수 있어 주석 처리
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('../config/emergency');
+
 const router = express.Router();
 
-// 🔐 JWT 우선, 세션은 백업: 공통 사용자 ID 추출 헬퍼
+/* -----------------------------------------------------------
+ * ✅ 공통: JWT 우선, 세션은 백업
+ *  - main.js 에서 JWT 파서가 req.user 를 세팅함
+ *  - 세션 로그인 시 req.session.user 존재
+ * ---------------------------------------------------------*/
 function getMyId(req) {
   const jwtId = req?.user?._id;
   const sessId = req?.session?.user?._id;
@@ -21,10 +26,29 @@ function getMyId(req) {
   return null;
 }
 
+/* -----------------------------------------------------------
+ * ✅ (신규) 하이브리드 인증 미들웨어
+ *  - JWT 또는 세션 중 하나라도 있으면 통과
+ *  - requireLogin 이 세션만 체크할 가능성 대응
+ * ---------------------------------------------------------*/
+function requireAuthHybrid(req, res, next) {
+  const uid = getMyId(req);
+  if (uid) {
+    // 디버그 로그: 어떤 경로로 인증되었는지 추적
+    console.log('[AUTH][PASS][Hybrid]', {
+      path: req.path,
+      via: req?.user?._id ? 'jwt' : (req?.session?.user?._id ? 'session' : 'unknown')
+    });
+    return next();
+  }
+  console.warn('[AUTH][BLOCK][Hybrid]', { path: req.path, origin: req.headers.origin || '(none)' });
+  return res.status(401).json({ message: '로그인이 필요합니다.' });
+}
+
 /**
  * 🔧 닉네임 업데이트 API (로그인 필요)
  */
-router.put('/update-nickname', requireLogin, async (req, res) => {
+router.put('/update-nickname', requireAuthHybrid, async (req, res) => {
   const userId = getMyId(req);
   console.log('[API][REQ]', { path: '/update-nickname', method: 'PUT', params: req.params, userId });
 
@@ -63,7 +87,7 @@ router.put('/update-nickname', requireLogin, async (req, res) => {
 /**
  * 🔧 지역 정보 업데이트 API (로그인 필요)
  */
-router.patch('/user/region', requireLogin, async (req, res) => {
+router.patch('/user/region', requireAuthHybrid, async (req, res) => {
   const userId = getMyId(req);
   console.log('[API][REQ]', { path: '/user/region', method: 'PATCH', params: req.params, userId });
 
@@ -94,7 +118,7 @@ router.patch('/user/region', requireLogin, async (req, res) => {
 /**
  * 🔧 자기소개 업데이트 (로그인 필요)
  */
-router.put('/update-selfintro', requireLogin, async (req, res) => {
+router.put('/update-selfintro', requireAuthHybrid, async (req, res) => {
   const userId = getMyId(req);
   console.log('[API][REQ]', { path: '/update-selfintro', method: 'PUT', params: req.params, userId });
 
@@ -126,7 +150,7 @@ router.put('/update-selfintro', requireLogin, async (req, res) => {
 /**
  * 🔧 특징(내 정보) 업데이트 (로그인 필요)
  */
-router.patch('/user/preference', requireLogin, async (req, res) => {
+router.patch('/user/preference', requireAuthHybrid, async (req, res) => {
   const userId = getMyId(req);
   console.log('[API][REQ]', { path: '/user/preference', method: 'PATCH', params: req.params, userId });
 

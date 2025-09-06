@@ -53,7 +53,6 @@ function signToken(user) {
 
 function setJwtCookie(req, res, token) {
   // NOTE: prod/https 환경 가정 — SameSite=None + Secure
-  // 세션 시절과 동일하게 리버스 프록시 뒤에서 동작하므로 secure 권장
   // 앱(WebView) 호환 목적. (Capacitor/Android는 쿠키 미사용 가능성 → token도 JSON으로 반환)
   const isSecure = true; // 운영/원격-DEV 공통 HTTPS 프록시 뒤 가정
   res.cookie(COOKIE_NAME, token, {
@@ -203,13 +202,20 @@ router.post('/login', async (req, res) => {
   });
 
   try {
-    const user = await User.findOne({ username: safeUsername });
+    // 🔧 중요: User 스키마에서 password가 select:false 일 가능성 → 반드시 +password 명시
+    const user = await User.findOne({ username: safeUsername }).select('+password');
     if (!user) {
       console.log('[AUTH][ERR]', { step: 'login', code: 'NO_USER', username: safeUsername });
       return res.status(401).json({ ok: false, message: '아이디 없음' });
     }
 
-    const isMatch = await bcrypt.compare(String(password || ''), String(user.password));
+    const hashed = String(user.password || '');
+    if (!hashed) {
+      console.log('[AUTH][ERR]', { step: 'login', code: 'NO_PASSWORD_FIELD', username: safeUsername });
+      return res.status(500).json({ ok: false, message: '계정 비밀번호 필드를 찾을 수 없습니다.' });
+    }
+
+    const isMatch = await bcrypt.compare(String(password || ''), hashed);
     if (!isMatch) {
       console.log('[AUTH][ERR]', { step: 'login', code: 'BAD_PASSWORD', username: safeUsername });
       return res.status(401).json({ ok: false, message: '비밀번호 틀림' });

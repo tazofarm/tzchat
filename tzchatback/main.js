@@ -106,13 +106,18 @@ const allowedOriginsList = [
   'http://192.168.0.7:8081',
   'capacitor://localhost',
   'ionic://localhost',
+  // ✅ Capacitor https-scheme & 로컬 https 테스트 허용
+  'https://localhost',
+  'https://127.0.0.1',
 ];
 
-// 사설망 오리진 정규식 허용
+// 사설망 오리진 정규식 허용 (http/https 모두)
 const dynamicOriginAllow = [
-  /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
-  /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
-  /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+  /^https?:\/\/localhost(:\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
+  /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
+  /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
+  /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
 ];
 
 // 디버그: 요청마다 오리진/경로 출력

@@ -6,18 +6,32 @@ import axios, {
   type AxiosRequestConfig,
 } from 'axios'
 
+/**
+ * ✅ 앱(웹뷰: capacitor://localhost)에서의 로그인 실패 원인
+ * - 기존 폴백이 window.location.origin + '/api' → 'capacitor://localhost/api' 가 되어 HTTP(S)가 아님
+ * - 결과적으로 Axios 네트워크 오류
+ *
+ * ✅ 조치
+ * - Capacitor 환경/프로덕션에서 ENV가 비었거나 로컬일 느낌이면 원격 기본 API로 강제
+ * - 앱은 JWT 단일 방식 권장 → withCredentials=false
+ */
+
 export const API_PREFIX = '/api'
-const BUILD_ID = 'api.ts@ENV-FIRST+DEV-REMOTE-GUARD:v2.2'
+const BUILD_ID = 'api.ts@APP-CAPACITOR-HARDEN:v3.0'
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 const REMOTE_DEFAULT_API = 'https://tzchat.duckdns.org/api'
 
+// === 유틸 ===
 const stripTrailingSlashes = (s: string) => (s || '').replace(/\/+$/g, '')
 const stripLeadingApi = (p: string) => (p || '').replace(/^\/api(?=\/|$)/i, '')
-const ensureLeadingSlash = (u: string) => (u.startsWith('/') ? u : '/' + u)
-const isHttpAbs = (u: string) => /^https?:\/\//i.test(u)
-const isLocalLike = (u: string) =>
-  /(localhost|127\.0\.0\.1)|:8081/i.test(String(u || ''))
+const ensureLeadingSlash = (u: string) => (u?.startsWith('/') ? u : '/' + (u || ''))
+const isHttpAbs = (u: string) => /^https?:\/\//i.test(u || '')
+const isLocalLike = (u: string) => /(localhost|127\.0\.0\.1)|:8081/i.test(String(u || ''))
+
+const isBrowser = typeof window !== 'undefined'
+const pageOrigin = isBrowser ? window.location.origin : '(no-window)'
+const isCapacitor = isBrowser && /^capacitor:\/\//i.test(pageOrigin)
 
 function getModeLabel() {
   const mode = (import.meta as any)?.env?.MODE as string | undefined
@@ -25,54 +39,74 @@ function getModeLabel() {
   return (viteMode && viteMode.trim()) || mode || '(unknown)'
 }
 
-/** .env → baseURL 해석 + dev-remote/8081 안전장치 */
+/** .env → baseURL 해석 + 앱/프로덕션 안전장치 */
 function resolveBaseURL(): string {
   const mode = getModeLabel()
   let envBase = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined
   envBase = envBase?.trim()
 
-  // 0) 개발기 8081에서 dev-remote 의도일 때도 보호:
-  // - 페이지 오리진이 http://localhost:8081 이고
-  // - envBase가 비었거나 로컬 느낌이면
-  // => 원격 기본으로 강제 (실수/미적용을 막음)
-  const on8081 =
-    typeof window !== 'undefined' &&
-    /^http:\/\/localhost:8081$/i.test(window.location.origin)
-
-  if (on8081 && (mode === 'dev-remote' || !envBase || isLocalLike(envBase))) {
-    console.error(
-      '[HTTP][CFG] 8081 오리진에서 dev-remote 의도 감지 → 원격 기본으로 강제',
-      { mode, envBase, forced: REMOTE_DEFAULT_API }
-    )
-    return REMOTE_DEFAULT_API
-  }
-
-  // 1) dev-remote: ENV 최우선, 없거나 로컬이면 원격으로 강제
-  if (mode === 'dev-remote') {
-    if (!envBase || isLocalLike(envBase)) {
-      console.error(
-        '[HTTP][CFG] dev-remote인데 ENV 비었거나 로컬 → 원격 기본으로 강제',
-        { envBase, forced: REMOTE_DEFAULT_API }
-      )
+  // === 공통 수문장: Capacitor(앱)에서는 HTTP(S) 절대 URL만 허용 ===
+  if (isCapacitor) {
+    if (!envBase || !isHttpAbs(envBase) || isLocalLike(envBase)) {
+      console.error('[HTTP][CFG] Capacitor 환경 → 원격 기본 API로 강제', {
+        mode, envBase, forced: REMOTE_DEFAULT_API, pageOrigin,
+      })
       return REMOTE_DEFAULT_API
     }
     return stripTrailingSlashes(envBase)
   }
 
-  // 2) 다른 모드: ENV가 있으면 사용
-  if (envBase && envBase.length) {
+  // === dev-remote 보호(개발 PC 8081에서 자주 실수) ===
+  const on8081 = isBrowser && /^http:\/\/localhost:8081$/i.test(pageOrigin)
+  if (on8081 && (mode === 'dev-remote' || !envBase || isLocalLike(envBase))) {
+    console.error('[HTTP][CFG] 8081(dev-remote 의도) → 원격 기본으로 강제', {
+      mode, envBase, forced: REMOTE_DEFAULT_API,
+    })
+    return REMOTE_DEFAULT_API
+  }
+
+  // === dev-remote 모드: ENV 우선, 없거나 로컬이면 원격 강제 ===
+  if (mode === 'dev-remote') {
+    if (!envBase || isLocalLike(envBase)) {
+      console.error('[HTTP][CFG] dev-remote ENV 비었거나 로컬 → 원격 기본 강제', {
+        envBase, forced: REMOTE_DEFAULT_API,
+      })
+      return REMOTE_DEFAULT_API
+    }
     return stripTrailingSlashes(envBase)
   }
 
-  // 3) 최후 폴백
+  // === 기타 모드: ENV가 있으면 사용 ===
+  if (envBase && envBase.length) {
+    // 프로덕션에서 ENV가 로컬/비HTTP면 안전하게 원격으로 전환
+    if (!isHttpAbs(envBase) || isLocalLike(envBase)) {
+      console.error('[HTTP][CFG] PROD/기타 모드 ENV가 비HTTP/로컬 → 원격 기본 강제', {
+        mode, envBase, forced: REMOTE_DEFAULT_API,
+      })
+      return REMOTE_DEFAULT_API
+    }
+    return stripTrailingSlashes(envBase)
+  }
+
+  // === 최후 폴백(브라우저 웹 전용): origin + '/api'
   try {
-    if (typeof window !== 'undefined' && window.location?.origin) {
+    if (isBrowser && window.location?.origin) {
+      // 단, HTTP(S)가 아니면(예: capacitor://) 즉시 원격으로 강제
+      if (!/^https?:\/\//i.test(window.location.origin)) {
+        console.error('[HTTP][CFG] non-HTTP origin 폴백 차단 → 원격 기본 강제', {
+          origin: window.location.origin, forced: REMOTE_DEFAULT_API,
+        })
+        return REMOTE_DEFAULT_API
+      }
       return `${stripTrailingSlashes(window.location.origin)}/api`
     }
   } catch {}
-  return 'http://localhost:2000/api'
+
+  // Node 등 비브라우저 환경의 마지막 폴백(개발용)
+  return REMOTE_DEFAULT_API
 }
 
+// === 토큰 헬퍼 ===
 export function getAuthToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
 }
@@ -91,11 +125,14 @@ export function clearAuthToken() {
   try { localStorage.removeItem(TOKEN_KEY); console.log('[AUTH][CLR]', { ok: true }) } catch {}
 }
 
+// === 구성값 ===
 const ENV_BASE = resolveBaseURL()
+// 앱은 JWT 전용 사용 권장 → 쿠키 비활성화
+const USE_COOKIES = false
 
 export const api = axios.create({
   baseURL: ENV_BASE,
-  withCredentials: true,
+  withCredentials: USE_COOKIES,
   timeout: 15000,
   headers: {
     Accept: 'application/json',
@@ -109,7 +146,9 @@ console.log('%c[HTTP][CFG][BANNER]', 'color:#0a0;font-weight:bold', {
   VITE_MODE: (import.meta as any)?.env?.VITE_MODE,
   VITE_API_BASE_URL: (import.meta as any)?.env?.VITE_API_BASE_URL,
   baseURL: api.defaults.baseURL,
-  pageOrigin: typeof window !== 'undefined' ? window.location.origin : '(no-window)',
+  pageOrigin,
+  isCapacitor,
+  USE_COOKIES,
 })
 
 api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
@@ -124,6 +163,7 @@ api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
 
   // URL 정규화
   let u = cfg.url || '/'
+  // 로컬 절대URL은 상대경로로 축약
   if (u && isHttpAbs(u) && isLocalLike(u)) {
     try {
       const abs = new URL(u)
@@ -136,13 +176,13 @@ api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
   u = ensureLeadingSlash(u)
   cfg.url = u
 
-  // 토큰 주입
+  // JWT 토큰 주입
   const token = getAuthToken()
   if (token) {
     ;(cfg.headers as any) = { ...(cfg.headers as any), Authorization: `Bearer ${token}` }
   }
 
-  // 로그
+  // 로그(민감정보 마스킹)
   let safeData: any = cfg.data
   if (safeData && typeof safeData === 'object') {
     try {
@@ -213,15 +253,19 @@ export const http = {
   },
 }
 
+// === 인증 API(JWT 단일) ===
 export const AuthAPI = {
   async login(payload: { username: string; password: string }) {
+    // 서버는 { token: '...' } 또는 { data: { token: '...' } } 를 반환한다고 가정
     const res = await api.post('/login', payload)
     const token = (res?.data as any)?.token ?? (res?.data as any)?.data?.token ?? null
     if (token) setAuthToken(token)
     return res
   },
   me() { return api.get('/me') },
-  async logout() { try { await api.post('/logout') } finally { clearAuthToken() } },
+  async logout() {
+    try { await api.post('/logout') } finally { clearAuthToken() }
+  },
 }
 
 export default api
