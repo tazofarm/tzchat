@@ -66,7 +66,16 @@ async function killServiceWorkersInDev() {
     }
   }
 }
-await killServiceWorkersInDev()
+
+// ❌ (기존) Top-level await
+// await killServiceWorkersInDev()
+
+// ✅ 즉시실행 async 함수(IIFE)로 감싸 Top-level await 제거
+;(async () => {
+  await killServiceWorkersInDev()
+})().catch(err => {
+  console.warn('SW/Cache cleanup IIFE 오류:', err?.message)
+})
 /* ================================================= */
 
 /* ✅ 최종 API 설정 진단 */
