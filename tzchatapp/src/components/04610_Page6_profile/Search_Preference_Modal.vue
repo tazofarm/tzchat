@@ -38,7 +38,7 @@
    - 변경 요청 외 나머지는 최대한 유지 / 상세 로그 포함
 ============================================================ */
 import { ref, onMounted, watch } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 
 /* 🔹 부모가 넘겨주는 현재 저장값 */

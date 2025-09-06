@@ -79,7 +79,7 @@
 // ✅ DB에서 받은 초기값을 정확히 반영 + 접근성/에러로그 강화
 import { ref, computed, onMounted, watch } from 'vue'
 import { IonButton, IonSelect, IonSelectOption } from '@ionic/vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 
 // 🔹 부모에서 내려주는 초기값(문자열/숫자/빈값/null 허용)
 //   예: :initial-from="user?.search_birthyear1 ?? ''"

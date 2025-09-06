@@ -42,7 +42,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { IonIcon } from '@ionic/vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { io } from 'socket.io-client'
 import {
   warningOutline,

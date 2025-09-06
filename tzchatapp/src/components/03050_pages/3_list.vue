@@ -209,7 +209,7 @@
 // 유지: 로직 동일 / 보강: 경로 정리(/api 제거), 소켓 연결 공통화
 // ===============================================
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton, IonIcon } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 import ModalFriendMessage from '@/components/04310_Page3_list/Modal_FriendMessage.vue'

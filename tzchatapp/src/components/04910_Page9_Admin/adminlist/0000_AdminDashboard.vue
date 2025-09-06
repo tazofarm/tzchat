@@ -75,7 +75,7 @@ import {
   logOutOutline,
   trashOutline
 } from 'ionicons/icons'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 
 const router = useRouter()
 const icons = { happyOutline, settingsOutline, logOutOutline, trashOutline }

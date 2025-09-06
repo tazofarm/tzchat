@@ -8,7 +8,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 // ✅ 공통 Axios 인스턴스 (baseURL: 서버 오리진 + /api, withCredentials: true)
-import api from '@/lib/axiosInstance' // 반드시 이걸로 /me 호출
+import api from '@/lib/api' // 반드시 이걸로 /me 호출
 
 // 기본 페이지
 import LoginPage from '@/views/LoginPage.vue'

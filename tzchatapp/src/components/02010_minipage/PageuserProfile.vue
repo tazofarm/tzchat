@@ -253,7 +253,7 @@ import {
 } from '@ionic/vue'
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'          // ✅ 공통 인스턴스
+import axios from '@/lib/api'          // ✅ 공통 인스턴스
 import { isAxiosError } from 'axios'             // ✅ 유틸은 axios 본체에서 임포트
 
 // 아이콘

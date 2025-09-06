@@ -2,7 +2,7 @@
 import { IonButton } from '@ionic/vue'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance' // ✅ 공통 인스턴스
+import axios from '@/lib/api' // ✅ 공통 인스턴스
 
 const router = useRouter()
 const nickname = ref('')

@@ -80,7 +80,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonItem, IonLabel, IonInput, IonRadioGroup, IonRadio,

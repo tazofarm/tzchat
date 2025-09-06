@@ -25,7 +25,7 @@
    - 구조 최소 변경, 로그/에러 핸들링 보강
 ------------------------------------------------------------------- */
 import { ref } from 'vue'
-import axios from '@/lib/axiosInstance'   // ✅ 공통 설정된 axios 인스턴스
+import axios from '@/lib/api'   // ✅ 공통 설정된 axios 인스턴스
 import { IonButton } from '@ionic/vue'   // SFC 내 사용 등록
 
 // 🔹 Props (필요 시 부모가 초기 문구 전달)

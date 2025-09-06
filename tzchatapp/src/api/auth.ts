@@ -5,7 +5,7 @@
 // - /me는 쿠키 또는 Bearer(인터셉터)로 인증
 // - 로그아웃 시 서버 쿠키 정리 + 클라이언트 토큰 제거
 // ------------------------------------------------------
-import { api, setAuthToken, clearAuthToken } from '@/lib/http';
+import { api, setAuthToken, clearAuthToken } from '@/lib/api';
 
 function mask(t?: string | null) {
   if (!t) return null;

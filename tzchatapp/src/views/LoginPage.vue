@@ -55,37 +55,65 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 /**
  * LoginPage.vue
  * ------------------------------------------------------
- * - API_PREFIX 제거: api 인스턴스(baseURL이 이미 "/api" 포함)
- * - JWT 병행: AuthAPI.login 사용(서버 쿠키 + 응답 token 저장), 소켓 auth 갱신
- * - 진입 시 /me 체크: 401은 정상(미로그인)으로 간주
- * - 성공/실패 분기 로직 강화 + 상세 로그([UI]/[HTTP])
+ * - 공통 API 인스턴스만 사용(api / AuthAPI) + 경로만 전달('/login', '/me')
+ * - dev-remote에서 baseURL 진단 로그(로컬로 향하면 경고)
+ * - JWT 병행: 로그인 후 쿠키/토큰 기반으로 /me 재검증
+ * - 소켓 인증 갱신(refreshSocketAuth) 시도
+ * - 상세 로그([UI]/[HTTP]/[SOCKET]) 다량 유지
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, AuthAPI } from '@/lib/api'          // ✅ axios 인스턴스(+ /api 포함), 인증 헬퍼
-import { refreshSocketAuth } from '@/lib/socket'   // ✅ 로그인/로그아웃 후 소켓 인증 갱신
+import { api, AuthAPI } from '@/lib/api'          // axios 인스턴스(+ baseURL 포함), 인증 헬퍼
+import { refreshSocketAuth } from '@/lib/socket'   // 로그인/로그아웃 후 소켓 인증 갱신
 
 const router = useRouter()
 
 // 사용자 입력값
-const username = ref('')
-const password = ref('')
-const message = ref('')
-const submitting = ref(false)
+const username = ref<string>('')
+const password = ref<string>('')
+const message = ref<string>('')
+const submitting = ref<boolean>(false)
+
+// ===== 진단: 실제 baseURL이 무엇인지 확인 (dev-remote에서만 로컬이면 경고) =====
+function debugBaseURL() {
+  try {
+    const base = api?.defaults?.baseURL || '(unknown)'
+    const mode = (import.meta as any)?.env?.MODE || '(unknown)'
+    const viteMode = (import.meta as any)?.env?.VITE_MODE || '(unknown)'
+    const apiEnv = (import.meta as any)?.env?.VITE_API_BASE_URL
+    const wsEnv  = (import.meta as any)?.env?.VITE_WS_BASE
+    const isDevRemote = mode === 'dev-remote' || viteMode === 'dev-remote'
+    const isLocal = /localhost|127\.0\.0\.1/i.test(String(base)) || String(base).startsWith('http://')
+
+    console.log('[HTTP][CFG][FINAL]', {
+      mode, viteMode,
+      baseURL_from_instance: base,
+      VITE_API_BASE_URL: apiEnv,
+      VITE_WS_BASE: wsEnv
+    })
+
+    if (isDevRemote && isLocal) {
+      console.warn('⚠️ dev-remote 모드인데 baseURL이 로컬/HTTP로 보입니다. .env.dev-remote를 확인하세요.')
+    }
+  } catch (e: any) {
+    console.log('[HTTP][CFG][ERR] debugBaseURL', { message: e?.message })
+  }
+}
 
 // 진입 시 세션/JWT 확인(401이면 정상 흐름)
 onMounted(async () => {
+  debugBaseURL()
   console.log('[UI][REQ] LoginPage mounted: /me precheck')
   try {
-    const me = await api.get('/me')
-    console.log('[UI][RES] already signed-in', { user: me?.data?.user?.username })
+    const me = await api.get('/me') // 경로만 전달
+    console.log('[UI][RES] already signed-in', { user: (me?.data as any)?.user?.username })
     // 필요 시 자동 이동:
     // return router.push('/home/2page')
-  } catch (e) {
+  } catch (e: any) {
     const status = e?.response?.status
     if (status === 401) {
       console.log('[UI][INFO] not signed-in (401) → login allowed')
@@ -114,16 +142,19 @@ const login = async () => {
       pw: pw ? '(hidden)' : '(empty)'
     })
 
-    // ✅ 로그인 요청 (서버: httpOnly 쿠키 설정 / 응답: token 포함 시 저장)
-    const res = await AuthAPI.login({
-      username: id,
-      password: pw,
-    })
+    // 입력 검증(프런트 1차 방어)
+    if (!id || !pw) {
+      message.value = '아이디와 비밀번호를 입력하세요.'
+      return
+    }
+
+    // 로그인 요청 (서버: httpOnly 쿠키 설정 / 응답: token 포함 시 저장)
+    const res = await AuthAPI.login({ username: id, password: pw })
 
     console.log('[HTTP][RES] /login', {
-      status: res.status,
-      hasToken: !!(res?.data?.token ?? res?.data?.data?.token),
-      nickname: res?.data?.nickname
+      status: res?.status,
+      hasToken: !!((res?.data as any)?.token ?? (res?.data as any)?.data?.token),
+      nickname: (res?.data as any)?.nickname
     })
 
     // 민감정보 정리
@@ -132,22 +163,22 @@ const login = async () => {
     // JWT 갱신을 소켓에 반영(웹뷰/앱 환경 대비)
     try {
       refreshSocketAuth()
-    } catch (sockErr) {
+    } catch (sockErr: any) {
       console.log('[SOCKET][ERR] refreshSocketAuth', { message: sockErr?.message })
     }
 
-    // ✅ 로그인 직후 /me 재검증
+    // 로그인 직후 /me 재검증
     try {
-      const me = await api.get('/me')
-      console.log('[UI][RES] /me after login', { user: me?.data?.user?.username })
+      const me = await api.get('/me') // 경로만 전달
+      console.log('[UI][RES] /me after login', { user: (me?.data as any)?.user?.username })
 
       // UI 안내
-      message.value = (res.data && (res.data.message || res.data.msg)) || '로그인 되었습니다.'
+      message.value = ((res?.data as any)?.message || (res?.data as any)?.msg) || '로그인 되었습니다.'
 
       // 홈으로 이동
       router.push('/home/2page')
       return
-    } catch (meErr) {
+    } catch (meErr: any) {
       console.log('[UI][ERR] /me after login failed', {
         status: meErr?.response?.status,
         data: meErr?.response?.data,
@@ -156,18 +187,19 @@ const login = async () => {
       message.value = '로그인 후 세션 확인에 실패했습니다. 잠시 후 다시 시도해주세요.'
       return
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('[HTTP][ERR] /login', {
       status: err?.response?.status,
       data: err?.response?.data,
       msg: err?.message,
     })
 
-    if (err?.response?.status === 401) {
+    const status = err?.response?.status
+    if (status === 401) {
       message.value = err.response?.data?.message || '아이디/비밀번호를 확인해주세요.'
-    } else if (err?.response?.status === 400) {
+    } else if (status === 400) {
       message.value = err.response?.data?.message || '요청 형식이 올바르지 않습니다.'
-    } else if (err?.response?.status === 429) {
+    } else if (status === 429) {
       message.value = '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.'
     } else {
       message.value = '로그인 실패: 네트워크/서버 오류'
@@ -292,7 +324,7 @@ const login = async () => {
   will-change: transform;
 }
 .login-box button:hover { background: #2980b9; }
-.login-box button:active { transform: translateY(1px); } /* ⬅️ 오타 수정(. 누락 보완) */
+.login-box button:active { transform: translateY(1px); }
 .login-box button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* 키보드 포커스 */

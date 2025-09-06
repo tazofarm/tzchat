@@ -38,7 +38,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { IonButton } from '@ionic/vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { regions } from '@/data/regions.js'
 
 // props 및 emit 정의

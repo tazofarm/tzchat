@@ -65,7 +65,7 @@
    - 자세한 콘솔 로그로 추적/분석 용이
    ========================================================================== */
 import { ref, onMounted } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue' // (자동 등록 환경이면 import만으로 사용 가능)
 
 /* 🔹 Props: 기존 닉네임 전달 */

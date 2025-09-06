@@ -1,221 +1,222 @@
 // src/lib/socket.ts
-// ------------------------------------------------------
-// ⚠️ 프론트엔드 전용 Socket.IO 클라이언트 모듈 (TypeScript)
-// - ENV 우선 + dev-remote 강제 가드(최후 안전장치)
-// - 혼성콘텐츠 방지, 쿠키(withCredentials) + JWT(auth.token) 병행
-// - 웹소켓 우선 + 재연결/로그 최대화
-// ------------------------------------------------------
+import { io } from 'socket.io-client'
+import type { Socket, ManagerOptions, SocketOptions } from 'socket.io-client'
 
-import { io } from "socket.io-client";
-import type { Socket, ManagerOptions, SocketOptions } from "socket.io-client";
-import { getApiBaseURL } from "./api";
+let socket: Socket | null = null
+let listenersBound = false
+let currentOrigin: string | null = null // ✅ 우리가 추적하는 현재 origin
 
-// 싱글턴 소켓 인스턴스
-let socket: Socket | null = null;
+const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
+const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.duckdns.org'
 
-const TOKEN_KEY = "TZCHAT_AUTH_TOKEN";
+const RAW_MODE = (import.meta as any)?.env?.MODE as string | undefined
+const RAW_VITE_MODE = (import.meta as any)?.env?.VITE_MODE as string | undefined
+const MODE = (RAW_VITE_MODE && RAW_VITE_MODE.trim()) || RAW_MODE || 'development'
 
-// ENV (빌드타임 주입)
-const RAW_MODE = (import.meta as any)?.env?.MODE as string | undefined;
-const RAW_VITE_MODE = (import.meta as any)?.env?.VITE_MODE as string | undefined;
-const MODE = (RAW_VITE_MODE && RAW_VITE_MODE.trim()) || RAW_MODE || 'development';
-
-// ENV_WS_BASE: 소켓 오리진(프로토콜+호스트)
-const ENV_WS_BASE =
+const ENV_WS_BASE: string =
   (import.meta as any)?.env?.VITE_WS_BASE ||
   (import.meta as any)?.env?.VITE_SOCKET_BASE ||
-  "";
+  ''
 
-// dev-remote 강제 가드(ENV가 먹지 않아도 무조건 원격으로)
-const DEV_REMOTE_DEFAULT_ORIGIN = "https://tzchat.duckdns.org";
-const FORCE_DEV_REMOTE =
-  (import.meta as any)?.env?.VITE_DEV_REMOTE === 'true' ||
-  (import.meta as any)?.env?.VITE_REMOTE === '1';
-const IS_DEV_REMOTE =
-  FORCE_DEV_REMOTE || MODE === 'dev-remote' || RAW_VITE_MODE === 'dev-remote';
-
-/** JWT 토큰 로드(없으면 null) */
 function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
 }
-
-/** 안전한 URL 파싱 (상대경로도 허용) */
 function toAbsoluteURL(urlLike: string): URL {
-  try {
-    // 절대 URL이면 그대로
-    return new URL(urlLike);
-  } catch {
-    // 상대경로면 현재 오리진을 기준으로
-    return new URL(urlLike, window.location.origin);
-  }
+  try { return new URL(urlLike) } catch { return new URL(urlLike, window.location.origin) }
 }
-
-/** https 페이지면 대상 URL도 https로 강제 */
+function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
 function enforceHttpsIfPageIsHttps(abs: URL): URL {
   try {
-    if (typeof window !== "undefined" && window.location?.protocol === "https:" && abs.protocol !== "https:") {
-      const forced = new URL(abs.href);
-      forced.protocol = "https:";
-      console.log("🛡️ [Socket] protocol forced to https due to page being https:", {
-        before: abs.href,
-        after: forced.href,
-      });
-      return forced;
+    if (window.location.protocol === 'https:' && abs.protocol !== 'https:') {
+      const f = new URL(abs.href); f.protocol = 'https:'
+      console.log('🛡️ [Socket] protocol forced to https:', { before: abs.href, after: f.href })
+      return f
     }
-  } catch (e: any) {
-    console.warn("⚠️ [Socket] enforceHttpsIfPageIsHttps error:", e?.message);
-  }
-  return abs;
+  } catch {}
+  return abs
 }
 
-/** 소켓 서버 오리진 계산(최우선순위 → ENV > dev-remote 강제 > API base > 현재 오리진) */
+/** ENV → 페이지 → 로컬, + dev-remote/8081 가드 */
 function resolveSocketOrigin(): string {
-  // 0) dev-remote 강제 가드 (최후 안전장치)
-  if (IS_DEV_REMOTE) {
-    const abs = enforceHttpsIfPageIsHttps(toAbsoluteURL(DEV_REMOTE_DEFAULT_ORIGIN));
-    const origin = `${abs.protocol}//${abs.host}`;
-    console.warn("🟢 [Socket] dev-remote guard → forced origin:", origin, { MODE, RAW_MODE, RAW_VITE_MODE });
-    return origin;
+  const on8081 =
+    typeof window !== 'undefined' &&
+    /^http:\/\/localhost:8081$/i.test(window.location.origin)
+
+  if (on8081 && (MODE === 'dev-remote') && (!ENV_WS_BASE || /localhost|127\.0\.0\.1|:8081/i.test(ENV_WS_BASE))) {
+    console.error('🔧 [Socket] 8081에서 dev-remote 의도 감지 → 원격 기본 강제', { ENV_WS_BASE, forced: REMOTE_DEFAULT_ORIGIN })
+    return REMOTE_DEFAULT_ORIGIN
   }
 
-  // 1) ENV 최우선
   if (ENV_WS_BASE && ENV_WS_BASE.trim()) {
-    try {
-      const abs = enforceHttpsIfPageIsHttps(toAbsoluteURL(ENV_WS_BASE.trim()));
-      const origin = `${abs.protocol}//${abs.host}`;
-      console.log("🔧 [Socket] resolved origin from ENV:", {
-        envBase: ENV_WS_BASE,
-        socketOrigin: origin,
-      });
-      return origin;
-    } catch (e: any) {
-      console.warn("⚠️ [Socket] ENV_WS_BASE 파싱 실패:", e?.message, ENV_WS_BASE);
-    }
+    const abs = enforceHttpsIfPageIsHttps(toAbsoluteURL(ENV_WS_BASE.trim()))
+    const origin = originOf(abs)
+    console.log('🔧 [Socket] origin from ENV:', { ENV_WS_BASE, origin, MODE })
+    return origin
   }
 
-  // 2) API BASE에서 유도
-  try {
-    const apiAbs = enforceHttpsIfPageIsHttps(toAbsoluteURL(getApiBaseURL()));
-    const origin = `${apiAbs.protocol}//${apiAbs.host}`;
-    console.log("🔧 [Socket] resolved origin from API base:", {
-      apiBase: apiAbs.href,
-      socketOrigin: origin,
-    });
-    return origin;
-  } catch (e: any) {
-    console.warn("⚠️ [Socket] getApiBaseURL() 파싱 실패, 현재 페이지 오리진 사용:", e?.message);
-    const pageAbs = enforceHttpsIfPageIsHttps(new URL(window.location.origin));
-    return `${pageAbs.protocol}//${pageAbs.host}`;
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const abs = enforceHttpsIfPageIsHttps(new URL(window.location.origin))
+    const origin = originOf(abs)
+    console.log('🔧 [Socket] origin from page:', origin, { MODE })
+    return origin
   }
+
+  const host = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost'
+  const origin = `http://${host}:2000`
+  console.log('🔧 [Socket] origin fallback local:', origin)
+  return origin
 }
 
-/** 연결 옵션 생성 */
 function buildOptions(): Partial<ManagerOptions & SocketOptions> {
-  const token = getToken();
+  const token = getToken()
   const opts: Partial<ManagerOptions & SocketOptions> = {
-    path: "/socket.io",
-    transports: ["websocket"],
-    withCredentials: true,
-    reconnection: true,
-    reconnectionAttempts: 10,
+    path: '/socket.io',
+    transports: ['websocket', 'polling'], // ✅ 폴백 허용
+    upgrade: true,
     rememberUpgrade: true,
-    timeout: 20000,
+
+    withCredentials: true,
+
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 600,
+    reconnectionDelayMax: 6000,
+    randomizationFactor: 0.5,
+
+    timeout: 30000,
+
     auth: token ? { token } : undefined,
-  };
-  console.log("🔌 [Socket] options:", {
+  }
+  console.log('🔌 [Socket] options:', {
     path: opts.path,
     transports: opts.transports,
     withCredentials: opts.withCredentials,
     reconnectionAttempts: opts.reconnectionAttempts,
+    reconnectionDelay: opts.reconnectionDelay,
+    reconnectionDelayMax: opts.reconnectionDelayMax,
     timeout: opts.timeout,
     hasToken: !!token,
-  });
-  return opts;
+  })
+  return opts
 }
 
-/** 소켓 연결 */
+/** 이벤트 리스너(한 번만 바인딩) */
+function bindCoreListeners(sock: Socket, originStr: string) {
+  if (listenersBound) return
+  listenersBound = true
+
+  sock.on('connect', () => {
+    console.log('✅ [Socket] connected:', sock.id, '| origin:', originStr, '| transport:', sock.io.engine.transport.name)
+  })
+
+  sock.on('connect_error', (err: any) => {
+    console.error('❌ [Socket] connect_error:', err?.message || err)
+  })
+
+  sock.on('error', (err: any) => {
+    console.error('❌ [Socket] error:', err?.message || err)
+  })
+
+  sock.io.on('reconnect_attempt', (attempt) => {
+    console.log('↻ [Socket] reconnect_attempt:', attempt)
+  })
+  sock.io.on('reconnect', (n) => {
+    console.log('🔁 [Socket] reconnected:', n, '| transport:', sock.io.engine.transport.name)
+  })
+  sock.io.on('reconnect_error', (err) => {
+    console.warn('⚠️ [Socket] reconnect_error:', (err as any)?.message || err)
+  })
+  sock.io.on('reconnect_failed', () => {
+    console.warn('⛔ [Socket] reconnect_failed (no more attempts)')
+  })
+
+  sock.on('disconnect', (reason: string) => {
+    console.warn('⚠️ [Socket] disconnected:', reason)
+  })
+}
+
 export function connectSocket(): Socket {
-  if (socket && socket.connected) return socket;
+  // 목표 origin 계산
+  let SOCKET_ORIGIN = resolveSocketOrigin()
 
-  const SOCKET_ORIGIN = resolveSocketOrigin();
-  const options = buildOptions();
-
-  console.log("🔌 [Socket] connecting...", {
-    origin: SOCKET_ORIGIN,
-    path: options.path,
-    pageProtocol: typeof window !== "undefined" ? window.location.protocol : "n/a",
-  });
-
-  try {
-    const abs = new URL(SOCKET_ORIGIN);
-    if (typeof window !== "undefined" && window.location.protocol === "https:" && abs.protocol !== "https:") {
-      abs.protocol = "https:";
-      console.log("🛡️ [Socket] origin protocol auto-corrected to https:", abs.href);
-      socket = io(`${abs.protocol}//${abs.host}`, options);
-    } else {
-      socket = io(SOCKET_ORIGIN, options);
-    }
-  } catch (e: any) {
-    console.error("❌ [Socket] invalid SOCKET_ORIGIN:", SOCKET_ORIGIN, e?.message);
-    // 마지막 안전장치: 현재 페이지 오리진으로 시도
-    socket = io(window.location.origin, options);
+  // https 페이지에서 localhost:2000 방지
+  if (typeof window !== 'undefined' &&
+      window.location.protocol === 'https:' &&
+      /^https?:\/\/localhost:2000$/i.test(SOCKET_ORIGIN)) {
+    console.warn('🚫 [Socket] https 페이지에서 localhost:2000 감지 → remote로 교정')
+    SOCKET_ORIGIN = originOf(enforceHttpsIfPageIsHttps(toAbsoluteURL(REMOTE_DEFAULT_ORIGIN)))
   }
 
-  // 로그
-  socket.on("connect", () => {
-    console.log("✅ [Socket] connected:", socket?.id, "| origin:", SOCKET_ORIGIN);
-  });
+  const abs = toAbsoluteURL(SOCKET_ORIGIN)
+  const corrected = enforceHttpsIfPageIsHttps(abs)
+  const targetOrigin = originOf(corrected)
 
-  socket.on("connect_error", (err: any) => {
-    console.error("❌ [Socket] connect_error:", err?.message, err);
-  });
+  const options = buildOptions()
 
-  socket.on("error", (err: any) => {
-    console.error("❌ [Socket] error:", err?.message, err);
-  });
+  // ✅ 이미 소켓이 있고, 같은 origin이면 재사용 (+ auth 갱신 후 필요 시 connect)
+  if (socket && currentOrigin === targetOrigin) {
+    const token = getToken()
+    ;(socket as any).auth = token ? { token } : undefined
+    if (!socket.connected) {
+      console.log('🔌 [Socket] reconnecting existing socket to same origin...')
+      socket.connect()
+    }
+    bindCoreListeners(socket, targetOrigin)
+    return socket
+  }
 
-  socket.on("disconnect", (reason: string) => {
-    console.warn("⚠️ [Socket] disconnected:", reason);
-  });
+  // ✅ origin이 다르거나 소켓이 없으면, 안전하게 새로 생성
+  if (socket) {
+    try {
+      socket.off()
+      socket.disconnect()
+    } catch {}
+    socket = null
+    listenersBound = false
+  }
 
-  return socket;
+  console.log('🔌 [Socket] connecting new instance...', {
+    origin: targetOrigin,
+    path: options.path,
+    pageProtocol: typeof window !== 'undefined' ? window.location.protocol : '(no-window)',
+  })
+
+  socket = io(targetOrigin, options)
+  currentOrigin = targetOrigin
+  bindCoreListeners(socket, targetOrigin)
+
+  return socket!
 }
 
-/** 현재 소켓 인스턴스 반환(없으면 null) */
-export function getSocket(): Socket | null {
-  return socket;
-}
+export function getSocket(): Socket | null { return socket }
 
-/** 명시적 종료(예: 로그아웃 시) */
 export function disconnectSocket(): void {
   if (socket) {
     try {
-      console.log("🔌 [Socket] disconnect requested");
-      socket.disconnect();
+      console.log('🔌 [Socket] disconnect requested')
+      socket.off()
+      socket.disconnect()
     } catch (e: any) {
-      console.warn("⚠️ [Socket] disconnect error:", e?.message);
+      console.warn('⚠️ [Socket] disconnect error:', e?.message)
     } finally {
-      socket = null;
+      socket = null
+      currentOrigin = null
+      listenersBound = false
     }
   }
 }
 
-/** 로그인/로그아웃 후 토큰 갱신 */
 export function refreshSocketAuth(): void {
-  const token = getToken();
-  if (!socket) return;
+  const token = getToken()
+  if (!socket) return
   try {
-    (socket as any).auth = token ? { token } : undefined;
-    console.log("🔄 [Socket] auth refreshed", { hasToken: !!token });
+    ;(socket as any).auth = token ? { token } : undefined
+    console.log('🔄 [Socket] auth refreshed', { hasToken: !!token })
     if (socket.connected) {
-      socket.disconnect();
-      socket.connect();
+      socket.disconnect()
+      socket.connect()
     }
   } catch (e: any) {
-    console.warn("⚠️ [Socket] refresh auth error:", e?.message);
+    console.warn('⚠️ [Socket] refresh auth error:', e?.message)
   }
 }

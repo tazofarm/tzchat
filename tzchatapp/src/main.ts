@@ -4,18 +4,16 @@ import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
 
-// 🔔 Web/PWA 푸시 등록 (신규 추가)
+// 🔔 Web/PWA 푸시 등록
 import { registerWebPush } from './push/webPush'
 
-// ✅ API 환경 유틸
-import { getApiBaseURL, debugApiConfig } from '@/lib/api'
+// ✅ API 인스턴스 (.env 기반 baseURL 사용)
+import api from '@/lib/api'
 
-// ✅ 소켓 연결 유틸(확장자 없이 임포트)
-import { connectSocket } from '@/lib/socket'
+// ✅ 소켓 유틸
+import { connectSocket, getSocket } from '@/lib/socket'
 
-/* -------------------------------------------------------
- * ✅ Ionicons: 아이콘 등록 (중요)
- * ----------------------------------------------------- */
+/* Ionicons */
 import { addIcons } from 'ionicons'
 import {
   warningOutline,
@@ -25,7 +23,6 @@ import {
   personCircleOutline,
   settingsOutline,
 } from 'ionicons/icons'
-
 addIcons({
   warningOutline,
   locateOutline,
@@ -34,87 +31,140 @@ addIcons({
   personCircleOutline,
   settingsOutline,
 })
-console.log(
-  '🧩 Ionicons registered:',
-  Object.keys({
-    warningOutline,
-    locateOutline,
-    peopleOutline,
-    chatbubblesOutline,
-    personCircleOutline,
-    settingsOutline,
-  })
-)
 
-/* -------------------------------------------------------
- * 1) Ionic 필수/기본 CSS
- * ----------------------------------------------------- */
+/* Ionic CSS들 */
 import '@ionic/vue/css/core.css'
 import '@ionic/vue/css/normalize.css'
 import '@ionic/vue/css/structure.css'
 import '@ionic/vue/css/typography.css'
-
-/* -------------------------------------------------------
- * 2) Ionic 유틸 CSS (선택)
- * ----------------------------------------------------- */
 import '@ionic/vue/css/padding.css'
 import '@ionic/vue/css/float-elements.css'
 import '@ionic/vue/css/text-alignment.css'
 import '@ionic/vue/css/text-transformation.css'
 import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
-
-/* -------------------------------------------------------
- * 3) 테마/커스텀 CSS
- * ----------------------------------------------------- */
 import '@/theme/variables.css'
 import '@/theme/mobile-utilities.css'
-// import '@/assets/3000.css'
-
-/* -------------------------------------------------------
- * 4) 이모지 픽커 웹컴포넌트 로드
- * ----------------------------------------------------- */
 import 'emoji-picker-element'
-console.log('😀 emoji-picker-element loaded')
 
-/* -------------------------------------------------------
- * 5) 진단 로그 + API/WS 설정 확인 (중요)
- * ----------------------------------------------------- */
-const isDev = import.meta.env.DEV
-console.log(`🚀 Booting tzchat... (env: ${isDev ? 'DEV' : 'PROD'})`)
-console.log('🌐 location:', window.location.href)
+/* ====== 🔥 DEV에서 SW 캐시/등록 강제 해제 ====== */
+async function killServiceWorkersInDev() {
+  const mode = (import.meta as any)?.env?.MODE
+  const viteMode = (import.meta as any)?.env?.VITE_MODE
+  const isProdLike = mode === 'production' || viteMode === 'production'
+  if (!isProdLike && 'serviceWorker' in navigator) {
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      for (const reg of regs) await reg.unregister()
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map(k => caches.delete(k)))
+      }
+      console.warn('🧹 Dev 모드: 기존 서비스워커/캐시 강제 해제 완료')
+    } catch (e: any) {
+      console.warn('⚠️ SW/Cache cleanup 실패:', e?.message)
+    }
+  }
+}
+await killServiceWorkersInDev()
+/* ================================================= */
 
-// 🔎 API 최종 설정 전부 출력
+/* ✅ 최종 API 설정 진단 */
 try {
-  debugApiConfig() // ← 최종 baseURL, MODE, VITE_MODE, ENV 적용 여부 전체 로그
   const mode = import.meta.env.MODE
-  const envBase = (import.meta as any)?.env?.VITE_API_BASE_URL
-  const finalBase = getApiBaseURL()
-  console.log('[HTTP][CFG]', { step: 'bootstrap', mode, envBase, finalBase })
-  // dev-remote인데도 localhost로 향하면 즉시 경고
-  if (mode === 'dev-remote' && /localhost:2000\/api/i.test(finalBase)) {
-    console.warn('⚠️ dev-remote지만 API가 localhost:2000을 가리킵니다. VITE_API_BASE_URL / VITE_MODE / --mode 설정을 확인하세요.')
+  const viteMode = (import.meta as any)?.env?.VITE_MODE
+  const envBase = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined
+  const finalBase = api?.defaults?.baseURL as string | undefined
+  const isDevRemote = mode === 'dev-remote' || viteMode === 'dev-remote'
+  const isDevLocal  = mode === 'development' || viteMode === 'development'
+
+  console.log('[HTTP][CFG]', { step: 'bootstrap', mode, viteMode, envBase, finalBase })
+
+  if (!envBase) {
+    console.warn('⚠️ VITE_API_BASE_URL 이 .env에 비어있습니다.')
+  } else if (finalBase !== envBase) {
+    console.warn('⚠️ 최종 baseURL이 .env 값과 다릅니다.', { envBase, finalBase })
+  }
+
+  if (isDevRemote && /localhost|127\.0\.0\.1/i.test(String(finalBase || ''))) {
+    console.warn('⚠️ dev-remote 모드인데 baseURL이 localhost입니다. .env.dev-remote 확인 필요')
+  }
+
+  if (isDevLocal && /localhost|127\.0\.0\.1/i.test(String(finalBase || ''))) {
+    console.log('ℹ️ dev(local): baseURL=localhost 정상')
   }
 } catch (e: any) {
   console.warn('[HTTP][CFG]', { step: 'bootstrap-warn', message: e?.message })
 }
 
-// 핵심 CSS가 로드되었는지 간단 체크
+/* =======================
+ * 🔌 소켓 부트스트랩 가드
+ * ===================== */
+const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
+
+declare global {
+  interface Window {
+    __TZCHAT_SOCKET_BOOTSTRAPPED__?: boolean
+  }
+}
+
+function hasToken(): boolean {
+  try { return !!localStorage.getItem(TOKEN_KEY) } catch { return false }
+}
+
+async function hasSession(): Promise<boolean> {
+  try {
+    const me = await api.get('/me')
+    return !!(me?.status === 200)
+  } catch {
+    return false
+  }
+}
+
+async function bootstrapSocketOnce() {
+  if (window.__TZCHAT_SOCKET_BOOTSTRAPPED__) {
+    console.log('🧲 [Socket] bootstrap skipped (flag set).')
+    return
+  }
+  if (getSocket()) {
+    console.log('🧲 [Socket] bootstrap skipped (socket exists).')
+    window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
+    return
+  }
+
+  let ok = hasToken()
+  if (!ok) ok = await hasSession()
+
+  if (!ok) {
+    console.log('⏸️ [Socket] no token/session → not connecting yet.')
+    return
+  }
+
+  try {
+    const sock = connectSocket()
+    window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
+    console.log('🔌 [Socket] bootstrap connected?', !!sock?.connected)
+  } catch (e: any) {
+    console.warn('⚠️ [Socket] bootstrap error:', e?.message)
+  }
+}
+
+/* =======================
+ * 유틸 함수 (function 선언문으로 변경)
+ * ===================== */
 function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
   document.body.appendChild(probe)
   const cs = window.getComputedStyle(probe)
-  console.log('🔎 ion-button display:', cs.display, '(정상 예: inline-block/inline-flex)')
+  console.log('🔎 ion-button display:', cs.display)
   probe.remove()
 }
 
-// CSS 변수(테마) 확인
 function logPrimaryColorVar() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
 }
 
-// 로딩된 CSS/JS 개요 출력
 function logLoadedAssets() {
   const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
   const scripts = Array.from(document.querySelectorAll('script'))
@@ -122,9 +172,6 @@ function logLoadedAssets() {
   console.log('📜 scripts:', scripts.map(s => (s as HTMLScriptElement).src || '(inline/module)'))
 }
 
-/* -------------------------------------------------------
- * (개선) Ionic hydration 체크
- * ----------------------------------------------------- */
 async function waitForCustomElements(tags: string[]) {
   await Promise.all(tags.map(tag => customElements.whenDefined(tag)))
 }
@@ -132,7 +179,6 @@ async function waitForCustomElements(tags: string[]) {
 async function probeHydration(tags: string[]) {
   await new Promise(requestAnimationFrame)
   await new Promise(requestAnimationFrame)
-
   const temp = document.createElement('div')
   temp.innerHTML = `
     <ion-page>
@@ -145,17 +191,12 @@ async function probeHydration(tags: string[]) {
     </ion-page>
   `
   document.body.appendChild(temp)
-
   const probes = temp.querySelectorAll<HTMLElement>(tags.join(','))
   const hydratedFlags = Array.from(probes).map(el => el.classList.contains('hydrated'))
   console.log(
     '🧪 hydrated flags:',
-    tags.reduce(
-      (acc, tag, i) => ({ ...acc, [tag]: hydratedFlags[i] ?? false }),
-      {} as Record<string, boolean>
-    )
+    tags.reduce((acc, tag, i) => ({ ...acc, [tag]: hydratedFlags[i] ?? false }), {} as Record<string, boolean>)
   )
-
   const anyNotHydrated = hydratedFlags.some(f => !f)
   temp.remove()
   return !anyNotHydrated
@@ -167,32 +208,27 @@ async function checkIonicHydrationSafe() {
     await waitForCustomElements(TAGS)
     let ok = await probeHydration(TAGS)
     if (!ok) {
-      console.warn('⏳ 수화가 아직 완료되지 않음. 300ms 후 재시도합니다...')
+      console.warn('⏳ 수화 지연, 300ms 후 재시도…')
       await new Promise(r => setTimeout(r, 300))
       ok = await probeHydration(TAGS)
     }
     if (!ok) {
-      console.warn('⚠️ 일부 Ionic 컴포넌트가 수화되지 않았습니다. Network 탭에서 CSS/JS 404 또는 CSP 차단을 확인하세요.')
+      console.warn('⚠️ 일부 Ionic 컴포넌트 수화 실패: 리소스 404/CSP 확인')
     } else {
-      console.log('👌 Ionic 컴포넌트가 정상적으로 hydrated 상태입니다.')
+      console.log('👌 Ionic hydrated OK')
     }
   } catch (e) {
-    console.warn('hydration 체크 중 오류:', e)
+    console.warn('hydration 체크 오류:', e)
   }
 }
 
-/* -------------------------------------------------------
- * 6) 앱 부트스트랩
- * ----------------------------------------------------- */
+/* =======================
+ * 앱 부트
+ * ===================== */
 const app = createApp(App)
 app.use(IonicVue)
 app.use(router)
 
-console.log('[UI][RES]', { step: 'custom-element-rule', where: 'vite-plugin-vue(template.compilerOptions)' })
-
-/* -------------------------------------------------------
- * 6-2) 🔔 WebPush 등록
- * ----------------------------------------------------- */
 registerWebPush()
   .then(() => console.log('🔔 WebPush 등록 플로우 완료(요청/토큰/등록)'))
   .catch(err => console.error('💥 WebPush 등록 실패:', err))
@@ -202,15 +238,8 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
-    // ✅ 소켓 연결 (실제 오리진 로그 확인)
-    try {
-      const sock = connectSocket()
-      console.log('🔌 Socket bootstrap invoked. connected?', !!sock?.connected)
-    } catch (e: any) {
-      console.warn('⚠️ socket bootstrap error:', e?.message)
-    }
+    await bootstrapSocketOnce()
 
-    // DOM 안정 후 진단
     await nextTick()
     logLoadedAssets()
     checkIonicBasicStyle()
@@ -223,9 +252,7 @@ router.isReady()
     console.error('💥 router.isReady() 실패:', err)
   })
 
-/* -------------------------------------------------------
- * 7) 기본 글씨색(가독성 보장)
- * ----------------------------------------------------- */
+// 기본 글자색 보정
 document.documentElement.style.setProperty('--base-text-color', '#000')
 document.addEventListener('DOMContentLoaded', () => {
   document.body.style.color = 'black'

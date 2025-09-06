@@ -53,7 +53,7 @@
 // --------------------------------------------------------------
 import { ref, onMounted } from 'vue'
 import { IonButton } from '@ionic/vue'
-import axios from '@/lib/axiosInstance' // ✅ 공통 인스턴스
+import axios from '@/lib/api' // ✅ 공통 인스턴스
 
 const props = defineProps({
   toUserId: { type: String, required: true },

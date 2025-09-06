@@ -99,7 +99,7 @@
 import { ref, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
 import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 
 // ❌ (삭제) 개별 컴포넌트에서 직접 io 생성 → 혼성콘텐츠/중복연결 원인
 // import { io } from 'socket.io-client'

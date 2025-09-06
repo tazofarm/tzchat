@@ -103,7 +103,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 

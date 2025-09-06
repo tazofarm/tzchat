@@ -34,7 +34,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 
 import {
   IonPage, IonContent,

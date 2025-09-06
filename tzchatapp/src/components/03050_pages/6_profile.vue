@@ -378,7 +378,7 @@
    =========================================================== */
 import { ref, computed, onMounted } from 'vue'
 import { toastController, IonIcon } from '@ionic/vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { useRouter } from 'vue-router'
 
 /* (유지) 프로필 편집 모달 4종 */

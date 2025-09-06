@@ -28,11 +28,11 @@
 /* ------------------------------------------------------------------
    Modal_mention.vue
    - 프로필 소개 수정 모달
-   - axiosInstance 사용 (세션 쿠키 포함)
+   - api 사용 (세션 쿠키 포함)
    - 검증/에러/성공 메시지 출력 + 부모 반영
 ------------------------------------------------------------------- */
 import { ref } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 
 // Props: 초기 소개 메시지

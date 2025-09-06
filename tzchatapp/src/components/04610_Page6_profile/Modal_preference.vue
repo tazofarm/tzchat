@@ -32,7 +32,7 @@
    - 입력 검증 / 에러 핸들링 / 성공 후 부모 반영
 ------------------------------------------------------------------- */
 import { ref, onMounted } from 'vue'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 
 const props = defineProps({ message: String })

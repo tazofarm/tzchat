@@ -62,7 +62,7 @@
 // ⚠️ 가독성 + 유지보수: 주석 및 로그 최대화
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance'
+import axios from '@/lib/api'
 
 // Ionic 컴포넌트
 import {

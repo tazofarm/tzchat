@@ -51,7 +51,7 @@
 // ⚠️ 가독성 + 유지보수: 주석 및 로그 최대화
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/axiosInstance' // 공통 인스턴스( baseURL = <origin>/api, withCredentials = true )
+import axios from '@/lib/api' // 공통 인스턴스( baseURL = <origin>/api, withCredentials = true )
 import { refreshSocketAuth, disconnectSocket } from '@/lib/socket' // JWT 갱신/종료 (옵션)
 
 // Ionic 컴포넌트 (import만 하고 안 쓰면 트리쉐이킹/타입 경고 가능)
