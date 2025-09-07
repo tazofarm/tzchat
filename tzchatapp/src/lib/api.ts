@@ -7,17 +7,21 @@ import axios, {
 } from 'axios'
 
 /**
- * ✅ 앱(웹뷰: capacitor://localhost)에서의 로그인 실패 원인
- * - 기존 폴백이 window.location.origin + '/api' → 'capacitor://localhost/api' 가 되어 HTTP(S)가 아님
- * - 결과적으로 Axios 네트워크 오류
+ * ✅ 현재 로그인 실패 원인 정리
+ * - 프론트는 JWT 단일 가정(withCredentials:false), 백엔드는 세션 쿠키 기반 → /me 비로그인
+ * - 일부 환경에서 baseURL이 https://localhost 로 굳어지는 오염 가능성
  *
- * ✅ 조치
- * - Capacitor 환경/프로덕션에서 ENV가 비었거나 로컬일 느낌이면 원격 기본 API로 강제
- * - 앱은 JWT 단일 방식 권장 → withCredentials=false
+ * ✅ 조치 (안전 복구)
+ * 1) 기본을 "쿠키 세션 + JWT 병행" 으로 전환:
+ *    - axios 기본값 withCredentials = true (쿠키 항상 전송)
+ *    - 응답에 token이 있으면 로컬 저장 → Authorization 헤더도 병행
+ * 2) baseURL 강제 가드 강화:
+ *    - capacitor://, http(s)://localhost/*, 8081(dev-remote) 등에서는 REMOTE_DEFAULT_API 강제
+ * 3) 모든 요청에서 baseURL/withCredentials 재보정 + 상세 로그
  */
 
 export const API_PREFIX = '/api'
-const BUILD_ID = 'api.ts@APP-CAPACITOR-HARDEN:v3.0'
+const BUILD_ID = 'api.ts@MIXED-AUTH-RECOVERY:v3.1'
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 const REMOTE_DEFAULT_API = 'https://tzchat.duckdns.org/api'
@@ -27,7 +31,8 @@ const stripTrailingSlashes = (s: string) => (s || '').replace(/\/+$/g, '')
 const stripLeadingApi = (p: string) => (p || '').replace(/^\/api(?=\/|$)/i, '')
 const ensureLeadingSlash = (u: string) => (u?.startsWith('/') ? u : '/' + (u || ''))
 const isHttpAbs = (u: string) => /^https?:\/\//i.test(u || '')
-const isLocalLike = (u: string) => /(localhost|127\.0\.0\.1)|:8081/i.test(String(u || ''))
+const isLocalLike = (u: string) =>
+  /(localhost|127\.0\.0\.1)(:\d+)?/i.test(String(u || '')) || /:8081$/i.test(String(u || ''))
 
 const isBrowser = typeof window !== 'undefined'
 const pageOrigin = isBrowser ? window.location.origin : '(no-window)'
@@ -45,7 +50,7 @@ function resolveBaseURL(): string {
   let envBase = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined
   envBase = envBase?.trim()
 
-  // === 공통 수문장: Capacitor(앱)에서는 HTTP(S) 절대 URL만 허용 ===
+  // === Capacitor 앱: 무조건 원격 HTTPS 절대 URL만 허용 ===
   if (isCapacitor) {
     if (!envBase || !isHttpAbs(envBase) || isLocalLike(envBase)) {
       console.error('[HTTP][CFG] Capacitor 환경 → 원격 기본 API로 강제', {
@@ -56,10 +61,10 @@ function resolveBaseURL(): string {
     return stripTrailingSlashes(envBase)
   }
 
-  // === dev-remote 보호(개발 PC 8081에서 자주 실수) ===
+  // === 8081(dev-remote) 개발 페이지에서 자주 나는 실수 방지 ===
   const on8081 = isBrowser && /^http:\/\/localhost:8081$/i.test(pageOrigin)
   if (on8081 && (mode === 'dev-remote' || !envBase || isLocalLike(envBase))) {
-    console.error('[HTTP][CFG] 8081(dev-remote 의도) → 원격 기본으로 강제', {
+    console.error('[HTTP][CFG] 8081(dev-remote) → 원격 기본으로 강제', {
       mode, envBase, forced: REMOTE_DEFAULT_API,
     })
     return REMOTE_DEFAULT_API
@@ -76,11 +81,10 @@ function resolveBaseURL(): string {
     return stripTrailingSlashes(envBase)
   }
 
-  // === 기타 모드: ENV가 있으면 사용 ===
+  // === 기타 모드: ENV가 있으면 사용하되 로컬/비HTTP면 원격 강제 ===
   if (envBase && envBase.length) {
-    // 프로덕션에서 ENV가 로컬/비HTTP면 안전하게 원격으로 전환
     if (!isHttpAbs(envBase) || isLocalLike(envBase)) {
-      console.error('[HTTP][CFG] PROD/기타 모드 ENV가 비HTTP/로컬 → 원격 기본 강제', {
+      console.error('[HTTP][CFG] 기타 모드 ENV가 비HTTP/로컬 → 원격 기본 강제', {
         mode, envBase, forced: REMOTE_DEFAULT_API,
       })
       return REMOTE_DEFAULT_API
@@ -91,7 +95,7 @@ function resolveBaseURL(): string {
   // === 최후 폴백(브라우저 웹 전용): origin + '/api'
   try {
     if (isBrowser && window.location?.origin) {
-      // 단, HTTP(S)가 아니면(예: capacitor://) 즉시 원격으로 강제
+      // 비-HTTP 오리진(예: capacitor://)은 차단하고 원격으로
       if (!/^https?:\/\//i.test(window.location.origin)) {
         console.error('[HTTP][CFG] non-HTTP origin 폴백 차단 → 원격 기본 강제', {
           origin: window.location.origin, forced: REMOTE_DEFAULT_API,
@@ -127,8 +131,11 @@ export function clearAuthToken() {
 
 // === 구성값 ===
 const ENV_BASE = resolveBaseURL()
-// 앱은 JWT 전용 사용 권장 → 쿠키 비활성화
-const USE_COOKIES = false
+
+// ✅ 복구 포인트: 기본은 "쿠키 세션 사용(true) + JWT 병행"
+//    - 서버가 세션 쿠키를 내려주면 붙여서 보냄
+//    - 서버가 JWT를 내려주면 Authorization 헤더로도 보냄
+const USE_COOKIES = true
 
 export const api = axios.create({
   baseURL: ENV_BASE,
@@ -152,18 +159,21 @@ console.log('%c[HTTP][CFG][BANNER]', 'color:#0a0;font-weight:bold', {
 })
 
 api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
-  // baseURL 오염 방지
+  // baseURL, withCredentials 오염 방지(항상 재보정)
   if (cfg.baseURL !== ENV_BASE) {
     console.warn('[HTTP][CFG] normalize baseURL', { from: cfg.baseURL, to: ENV_BASE })
     ;(cfg as any).baseURL = ENV_BASE
   }
-  if (api.defaults.baseURL !== ENV_BASE) {
-    api.defaults.baseURL = ENV_BASE
+  if (api.defaults.baseURL !== ENV_BASE) api.defaults.baseURL = ENV_BASE
+
+  // ✅ 항상 쿠키 동반
+  if (cfg.withCredentials !== true) {
+    (cfg as any).withCredentials = true
   }
 
   // URL 정규화
   let u = cfg.url || '/'
-  // 로컬 절대URL은 상대경로로 축약
+  // 절대 로컬 URL은 상대경로로 축약
   if (u && isHttpAbs(u) && isLocalLike(u)) {
     try {
       const abs = new URL(u)
@@ -176,7 +186,7 @@ api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
   u = ensureLeadingSlash(u)
   cfg.url = u
 
-  // JWT 토큰 주입
+  // JWT 토큰 주입(있으면 병행)
   const token = getAuthToken()
   if (token) {
     ;(cfg.headers as any) = { ...(cfg.headers as any), Authorization: `Bearer ${token}` }
@@ -253,16 +263,19 @@ export const http = {
   },
 }
 
-// === 인증 API(JWT 단일) ===
+// === 인증 API: 세션/쿠키 + JWT 병행 지원 ===
 export const AuthAPI = {
   async login(payload: { username: string; password: string }) {
-    // 서버는 { token: '...' } 또는 { data: { token: '...' } } 를 반환한다고 가정
+    // 서버가 { token } 또는 { data: { token } } 를 줄 수도 있고, 오직 쿠키만 줄 수도 있음
     const res = await api.post('/login', payload)
-    const token = (res?.data as any)?.token ?? (res?.data as any)?.data?.token ?? null
-    if (token) setAuthToken(token)
+    const token =
+      (res?.data as any)?.token ??
+      (res?.data as any)?.data?.token ??
+      null
+    if (token) setAuthToken(token) // JWT가 오면 저장(병행)
     return res
   },
-  me() { return api.get('/me') },
+  me() { return api.get('/me') }, // 세션 쿠키 동반 + JWT 병행
   async logout() {
     try { await api.post('/logout') } finally { clearAuthToken() }
   },

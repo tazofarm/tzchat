@@ -17,9 +17,9 @@
 <script setup>
 import { IonPage } from '@ionic/vue'
 import TopMenu from '../views_layout/TopMenu.vue'
-import MainPage from '../views_layout//MainPage.vue'
-import BottomMenu from '../views_layout//BottomMenu.vue'
-import Space from '../views_layout//Space.vue'
+import MainPage from '../views_layout/MainPage.vue'
+import BottomMenu from '../views_layout/BottomMenu.vue'
+import Space from '../views_layout/Space.vue'
 
 // 로그
 console.log('[HomePage] layout: Top / Main / Space / Bottom')
