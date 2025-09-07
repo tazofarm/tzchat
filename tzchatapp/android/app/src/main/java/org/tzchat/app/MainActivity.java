@@ -1,3 +1,4 @@
+// tzchatapp/android/app/src/main/java/org/tzchat/app/MainActivity.java
 package org.tzchat.app;
 
 import com.getcapacitor.BridgeActivity;
@@ -8,6 +9,7 @@ import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.content.pm.ApplicationInfo;
 
 /**
  * 🔧 Capacitor WebView 초기 설정
@@ -15,19 +17,29 @@ import android.webkit.WebView;
  * - DOM Storage / DB 활성화
  * - (개발편의) WebView 디버깅
  * - (옵션) 혼합콘텐츠 허용(HTTPS 페이지에서 HTTP 리소스 접근 시)
+ *
+ * ✅ 변경점: BuildConfig(DEBUG) 의존 제거
+ *   - namespace/package 불일치 시 컴파일 오류를 막기 위해
+ *   - 런타임의 FLAG_DEBUGGABLE로 디버그 여부를 판별
  */
 public class MainActivity extends BridgeActivity {
+
   private static final String TAG = "MainActivity";
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
-    // 🐛 개발 편의: WebView 디버깅 (릴리즈 빌드에서는 자동 비활성화됨)
+    // 🐛 개발 편의: WebView 디버깅 (릴리즈 빌드에서는 자동 비활성화)
     try {
-      if (BuildConfig.DEBUG) {
+      // BuildConfig 대신 런타임 플래그 사용
+      boolean isDebuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+
+      if (isDebuggable) {
         WebView.setWebContentsDebuggingEnabled(true);
-        Log.i(TAG, "WebContents debugging enabled (DEBUG build).");
+        Log.i(TAG, "[BOOT] WebContents debugging enabled (FLAG_DEBUGGABLE=ON)");
+      } else {
+        Log.i(TAG, "[BOOT] Release-like build (FLAG_DEBUGGABLE=OFF)");
       }
     } catch (Throwable t) {
       Log.w(TAG, "Failed to enable WebView debugging", t);
