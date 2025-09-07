@@ -17,11 +17,12 @@ import axios, {
  *    - 응답에 token이 있으면 로컬 저장 → Authorization 헤더도 병행
  * 2) baseURL 강제 가드 강화:
  *    - capacitor://, http(s)://localhost/*, 8081(dev-remote) 등에서는 REMOTE_DEFAULT_API 강제
+ *    - (🔧 NEW) origin 폴백 단계에서도 localhost/127.0.0.1 이면 원격 강제
  * 3) 모든 요청에서 baseURL/withCredentials 재보정 + 상세 로그
  */
 
 export const API_PREFIX = '/api'
-const BUILD_ID = 'api.ts@MIXED-AUTH-RECOVERY:v3.1'
+const BUILD_ID = 'api.ts@MIXED-AUTH-RECOVERY:v3.2' // 🔧 bump
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 const REMOTE_DEFAULT_API = 'https://tzchat.duckdns.org/api'
@@ -95,14 +96,22 @@ function resolveBaseURL(): string {
   // === 최후 폴백(브라우저 웹 전용): origin + '/api'
   try {
     if (isBrowser && window.location?.origin) {
-      // 비-HTTP 오리진(예: capacitor://)은 차단하고 원격으로
-      if (!/^https?:\/\//i.test(window.location.origin)) {
-        console.error('[HTTP][CFG] non-HTTP origin 폴백 차단 → 원격 기본 강제', {
-          origin: window.location.origin, forced: REMOTE_DEFAULT_API,
+      const origin = window.location.origin
+      // 🔧 NEW: 폴백 오리진이 localhost/127인 경우 원격 강제
+      if (isLocalLike(origin)) {
+        console.error('[HTTP][CFG] origin 폴백이 localhost/127 → 원격 기본 강제', {
+          origin, forced: REMOTE_DEFAULT_API,
         })
         return REMOTE_DEFAULT_API
       }
-      return `${stripTrailingSlashes(window.location.origin)}/api`
+      // 비-HTTP 오리진(예: capacitor://)은 차단하고 원격으로
+      if (!/^https?:\/\//i.test(origin)) {
+        console.error('[HTTP][CFG] non-HTTP origin 폴백 차단 → 원격 기본 강제', {
+          origin, forced: REMOTE_DEFAULT_API,
+        })
+        return REMOTE_DEFAULT_API
+      }
+      return `${stripTrailingSlashes(origin)}/api`
     }
   } catch {}
 
@@ -133,8 +142,6 @@ export function clearAuthToken() {
 const ENV_BASE = resolveBaseURL()
 
 // ✅ 복구 포인트: 기본은 "쿠키 세션 사용(true) + JWT 병행"
-//    - 서버가 세션 쿠키를 내려주면 붙여서 보냄
-//    - 서버가 JWT를 내려주면 Authorization 헤더로도 보냄
 const USE_COOKIES = true
 
 export const api = axios.create({

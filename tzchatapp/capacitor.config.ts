@@ -6,25 +6,28 @@ const config: CapacitorConfig = {
   appName: '네네챗',
   webDir: 'dist',
 
-  // ⚙️ 네트워킹
-  // - androidScheme/iosScheme를 https로 고정: SameSite=None + Secure 쿠키 호환(웹뷰)
-  // - allowNavigation: 배포 도메인 + 로컬/사설망(dev-remote) 허용
+  /**
+   * ✅ 핵심 수정
+   * - server.url 을 설정하여 WebView가 원격 도메인에서 직접 로드되도록 합니다.
+   *   => 앱의 오리진이 https://tzchat.duckdns.org 로 고정되어
+   *      쿠키/세션(withCredentials), Socket.IO(wss) 모두 동일 도메인으로 정렬됩니다.
+   *
+   * - androidScheme/iosScheme 은 https 유지(쿠키 Secure 요건 충족).
+   */
   server: {
+    url: 'https://tzchat.duckdns.org', // ★ 오리진 고정
     androidScheme: 'https',
     iosScheme: 'https',
+
+    /**
+     * 참고:
+     * - allowNavigation 은 server.url 사용 시 필수는 아니지만, 내부 웹뷰 내 추가 내비게이션을
+     *   허용하고 싶다면 유지할 수 있습니다(아래는 최소 셋).
+     * - 개발 중 로컬/사설망 접속이 필요하면 항목을 추가하세요.
+     */
     allowNavigation: [
       'tzchat.duckdns.org',
-      'localhost',
-      '127.0.0.1',
-      // 사설망 IP 대역(개발 편의를 위해 허용)
-      // 아래 패턴은 Capacitor가 와일드카드 문자열을 허용하므로 넉넉히 지정
-      '192.168.0.0/16',
-      '10.0.0.0/8',
-      '172.16.0.0/12',
     ],
-    // server.url 은 사용하지 않음(프로덕션 빌드 웹자산 사용).
-    // 원격 디버깅/라이브리로드가 필요하면 아래를 임시로 열어 사용:
-    // url: 'https://tzchat.duckdns.org', // 혹은 개발용 http://<PC IP>:5173
   },
 };
 

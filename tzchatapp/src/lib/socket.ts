@@ -43,16 +43,13 @@ function toAbsoluteURL(urlLike: string): URL {
 }
 function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
 function isHttpLike(u: string): boolean { return /^https?:\/\//i.test(u) }
-// ⚠️ 기존 정규식은 "포트가 있으면 전부 로컬"로 판정하는 문제가 있어 축소 조정
 function isLocalLike(u: string): boolean {
   const s = String(u || '')
   return /(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d{2,5})?/i.test(s)
 }
-
 function isCapacitorOrigin(): boolean {
   try { return typeof window !== 'undefined' && /^capacitor:\/\//i.test(window.location.origin) } catch { return false }
 }
-
 function enforceHttpsIfPageIsHttps(abs: URL): URL {
   try {
     if (typeof window !== 'undefined' && window.location.protocol === 'https:' && abs.protocol !== 'https:') {
@@ -64,9 +61,13 @@ function enforceHttpsIfPageIsHttps(abs: URL): URL {
   return abs
 }
 
-/** ENV → 페이지 → 폴백, + dev-remote/8081 가드 + 비HTTP(예: capacitor://)는 원격 강제 */
+/**
+ * ENV → 페이지 → 폴백
+ * + dev-remote/8081 가드
+ * + 비HTTP(예: capacitor://) 또는 **로컬 오리진( localhost/127 )은 원격으로 강제**
+ */
 function resolveSocketOrigin(): string {
-  // 0) Capacitor(webview) 오리진이면 무조건 원격 HTTPS 강제(혼합콘텐츠·쿠키 이슈 회피)
+  // 0) Capacitor(webview) 오리진이면 무조건 원격 HTTPS 강제
   if (isCapacitorOrigin()) {
     console.warn('🔧 [Socket] capacitor origin 감지 → 원격 기본 강제:', REMOTE_DEFAULT_ORIGIN)
     return REMOTE_DEFAULT_ORIGIN
@@ -93,13 +94,20 @@ function resolveSocketOrigin(): string {
     return origin
   }
 
-  // 3) 페이지 오리진 사용: 비HTTP(예: capacitor://)면 원격으로 강제
+  // 3) 페이지 오리진 사용: 비HTTP이거나 로컬이면 원격으로 강제  ← ★추가 가드
   if (typeof window !== 'undefined' && window.location?.origin) {
-    if (!isHttpLike(window.location.origin)) {
-      console.warn('🚫 [Socket] page origin 비-HTTP → 원격 기본 강제', { pageOrigin: window.location.origin, forced: REMOTE_DEFAULT_ORIGIN })
+    const pageOrigin = window.location.origin
+    // 비HTTP(예: capacitor://) → 원격 강제
+    if (!isHttpLike(pageOrigin)) {
+      console.warn('🚫 [Socket] page origin 비-HTTP → 원격 기본 강제', { pageOrigin, forced: REMOTE_DEFAULT_ORIGIN })
       return REMOTE_DEFAULT_ORIGIN
     }
-    const abs = enforceHttpsIfPageIsHttps(new URL(window.location.origin))
+    // 로컬 오리진(https://localhost, http://127.0.0.1 등) → 원격 강제
+    if (isLocalLike(pageOrigin)) {
+      console.warn('🚫 [Socket] page origin이 로컬입니다 → 원격 기본 강제', { pageOrigin, forced: REMOTE_DEFAULT_ORIGIN })
+      return REMOTE_DEFAULT_ORIGIN
+    }
+    const abs = enforceHttpsIfPageIsHttps(new URL(pageOrigin))
     const origin = originOf(abs)
     console.log('🔧 [Socket] origin from page:', origin, { MODE })
     return origin
@@ -116,27 +124,17 @@ function buildOptions(): Partial<ManagerOptions & SocketOptions> {
   const token = getToken()
   const opts: Partial<ManagerOptions & SocketOptions> = {
     path: '/socket.io',
-
-    // ✅ 모바일/웹 혼합콘텐츠·프록시 이슈 최소화: 우선 websocket
-    //   (필요 시 polling 폴백 허용)
     transports: ['websocket', 'polling'],
     upgrade: true,
     rememberUpgrade: true,
-
-    // ✅ 백엔드가 세션 쿠키 인증일 수 있으므로 쿠키를 동반한다.
-    //    (polling에 적용, websocket 업그레이드 단계에서도 브라우저 쿠키가 전송됨)
-    withCredentials: true,
-
+    withCredentials: true, // 세션 쿠키 동반
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 800,
     reconnectionDelayMax: 8000,
     randomizationFactor: 0.5,
-
     timeout: 30000,
-
-    // ✅ JWT 병행 지원(서버가 지원 시)
-    auth: token ? { token } : undefined,
+    auth: token ? { token } : undefined, // JWT 병행
   }
   console.log('🔌 [Socket] options:', {
     path: opts.path,
@@ -159,15 +157,12 @@ function bindCoreListeners(sock: Socket, originStr: string) {
   sock.on('connect', () => {
     console.log('✅ [Socket] connected:', sock.id, '| origin:', originStr, '| transport:', sock.io.engine.transport.name)
   })
-
   sock.on('connect_error', (err: any) => {
     console.error('❌ [Socket] connect_error:', err?.message || err)
   })
-
   sock.on('error', (err: any) => {
     console.error('❌ [Socket] error:', err?.message || err)
   })
-
   sock.io.on('reconnect_attempt', (attempt) => {
     console.log('↻ [Socket] reconnect_attempt:', attempt)
   })
@@ -180,7 +175,6 @@ function bindCoreListeners(sock: Socket, originStr: string) {
   sock.io.on('reconnect_failed', () => {
     console.warn('⛔ [Socket] reconnect_failed (no more attempts)')
   })
-
   sock.on('disconnect', (reason: string) => {
     console.warn('⚠️ [Socket] disconnected:', reason)
   })

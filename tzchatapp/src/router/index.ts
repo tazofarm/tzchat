@@ -1,8 +1,7 @@
 // src/router/index.ts
 // ----------------------------------------------------------
 // 라우터 설정 (Vue Router v4)
-// - 가독성 위해 글자색 관련 CSS는 각 컴포넌트에서 처리(여기선 로직/가드 집중)
-// - 전역 가드에서 /me 호출 시 반드시 공통 axios 인스턴스를 사용
+// - 전역 가드에서 /me 호출 시 반드시 공통 axios 인스턴스 사용
 //   (상대경로 fetch 사용 금지: dev 서버(8081)로 붙어 500/401 유발)
 // ----------------------------------------------------------
 import { createRouter, createWebHistory } from 'vue-router'
@@ -79,7 +78,6 @@ import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 // 라우트 정의
 // - /home 은 인증 필요(meta.requiresAuth: true)
 // - /home/admin 은 인증 + 마스터 권한 필요(meta.requiresMaster: true)
-//   -> 버튼은 프론트에서 숨기지만, 최종 차단은 라우터 가드에서 수행
 // ----------------------------------------------------------
 const routes = [
   { path: '/', redirect: '/login' },
@@ -173,10 +171,29 @@ const router = createRouter({
 })
 
 // ----------------------------------------------------------
+// /me 응답 정규화 헬퍼
+// - 백엔드가 다양한 형태로 응답하는 경우를 모두 수용
+//   예) {ok:true,user:{...}} | {success:true,data:{user:{...}}} | {user:{...}} | {username,...}
+// ----------------------------------------------------------
+function parseMePayload(raw: any) {
+  const user =
+    raw?.user ??
+    raw?.data?.user ??
+    // 일부 구현은 사용자 객체 자체를 최상위로 반환하기도 함
+    (raw && typeof raw === 'object' && ('username' in raw || '_id' in raw) ? raw : null)
+
+  const ok =
+    raw?.ok === true ||
+    raw?.success === true ||
+    !!user
+
+  return { ok, user }
+}
+
+// ----------------------------------------------------------
 // 전역 네비게이션 가드
 // - meta.requiresAuth: 인증 필요
 // - meta.requiresMaster: 마스터 권한 필요
-//   ※ matched.some(...) 공식 패턴
 // ----------------------------------------------------------
 router.beforeEach(async (to, _from, next) => {
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
@@ -188,16 +205,23 @@ router.beforeEach(async (to, _from, next) => {
   try {
     console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
 
-    // ✅ 공통 axios 인스턴스 사용 + baseURL이 이미 /api 이므로 경로는 '/me'
-    const { data } = await api.get('/me', { withCredentials: true })
+    // ✅ 공통 axios 인스턴스 사용
+    const res = await api.get('/me', { withCredentials: true })
+    const { ok, user: me } = parseMePayload(res?.data)
 
-    if (!data?.ok) {
-      console.warn('⛔ [가드] /me ok=false → /login 리디렉션', { to: to.fullPath })
+    if (!ok || !me) {
+      console.warn('⛔ [가드] /me 인증 실패 → /login 리디렉션', {
+        to: to.fullPath,
+        sample: typeof res?.data === 'object' ? Object.keys(res.data) : typeof res?.data,
+      })
       return next({ path: '/login', query: { redirect: to.fullPath } })
     }
 
-    const me = data?.user
-    console.log('✅ [가드] 로그인 확인:', { username: me?.username, nickname: me?.nickname, role: me?.role })
+    console.log('✅ [가드] 로그인 확인:', {
+      username: me?.username,
+      nickname: me?.nickname,
+      role: me?.role,
+    })
 
     // 마스터 요구 라우트 검사
     if (requiresMaster) {

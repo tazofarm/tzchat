@@ -60,17 +60,17 @@
  * LoginPage.vue
  * ------------------------------------------------------
  * - 공통 API 인스턴스만 사용(api / AuthAPI) + 경로만 전달('/login', '/me')
- * - dev-remote에서 baseURL 진단 로그(로컬로 향하면 경고)
  * - JWT 병행: 로그인 후 쿠키/토큰 기반으로 /me 재검증
  * - 소켓 인증 갱신(refreshSocketAuth) 시도
- * - 상세 로그([UI]/[HTTP]/[SOCKET]) 다량 유지
+ * - 가드의 redirect 파라미터(예: /login?redirect=/home/2page) 반영
  */
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { api, AuthAPI } from '@/lib/api'          // axios 인스턴스(+ baseURL 포함), 인증 헬퍼
-import { refreshSocketAuth } from '@/lib/socket'   // 로그인/로그아웃 후 소켓 인증 갱신
+import { useRouter, useRoute } from 'vue-router'
+import { api, AuthAPI } from '@/lib/api'
+import { refreshSocketAuth } from '@/lib/socket'
 
 const router = useRouter()
+const route = useRoute()
 
 // 사용자 입력값
 const username = ref<string>('')
@@ -78,7 +78,7 @@ const password = ref<string>('')
 const message = ref<string>('')
 const submitting = ref<boolean>(false)
 
-// ===== 진단: 실제 baseURL이 무엇인지 확인 (dev-remote에서만 로컬이면 경고) =====
+// ===== 진단: 실제 baseURL 로그 =====
 function debugBaseURL() {
   try {
     const base = api?.defaults?.baseURL || '(unknown)'
@@ -86,8 +86,6 @@ function debugBaseURL() {
     const viteMode = (import.meta as any)?.env?.VITE_MODE || '(unknown)'
     const apiEnv = (import.meta as any)?.env?.VITE_API_BASE_URL
     const wsEnv  = (import.meta as any)?.env?.VITE_WS_BASE
-    const isDevRemote = mode === 'dev-remote' || viteMode === 'dev-remote'
-    const isLocal = /localhost|127\.0\.0\.1/i.test(String(base)) || String(base).startsWith('http://')
 
     console.log('[HTTP][CFG][FINAL]', {
       mode, viteMode,
@@ -95,10 +93,6 @@ function debugBaseURL() {
       VITE_API_BASE_URL: apiEnv,
       VITE_WS_BASE: wsEnv
     })
-
-    if (isDevRemote && isLocal) {
-      console.warn('⚠️ dev-remote 모드인데 baseURL이 로컬/HTTP로 보입니다. .env.dev-remote를 확인하세요.')
-    }
   } catch (e: any) {
     console.log('[HTTP][CFG][ERR] debugBaseURL', { message: e?.message })
   }
@@ -111,8 +105,11 @@ onMounted(async () => {
   try {
     const me = await api.get('/me') // 경로만 전달
     console.log('[UI][RES] already signed-in', { user: (me?.data as any)?.user?.username })
-    // 필요 시 자동 이동:
-    // return router.push('/home/2page')
+    // 이미 로그인 상태면 redirect 파라미터 우선 이동
+    const redirectTo = typeof route.query.redirect === 'string' && route.query.redirect
+      ? route.query.redirect
+      : '/home/2page'
+    router.push(redirectTo)
   } catch (e: any) {
     const status = e?.response?.status
     if (status === 401) {
@@ -142,7 +139,6 @@ const login = async () => {
       pw: pw ? '(hidden)' : '(empty)'
     })
 
-    // 입력 검증(프런트 1차 방어)
     if (!id || !pw) {
       message.value = '아이디와 비밀번호를 입력하세요.'
       return
@@ -160,7 +156,7 @@ const login = async () => {
     // 민감정보 정리
     password.value = ''
 
-    // JWT 갱신을 소켓에 반영(웹뷰/앱 환경 대비)
+    // 소켓 인증 갱신 (JWT 병행 중이면 즉시 반영)
     try {
       refreshSocketAuth()
     } catch (sockErr: any) {
@@ -175,8 +171,11 @@ const login = async () => {
       // UI 안내
       message.value = ((res?.data as any)?.message || (res?.data as any)?.msg) || '로그인 되었습니다.'
 
-      // 홈으로 이동
-      router.push('/home/2page')
+      // 가드가 넘겨준 redirect 목적지로 이동(없으면 기본)
+      const redirectTo = typeof route.query.redirect === 'string' && route.query.redirect
+        ? route.query.redirect
+        : '/home/2page'
+      router.push(redirectTo)
       return
     } catch (meErr: any) {
       console.log('[UI][ERR] /me after login failed', {
@@ -211,40 +210,30 @@ const login = async () => {
 </script>
 
 <style scoped>
-/* ✅ 로그인 화면 - 비율 보정 전용(CSS만 수정, 구조 불변)
-   - 라벨(아이디/비밀번호) 가독성 ↑ : 16~17px + 굵기 600
-   - 입력/버튼은 16px, 높이 48px 유지(모바일 터치 타깃)
-   - 오토필, 포커스 가시성, 안전영역, 작은 화면 대응 유지
-*/
-
-/* 전체 레이아웃 */
+/* (기존 스타일 유지) */
 .login-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100dvh; /* 모바일 주소창 높이 변동 대응 */
+  min-height: 100dvh;
   padding: clamp(12px, 3vw, 20px);
   padding-top: calc(env(safe-area-inset-top, 0px) + clamp(12px, 3vw, 20px));
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(12px, 3vw, 20px));
   padding-left: calc(env(safe-area-inset-left, 0px) + clamp(12px, 3vw, 20px));
   padding-right: calc(env(safe-area-inset-right, 0px) + clamp(12px, 3vw, 20px));
   background: #f4f6f9;
-  color: #111; /* 기본 글자색(가독성) */
-  overscroll-behavior: contain; /* 뷰포트 바운스 최소화 */
+  color: #111;
+  overscroll-behavior: contain;
 }
-
-/* 로그인 카드 */
 .login-box {
   width: min(100%, 420px);
   background: #141414;
-  color: #fff; /* 다크 카드 내부는 흰색 유지 */
+  color: #fff;
   padding: clamp(16px, 4.5vw, 28px);
   border-radius: 16px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.25);
   text-align: center;
 }
-
-/* 제목: 반응형 크기 + 간격(기존 유지) */
 .login-box h2 {
   margin: 0 0 clamp(8px, 2vw, 12px) 0;
   font-size: clamp(18px, 4.5vw, 24px);
@@ -252,22 +241,8 @@ const login = async () => {
   color: #ffffff;
 }
 .login-box h2:last-of-type { margin-bottom: clamp(14px, 3vw, 18px); }
-
-/* 폼 */
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(12px, 3vw, 16px); /* 그룹 간격 살짝 ↑ */
-}
-
-/* 그룹 */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch; /* 모바일 넓이 꽉 채움 */
-}
-
-/* 라벨 */
+.login-form { display: flex; flex-direction: column; gap: clamp(12px, 3vw, 16px); }
+.form-group { display: flex; flex-direction: column; align-items: stretch; }
 .login-box label {
   margin-bottom: 8px;
   font-size: clamp(16px, 2.8vw, 17px);
@@ -275,8 +250,6 @@ const login = async () => {
   letter-spacing: 0.1px;
   color: #ffffff;
 }
-
-/* 입력창 */
 .login-box input {
   width: 100%;
   min-height: 48px;
@@ -291,8 +264,6 @@ const login = async () => {
   accent-color: #3498db;
 }
 .login-box input::placeholder { color: #8d8d8d; }
-
-/* 오토필 가독성 보정 */
 .login-box input:-webkit-autofill,
 .login-box input:-webkit-autofill:hover,
 .login-box input:-webkit-autofill:focus {
@@ -300,15 +271,11 @@ const login = async () => {
   transition: background-color 5000s;
   box-shadow: 0 0 0px 1000px #fff inset;
 }
-
-/* 포커스 가시성 */
 .login-box input:focus-visible {
   border-color: #3498db;
   box-shadow: 0 0 0 3px rgba(52,152,219,0.25);
   border-radius: 12px;
 }
-
-/* 버튼 */
 .login-box button {
   width: 100%;
   min-height: 48px;
@@ -326,14 +293,6 @@ const login = async () => {
 .login-box button:hover { background: #2980b9; }
 .login-box button:active { transform: translateY(1px); }
 .login-box button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* 키보드 포커스 */
-.login-box button:focus-visible {
-  outline: 3px solid rgba(52,152,219,0.5);
-  outline-offset: 2px;
-}
-
-/* 메시지 */
 .error {
   color: #ff5252;
   margin-top: 10px;
@@ -341,8 +300,6 @@ const login = async () => {
   line-height: 1.45;
   word-break: break-word;
 }
-
-/* 하단 링크 */
 .link-container {
   margin-top: clamp(16px, 3.5vw, 22px);
   font-size: clamp(15px, 2.6vw, 16px);
@@ -357,19 +314,13 @@ const login = async () => {
   outline-offset: 2px;
   border-radius: 6px;
 }
-
-/* 스크롤바 얇게(데스크톱 보조) */
 * { scrollbar-width: thin; scrollbar-color: #bbb transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #bbb; border-radius: 4px; }
-
-/* 아주 작은 화면에서 패딩 축소 */
 @media (max-width: 320px) {
   .login-container { padding: 8px; }
   .login-box { padding: 14px; }
 }
-
-/* 사용자 접근성 설정 존중: 모션 최소화 */
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
