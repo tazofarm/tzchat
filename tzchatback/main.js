@@ -97,6 +97,7 @@ const cors = require('cors');
 // ★ 운영/원격-dev 허용 오리진
 const allowedOriginsList = [
   'https://tzchat.duckdns.org', // 배포/원격-dev 공용
+  'http://localhost',
   'http://localhost:8081',
   'http://127.0.0.1:8081',
   'http://localhost:5173',
@@ -126,9 +127,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// 🔧 앱(WebView)에서 file:// 또는 일부 환경은 Origin 헤더가 'null'로 옵니다.
+// credentials 요청에서는 명시적으로 'null'을 ACAO로 돌려줘야 합니다.
+const ALLOW_NULL_ORIGIN = true;
+
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // 서버 내부 요청, 앱 webview 등
+    // 내부 호출(서버-서버) 등 Origin이 없으면 허용
+    if (!origin) {
+      console.log('[CORS-CHECK] (no-origin) => ALLOW');
+      return cb(null, true);
+    }
+    // 'null' 오리진 허용(옵션)
+    if (origin === 'null' && ALLOW_NULL_ORIGIN) {
+      console.log('[CORS-CHECK] null => ALLOW(explicit)');
+      // cors 패키지가 헤더를 'null'로 세팅하도록 문자열 그대로 허용
+      return cb(null, true);
+    }
     if (allowedOriginsList.includes(origin)) {
       console.log('[CORS-CHECK]', origin, '=> ALLOW(list)');
       return cb(null, true);
@@ -145,16 +160,28 @@ const corsOptions = {
   // ✅ JWT 헤더 허용
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   maxAge: 600, // 프리플라이트 캐시
+  optionsSuccessStatus: 204,
 };
 
+app.use((req, res, next) => {
+  // 오리진별 캐시 안전
+  res.setHeader('Vary', 'Origin');
+  next();
+});
+
 app.use(cors(corsOptions));
-// Express v5: 문자열 '*' 금지 → 정규식으로 OPTIONS 허용
-app.options(/.*/, cors(corsOptions), (req, res) => {
+
+// Express v5: 정규식으로 OPTIONS 허용 + 로그
+app.options(/.*/, (req, res, next) => {
+  console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
+  next();
+}, cors(corsOptions), (req, res) => {
   res.sendStatus(204);
 });
 
 console.log('🛡️  CORS 허용(고정):', allowedOriginsList.join(', '));
 console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
 
 // =======================================
 /**
@@ -296,6 +323,7 @@ app.get('/debug/echo', (req, res) => {
     cookieHeader: req.headers.cookie || null
   });
 });
+
 app.get('/debug/session', (req, res) => {
   console.log('🔎 /debug/session sessionID =', req.sessionID, ' user =', req.session?.user || null, ' jwtUser =', req.user || null);
   res.json({
@@ -306,11 +334,21 @@ app.get('/debug/session', (req, res) => {
   });
 });
 
+// 🧪 쿠키 저장 테스트용: 앱(WebView)에서 Set-Cookie 수신/저장 확인
+app.get('/debug/set-cookie', (req, res) => {
+  const value = Date.now().toString(36);
+  res.cookie('tzchat_test', value, {
+    httpOnly: true,
+    sameSite: cookieConfig.sameSite,
+    secure: cookieConfig.secure,
+    path: '/',
+  });
+  console.log('🔎 /debug/set-cookie -> Set-Cookie: tzchat_test=', value);
+  res.json({ ok: true, set: true, value });
+});
+
 // =======================================
 // 2) 라우터 등록 (safeMountRouter)
-//    ⚠️ 현재 라우터는 세션 기반으로 동작 중일 수 있음.
-//    JWT 전환 완료 전까지는 req.user || req.session.user 를 함께 고려하도록
-//    각 라우터에서 점진적으로 리팩토링 예정.
 // =======================================
 safeMountRouter('/api', './routes/userRouter');
 safeMountRouter('/api', './routes/authRouter');
@@ -331,6 +369,7 @@ const io = new Server(server, {
   cors: {
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
+      if (origin === 'null' && ALLOW_NULL_ORIGIN) return cb(null, true);
       if (allowedOriginsList.includes(origin)) return cb(null, true);
       if (dynamicOriginAllow.some((re) => re.test(origin))) return cb(null, true);
       return cb(new Error('Socket.IO CORS blocked'));
@@ -363,7 +402,7 @@ io.use((socket, next) => {
       return next(); // 세션으로 계속
     }
 
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
     // socket.user: 라우팅/방조인 로직에서 사용 가능
     socket.user = {
       _id: payload._id || payload.sub || null,

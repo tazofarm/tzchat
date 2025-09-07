@@ -1,19 +1,16 @@
 // routes/authRouter.js
 // ------------------------------------------------------
-// 인증 및 계정 관련 라우터 (JWT 전환)
+// 인증 및 계정 관련 라우터 (JWT 병행 + 세션 하위호환)
 // - 회원가입, 로그인/로그아웃, 내 정보(/me), 비밀번호 변경, 탈퇴/취소
-// - ✅ 세션 하위 호환: 세션이 있으면 사용, 없으면 JWT 우선 사용
+// - ✅ 로그인 시 세션 재발급(regenerate) + 저장(save)로 쿠키 발행 보장
 // - ✅ Web/App 동시 지원: httpOnly 쿠키 + JSON 응답 token 병행
+// - ✅ 하위호환: /userinfo 추가
 // - 로그 최대화(요청 RAW, 파싱값, 토큰/쿠키 유무, 처리 경로)
 // ------------------------------------------------------
 
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-const sharp = require('sharp');                 // (현 파일에서 직접 사용 X, 유지)
-const bcrypt = require('bcrypt');               // 비밀번호 해시/검증
-const jwt = require('jsonwebtoken');            // ✅ JWT
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const FriendRequest = require('../models/FriendRequest'); // (직접 사용 X, 유지)
 const ChatRoom = require('../models/ChatRoom');           // (직접 사용 X, 유지)
@@ -52,15 +49,14 @@ function signToken(user) {
 }
 
 function setJwtCookie(req, res, token) {
-  // NOTE: prod/https 환경 가정 — SameSite=None + Secure
-  // 앱(WebView) 호환 목적. (Capacitor/Android는 쿠키 미사용 가능성 → token도 JSON으로 반환)
-  const isSecure = true; // 운영/원격-DEV 공통 HTTPS 프록시 뒤 가정
+  // 운영/원격-DEV: HTTPS 전제 → SameSite=None + Secure
+  const isSecure = true;
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'none',
     secure: isSecure,
     path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7일 (JWT_EXPIRES_IN과 맞춤)
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7일
   });
   console.log('[AUTH][COOKIE]', { name: COOKIE_NAME, set: true, httpOnly: true, sameSite: 'none', secure: isSecure });
 }
@@ -75,7 +71,10 @@ function extractToken(req) {
   const cookieHeader = req.headers.cookie || '';
   if (cookieHeader.includes(`${COOKIE_NAME}=`)) {
     try {
-      const target = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith(`${COOKIE_NAME}=`));
+      const target = cookieHeader
+        .split(';')
+        .map(v => v.trim())
+        .find(v => v.startsWith(`${COOKIE_NAME}=`));
       if (target) return decodeURIComponent(target.split('=')[1]);
     } catch (e) {
       console.log('[AUTH][DBG] 쿠키 파싱 실패:', e?.message);
@@ -182,13 +181,13 @@ router.post('/signup', async (req, res) => {
 });
 
 // ======================================================
-// 로그인 / 로그아웃 (JWT)
+// 로그인 / 로그아웃 (JWT + 세션 하위호환)
 // ======================================================
 /**
  * ✅ 로그인
  * - 자격 증명 확인 → JWT 발급
  * - httpOnly 쿠키 설정 + JSON으로 token 반환 (앱 호환)
- * - (하위호환) 세션도 세팅 가능하지만 기본은 JWT 사용 권장
+ * - (중요) 세션 재발급(regenerate) + save로 쿠키 발행 보장
  */
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
@@ -202,7 +201,6 @@ router.post('/login', async (req, res) => {
   });
 
   try {
-    // 🔧 중요: User 스키마에서 password가 select:false 일 가능성 → 반드시 +password 명시
     const user = await User.findOne({ username: safeUsername }).select('+password');
     if (!user) {
       console.log('[AUTH][ERR]', { step: 'login', code: 'NO_USER', username: safeUsername });
@@ -227,12 +225,22 @@ router.post('/login', async (req, res) => {
 
     const token = signToken(user);
     setJwtCookie(req, res, token); // 웹용 쿠키
-    // (선택) 세션 하위 호환 — 다른 라우터가 아직 세션을 볼 수 있게
+
+    // ⭐ 세션 하위호환: 고정화 방지 + 쿠키 발행 보장
     if (req.session) {
+      await new Promise((resolve, reject) => {
+        req.session.regenerate(err => (err ? reject(err) : resolve()));
+      });
       req.session.user = { _id: user._id, nickname: user.nickname };
+      await new Promise((resolve, reject) => {
+        req.session.save(err => (err ? reject(err) : resolve()));
+      });
+      console.log('[AUTH][SESSION] regenerated + saved', { sid: req.sessionID, userId: String(user._id) });
     }
 
     console.log('[API][RES] /login 200', { username: safeUsername, userId: String(user._id) });
+    // 캐시 방지(일부 WebView 이슈 예방)
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ok: true, message: '로그인 성공', nickname: user.nickname, token });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'login', message: err?.message });
@@ -264,6 +272,7 @@ router.post('/logout', async (req, res) => {
     }
 
     console.log('[API][RES] /logout 200');
+    res.setHeader('Cache-Control', 'no-store');
     return res.json({ ok: true, message: '로그아웃 완료' });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'logout', message: err?.message });
@@ -372,7 +381,7 @@ router.put('/update-password', authFromJwtOrSession, async (req, res) => {
 
   if (!current || !next) {
     return res.status(400).json({ ok: false, message: '현재/새 비밀번호를 모두 입력해 주세요.' });
-    }
+  }
   if (String(next).length < 4) {
     return res.status(400).json({ ok: false, message: '새 비밀번호는 4자 이상을 권장합니다.' });
   }
@@ -416,7 +425,7 @@ router.post('/account/delete-request', authFromJwtOrSession, async (req, res) =>
   try {
     const userId = req.auth.userId;
     const now = new Date();
-    const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
+       const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
 
     await User.findByIdAndUpdate(userId, {
       status: 'pendingDeletion',
@@ -465,6 +474,44 @@ router.post('/account/undo-delete', authFromJwtOrSession, async (req, res) => {
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'undoDelete', message: err?.message });
     return res.status(500).json({ ok: false, error: '탈퇴 취소 실패' });
+  }
+});
+
+// ======================================================
+// 🔁 하위호환: /userinfo (세션/JWT 겸용 간단 응답)
+// ======================================================
+router.get('/userinfo', async (req, res) => {
+  try {
+    let via = null;
+    let uid = null;
+    let nickname = null;
+
+    if (req.session?.user?._id) {
+      via = 'session';
+      uid = String(req.session.user._id);
+      nickname = req.session.user.nickname || null;
+    } else {
+      const token = extractToken(req);
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET);
+          via = 'jwt';
+          uid = String(decoded.sub || '');
+          const u = await User.findById(uid).select('nickname').lean();
+          nickname = u?.nickname || null;
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    if (!uid) {
+      return res.json({ ok: true, loggedIn: false });
+    }
+    return res.json({ ok: true, loggedIn: true, via, userId: uid, nickname });
+  } catch (err) {
+    console.log('[AUTH][ERR]', { step: 'userinfo', message: err?.message });
+    return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
 

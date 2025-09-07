@@ -1,16 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 📡 네트워크 권한
-         - INTERNET: API 호출 및 광고/분석 SDK 등 네트워크 접근
-         - ACCESS_NETWORK_STATE: 네트워크 상태 체크(AdMob 등 일부 SDK 권장) -->
+    <!-- 📡 네트워크 권한 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- 📱 애플리케이션 설정 -->
-    <!-- 🔒 평문 HTTP 차단(HTTPS만 허용) → SameSite=None;Secure 쿠키 전제
-         * HTTP 테스트가 필요하면 일시적으로 usesCleartextTraffic="true"로 바꾸거나
-           network_security_config 파일을 추가해 특정 도메인만 허용하세요. -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -18,19 +12,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        <!-- 🔐 특정 도메인만 HTTP 허용 (에뮬/내망 테스트용) -->
+        android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- ✅ Google Mobile Ads SDK(App ID)
-             - 반드시 실제 값이 strings.xml의 admob_app_id에 있어야 함
-             - 없으면 "Missing application ID"로 앱 크래시 -->
+        <!-- ✅ Google Mobile Ads SDK(App ID) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/admob_app_id" />
 
-        <!-- 🚀 메인 액티비티 (Capacitor: BridgeActivity 상속)
-             - exported=true: Android 12+ 요구사항
-             - singleTask: WebView 재활용(중복 인스턴스 방지)
-             - configChanges: WebView 재생성 없이 회전/다국어/다크모드 등 대응 -->
+        <!-- 🚀 메인 액티비티 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -46,9 +37,7 @@
 
         </activity>
 
-        <!-- 📂 파일 공유(FileProvider): 카메라/갤러리 첨부 등 URI 권한 제공 시 필요
-             - authorities는 ${applicationId}.fileprovider로 고정
-             - @xml/file_paths는 res/xml/file_paths.xml에 정의 -->
+        <!-- 📂 파일 공유(FileProvider) -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

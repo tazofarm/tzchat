@@ -1,8 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-  <!-- HTTPS만 허용, HTTP 평문은 차단 -->
+
+  <!-- 🌐 기본: HTTPS만 허용 (HTTP 차단) -->
   <domain-config cleartextTrafficPermitted="false">
-    <!-- 반드시 본인 도메인으로 수정 -->
+    <!-- 운영 도메인 (본인 도메인으로 유지) -->
     <domain includeSubdomains="true">tzchat.duckdns.org</domain>
   </domain-config>
+
+  <!-- 🧪 개발/에뮬레이터: HTTP 예외 허용 -->
+  <!-- 에뮬레이터 localhost → 10.0.2.2 -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">10.0.2.2</domain>
+  </domain-config>
+
+  <!-- 로컬 네트워크(예: Wi-Fi 테스트) -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">192.168.0.0</domain>
+  </domain-config>
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">192.168.1.0</domain>
+  </domain-config>
+
+  <!-- 필요 시 추가 (사무실 대역 등) -->
+  <!--
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">172.16.0.0</domain>
+  </domain-config>
+  -->
+
 </network-security-config>
