@@ -108,7 +108,7 @@ onMounted(async () => {
     // 이미 로그인 상태면 redirect 파라미터 우선 이동
     const redirectTo = typeof route.query.redirect === 'string' && route.query.redirect
       ? route.query.redirect
-      : '/home/2page'
+      : '/home/6page'
     router.push(redirectTo)
   } catch (e: any) {
     const status = e?.response?.status
