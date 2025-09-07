@@ -178,17 +178,12 @@ const router = createRouter({
 // - meta.requiresMaster: 마스터 권한 필요
 //   ※ matched.some(...) 공식 패턴
 // ----------------------------------------------------------
-router.beforeEach(async (to, from, next) => {
-  // 공개 라우트는 통과
+router.beforeEach(async (to, _from, next) => {
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
   const requiresMaster = to.matched.some((record) => record.meta.requiresMaster)
-  const isPublic = to.matched.some((record) => record.meta.public)
 
-  if (!requiresAuth && !requiresMaster) {
-    // 공개 라우트(로그인/회원가입/법적안내/기타) → 통과
-    return next()
-  }
-  if (isPublic) return next()
+  // 공개 라우트(로그인/회원가입/법적안내/기타) → 통과
+  if (!requiresAuth && !requiresMaster) return next()
 
   try {
     console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
@@ -218,12 +213,10 @@ router.beforeEach(async (to, from, next) => {
     // 일반 인증만 필요한 경우
     return next()
   } catch (err: any) {
-    // 상세 로그 (요청 URL/상태/응답 메시지)
     const status = err?.response?.status
     const url = `${err?.config?.baseURL || ''}${err?.config?.url || ''}`
     console.error('❌ [가드] /me 확인 오류', { status, url, errMessage: err?.message })
 
-    // 401 → 로그인 필요로 판정
     if (status === 401) {
       console.warn('⛔ [가드] 401 Unauthorized → /login 리디렉션', { to: to.fullPath })
       return next({ path: '/login', query: { redirect: to.fullPath } })
