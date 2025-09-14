@@ -5,7 +5,8 @@
 // - ✅ 로그인 시 세션 재발급(regenerate) + 저장(save)로 쿠키 발행 보장
 // - ✅ Web/App 동시 지원: httpOnly 쿠키 + JSON 응답 token 병행
 // - ✅ 하위호환: /userinfo 추가
-// - 로그 최대화(요청 RAW, 파싱값, 토큰/쿠키 유무, 처리 경로)
+// - 🔍 도메인 전환 대응: JWT_COOKIE_DOMAIN 환경변수로 쿠키 domain 선택적 적용
+// - 🧯 캐시 방지: 민감 응답에 no-store 헤더 추가
 // ------------------------------------------------------
 
 const express = require('express');
@@ -23,6 +24,9 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // 앱/웹 공통 만료
 const COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+// 👉 새 도메인(tzchat.tazocode.com)로 바꾼 뒤 쿠키 도메인을 하드코딩하지 않기 위해
+//    환경변수로만 지정 가능하게 하고, 기본은 "미지정(호스트 한정 쿠키)"로 둡니다.
+const COOKIE_DOMAIN = (process.env.JWT_COOKIE_DOMAIN || '').trim(); // 예: ".tazocode.com" (선택)
 
 // ===== 유틸: 민감정보 마스킹 =====
 function maskPassword(obj) {
@@ -51,14 +55,29 @@ function signToken(user) {
 function setJwtCookie(req, res, token) {
   // 운영/원격-DEV: HTTPS 전제 → SameSite=None + Secure
   const isSecure = true;
-  res.cookie(COOKIE_NAME, token, {
+
+  /** 공통 옵션 */
+  const baseCookie = {
     httpOnly: true,
     sameSite: 'none',
     secure: isSecure,
     path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7일
+  };
+
+  /** domain은 환경변수가 있을 때만 적용(없으면 호스트 한정 쿠키로 발급) */
+  const options = COOKIE_DOMAIN ? { ...baseCookie, domain: COOKIE_DOMAIN } : baseCookie;
+
+  res.cookie(COOKIE_NAME, token, options);
+
+  console.log('[AUTH][COOKIE][SET]', {
+    name: COOKIE_NAME,
+    httpOnly: baseCookie.httpOnly,
+    sameSite: baseCookie.sameSite,
+    secure: baseCookie.secure,
+    path: baseCookie.path,
+    domain: COOKIE_DOMAIN || '(none)',
   });
-  console.log('[AUTH][COOKIE]', { name: COOKIE_NAME, set: true, httpOnly: true, sameSite: 'none', secure: isSecure });
 }
 
 // ===== 유틸: JWT 추출 & 검증 =====
@@ -197,6 +216,8 @@ router.post('/login', async (req, res) => {
     username: safeUsername,
     ua: req.get('user-agent'),
     origin: req.get('origin') || '(none)',
+    host: req.get('host') || '(none)',
+    cookieDomain: COOKIE_DOMAIN || '(none)',
     hasCookie: !!req.headers.cookie
   });
 
@@ -255,16 +276,18 @@ router.post('/login', async (req, res) => {
  */
 router.post('/logout', async (req, res) => {
   const userId = req.session?.user?._id || '(jwt-only)';
-  console.log('[API][REQ] /logout', { userId });
+  console.log('[API][REQ] /logout', { userId, cookieDomain: COOKIE_DOMAIN || '(none)' });
 
   try {
-    // 쿠키 제거
-    res.clearCookie(COOKIE_NAME, {
+    // 쿠키 제거 (domain 동기화)
+    const clearOpts = {
       path: '/',
       sameSite: 'none',
       secure: true,
       httpOnly: true,
-    });
+    };
+    if (COOKIE_DOMAIN) clearOpts.domain = COOKIE_DOMAIN;
+    res.clearCookie(COOKIE_NAME, clearOpts);
 
     // 세션 하위 호환 파기
     if (req.session) {
@@ -287,6 +310,7 @@ router.post('/logout', async (req, res) => {
  * ✅ /me
  * - JWT 또는 세션으로 인증
  * - emergency.remainingSeconds 계산 & 만료 시 자동 OFF
+ * - 🧯 캐시 방지 헤더 추가
  */
 router.get('/me', authFromJwtOrSession, async (req, res) => {
   console.time('[API][TIMING] GET /api/me');
@@ -327,6 +351,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       },
     };
 
+    res.setHeader('Cache-Control', 'no-store');
     console.timeEnd('[API][TIMING] GET /api/me');
     return res.json({ ok: true, user: modifiedUser, durationSeconds: EMERGENCY_DURATION_SECONDS });
   } catch (err) {
@@ -425,7 +450,7 @@ router.post('/account/delete-request', authFromJwtOrSession, async (req, res) =>
   try {
     const userId = req.auth.userId;
     const now = new Date();
-       const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
+    const due = new Date(now.getTime() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
 
     await User.findByIdAndUpdate(userId, {
       status: 'pendingDeletion',
@@ -434,12 +459,14 @@ router.post('/account/delete-request', authFromJwtOrSession, async (req, res) =>
     }, { new: true });
 
     // JWT는 서버 상태와 무관 — 클라에서 토큰 삭제 필요
-    res.clearCookie(COOKIE_NAME, {
+    const clearOpts = {
       path: '/',
       sameSite: 'none',
       secure: true,
       httpOnly: true,
-    });
+    };
+    if (COOKIE_DOMAIN) clearOpts.domain = COOKIE_DOMAIN;
+    res.clearCookie(COOKIE_NAME, clearOpts);
 
     console.log('[AUTH][RES] delete-request OK', { userId, dueAt: due.toISOString() });
     return res.json({ ok: true, message: `탈퇴가 신청되었습니다. ${DELETION_GRACE_DAYS}일 후 영구 삭제됩니다.` });

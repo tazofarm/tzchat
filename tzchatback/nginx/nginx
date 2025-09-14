@@ -1,189 +1,152 @@
 # =========================================================
 # tzchat.tazocode.com - Vue(정적) + /api 프록시 + WebSocket
-# - CSP 완화: Ionic Shadow DOM 스타일 허용('unsafe-inline')
-# - 캐시 전략(배포 최적): assets=immutable, index.html=revalidate
-# - 자산/프론트/API/WS/Privacy/Debug 별도 액세스 로그
-# - IPv6/HTTP2/HSTS(선택) 정리
-# - (중요) 백엔드에서 SameSite=None; Secure 쿠키 또는 JWT를 쓰므로
-#          이 프록시는 X-Forwarded-Proto를 반드시 HTTPS로 전달해야 함
-# - (JWT) Authorization 헤더를 프록시 구간에서 반드시 보존
+# - HTTP→HTTPS 리다이렉트
+# - Let's Encrypt 인증서 사용
+# - CSP 완화(Ionic/Capacitor), 캐시 정책, 로그 분리
 # =========================================================
 
-# (중요) gzip은 전역 nginx.conf의 http{} 에서만 설정하세요.
-# 이 파일에는 gzip 설정을 넣지 않습니다. (중복 방지)
-
-# 1) HTTP → HTTPS 리다이렉트 (IPv4+IPv6)
+# 1) HTTP → HTTPS 리다이렉트 + ACME 검증 허용
 server {
     listen 80;
     listen [::]:80;
     server_name tzchat.tazocode.com;
 
-    # Let's Encrypt HTTP-01 검증 경로
+    # ACME 검증 경로(인증/갱신용)
     location /.well-known/acme-challenge/ {
         root /var/www/html;
         access_log /var/log/nginx/acme_access.log;
         error_log  /var/log/nginx/acme_error.log;
     }
 
-    # 일반 요청은 HTTPS로
     return 301 https://$host$request_uri;
 }
 
-# 2) HTTPS 서버: 정적 프론트 + API 프록시 + 소켓
+# 2) HTTPS 서버
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name tzchat.tazocode.com;
 
-    # --- SSL (Let's Encrypt) : tzchat 전용 인증서 명시 ---
+    # --- SSL (Let's Encrypt) ---
     ssl_certificate     /etc/letsencrypt/live/tzchat.tazocode.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/tzchat.tazocode.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # --- HSTS (선택) ---
+    # (선택) HSTS
     # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    # --- (선택) 업로드 파일 크기 상한 ---
-    client_max_body_size 20m;  # 이미지/동영상 업로드 대비
+    client_max_body_size 20m;
 
-    # --- CSP (Ionic 스타일 깨짐 방지) ---
-    add_header Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline' https: data:; script-src 'self' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https: wss:; frame-ancestors 'self'; base-uri 'self';" always;
+    # 🚩 CSP (Ionic/Capacitor 호환 확장)
+    #  - capacitor: 스킴 허용(브릿지)
+    #  - blob:/data: 리소스 허용
+    #  - wss: 소켓 허용
+    #  - script-src: 일부 환경에서 초기 부트에 inline/eval 필요 → 최소한으로 허용
+    add_header Content-Security-Policy "
+      default-src 'self' capacitor:;
+      connect-src 'self' https: wss: capacitor: data: blob:;
+      img-src 'self' https: data: blob:;
+      media-src 'self' https: data: blob:;
+      font-src 'self' https: data:;
+      style-src 'self' 'unsafe-inline' https: data:;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob:;
+      frame-ancestors 'self';
+      base-uri 'self';
+    " always;
 
-    # --- 공통 프록시 헤더 ---
+    # 공통 프록시 헤더
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Host  $host;
     proxy_set_header X-Forwarded-Port  443;
-    proxy_set_header X-Forwarded-Proto $scheme;   # ✅ secure 쿠키/JWT 판단 근거(https로 전달)
+    proxy_set_header X-Forwarded-Proto $scheme;   # https 전달
     proxy_http_version 1.1;
 
-    # --- Vue 빌드 결과 경로 ---
-    root  /home/tazofarm/project/tzchat/tzchatapp/dist;  # ← 경로 재확인
+    # 프론트(dist) 루트
+    root  /home/tazofarm/project/tzchat/tzchatapp/dist;
     index index.html;
 
-    # ============================
-    # Privacy: 정적 → 백엔드 폴백(둘 다 지원)
-    # /privacy     : /privacy.html 로 리다이렉트
-    # /privacy.html: dist에 있으면 정적, 없으면 백엔드(2000)로 프록시
-    # ============================
+    # Privacy: 정적 → 백엔드 폴백
     location = /privacy { return 301 /privacy.html; }
 
     location = /privacy.html {
-        # 1) 프론트(dist) 정적 파일 우선
         try_files /privacy.html @privacy_backend;
-
-        # 캐시: 항상 재검증 (문서 변경 즉시 반영)
         add_header Cache-Control "max-age=0, must-revalidate";
-
         access_log /var/log/nginx/privacy_access.log;
         error_log  /var/log/nginx/privacy_error.log;
     }
 
-    # 백엔드 폴백(Express:2000 → /public/privacy.html 또는 /privacy 라우트)
     location @privacy_backend {
         proxy_pass http://localhost:2000;
-
-        # ✅ JWT 헤더 보존
         proxy_set_header Authorization $http_authorization;
-
-        # CORS/세션 진단용: Origin 보존(백엔드 로그에서 확인 가능)
         proxy_set_header Origin $http_origin;
-
         access_log /var/log/nginx/privacy_access.log;
         error_log  /var/log/nginx/privacy_error.log;
     }
 
-    # --- 정적 청크 (/assets/) : 해시 기반 → 장기 캐시(immutable) ---
+    # 정적 청크(/assets/) : 장기 캐시
     location /assets/ {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
-        access_log /var/log/nginx/assets_access.log;
-        error_log  /var/log/nginx/assets_error.log;
-
-        # 해시 파일은 파일명 바뀌므로 강한 캐시 OK
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
+        access_log /var/log/nginx/assets_access.log;
+        error_log  /var/log/nginx/assets_error.log;
     }
 
-    # --- Service Worker (있는 경우에만) : 캐시 금지 ---
+    # Service Worker : 캐시 금지
     location = /service-worker.js {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
-
-        # 고정 파일명이라 강한 캐시 X → 항상 최신 받기
         add_header Cache-Control "no-store";
         add_header Pragma "no-cache";
         add_header Expires "0";
-
         access_log /var/log/nginx/frontend_access.log;
         error_log  /var/log/nginx/frontend_error.log;
     }
 
-    # --- 업로드 파일 (백엔드가 /uploads 정적으로 제공) ---
+    # 업로드 프록시
     location /uploads/ {
         proxy_pass http://localhost:2000;
-
-        # ✅ JWT 헤더 보존
         proxy_set_header Authorization $http_authorization;
-
-        proxy_set_header Origin $http_origin;   # ▶ 백엔드 CORS 로그 확인용
+        proxy_set_header Origin $http_origin;
         access_log /var/log/nginx/uploads_access.log;
         error_log  /var/log/nginx/uploads_error.log;
     }
 
-    # --- API 프록시 (/api/) : 동적 데이터 → 캐시 금지 ---
+    # API 프록시
     location /api/ {
         proxy_pass http://localhost:2000;
         proxy_cache_bypass $http_upgrade;
-
-        # ✅ JWT 토큰 헤더를 반드시 전달
         proxy_set_header Authorization $http_authorization;
-
-        # CORS/세션 진단을 위해 Origin을 그대로 전달 (백엔드에서 cors 미들웨어가 처리)
         proxy_set_header Origin $http_origin;
-
-        # API는 항상 신선하게
         add_header Cache-Control "no-store";
-
         access_log /var/log/nginx/api_access.log;
         error_log  /var/log/nginx/api_error.log;
     }
 
-    # --- 디버그 엔드포인트(백엔드로 프록시) : 쿠키/JWT 부착/세션 확인 ---
-    # 앱에서 로그인 직후 아래 두 URL 호출하여 즉시 진단:
-    #   https://tzchat.tazocode.com/debug/echo
-    #   https://tzchat.tazocode.com/debug/session
+    # 디버그
     location ^~ /debug/ {
         proxy_pass http://localhost:2000;
-
-        # ✅ JWT 헤더 보존
         proxy_set_header Authorization $http_authorization;
-
-        proxy_set_header Origin $http_origin;   # ▶ 백엔드 로그에서 origin 확인
+        proxy_set_header Origin $http_origin;
         add_header Cache-Control "no-store";
-
         access_log /var/log/nginx/debug_access.log;
         error_log  /var/log/nginx/debug_error.log;
     }
 
-    # --- WebSocket (Socket.IO)
-    # - 슬래시 유/무 모두 처리
-    # - Upgrade 헤더/Connection: upgrade
-    # - 읽기 타임아웃 길게
+    # WebSocket (Socket.IO)
     location = /socket.io {
         proxy_pass http://localhost:2000;
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 60s;
-
-        # ✅ JWT 헤더 보존 (핸드셰이크 단계에서 사용 가능)
         proxy_set_header Authorization $http_authorization;
-
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Origin     $http_origin;  # ▶ 백엔드의 socket CORS 판단에 도움
+        proxy_set_header Origin     $http_origin;
         access_log /var/log/nginx/ws_access.log;
         error_log  /var/log/nginx/ws_error.log;
     }
@@ -192,32 +155,25 @@ server {
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 60s;
-
-        # ✅ JWT 헤더 보존
         proxy_set_header Authorization $http_authorization;
-
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Origin     $http_origin;  # ▶ 백엔드의 socket CORS 판단에 도움
+        proxy_set_header Origin     $http_origin;
         access_log /var/log/nginx/ws_access.log;
         error_log  /var/log/nginx/ws_error.log;
     }
 
-    # --- SPA history 대응 (나머지는 index.html) ---
+    # SPA history
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;
         error_log  /var/log/nginx/frontend_error.log;
     }
 
-    # --- index.html 캐시 정책(프로덕션 최적) ---
-    # 완전 차단(no-store) 대신 "재검증"만 요구 → 304로 매우 가볍게 최신 확인
+    # index.html 재검증
     location = /index.html {
         try_files $uri =404;
-
-        # 캐시 엔트리는 만들되, 항상 재검증 (ETag/Last-Modified 활용)
         add_header Cache-Control "max-age=0, must-revalidate";
-
         access_log /var/log/nginx/frontend_access.log;
         error_log  /var/log/nginx/frontend_error.log;
     }

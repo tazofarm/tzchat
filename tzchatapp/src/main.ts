@@ -67,16 +67,12 @@ async function killServiceWorkersInDev() {
   }
 }
 
-// ❌ (기존) Top-level await
-// await killServiceWorkersInDev()
-
 // ✅ 즉시실행 async 함수(IIFE)로 감싸 Top-level await 제거
 ;(async () => {
   await killServiceWorkersInDev()
 })().catch(err => {
   console.warn('SW/Cache cleanup IIFE 오류:', err?.message)
 })
-/* ================================================= */
 
 /* ✅ 최종 API 설정 진단 */
 try {
@@ -159,7 +155,7 @@ async function bootstrapSocketOnce() {
 }
 
 /* =======================
- * 유틸 함수 (function 선언문으로 변경)
+ * 유틸 함수
  * ===================== */
 function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
@@ -261,8 +257,10 @@ router.isReady()
     console.error('💥 router.isReady() 실패:', err)
   })
 
-// 기본 글자색 보정
-document.documentElement.style.setProperty('--base-text-color', '#000')
-document.addEventListener('DOMContentLoaded', () => {
-  document.body.style.color = 'black'
-})
+/* ✂️ [FIX] 전역 텍스트 색 강제 제거
+   - 기존:
+     document.documentElement.style.setProperty('--base-text-color', '#000')
+     document.addEventListener('DOMContentLoaded', () => { document.body.style.color = 'black' })
+   - 다크 테마(배경 #121212)에서 텍스트가 검은색으로 고정되어 화면이 비어보이는 문제 유발
+   - 필요 시: 라이트 테마에서만 조건부 적용하도록 별도 테마 스위처에서 처리하세요.
+*/
