@@ -4,7 +4,7 @@
   <!-- 🌐 기본: HTTPS만 허용 (HTTP 차단) -->
   <domain-config cleartextTrafficPermitted="false">
     <!-- 운영 도메인 (본인 도메인으로 유지) -->
-    <domain includeSubdomains="true">tzchat.duckdns.org</domain>
+    <domain includeSubdomains="true">tzchat.tazocode.com</domain>
   </domain-config>
 
   <!-- 🧪 개발/에뮬레이터: HTTP 예외 허용 -->

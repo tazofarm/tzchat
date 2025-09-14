@@ -37,7 +37,7 @@ function safeMountRouter(mountPath, modulePath, exact = true) {
     if (msg.includes('path-to-regexp')) {
       console.error('🧭 힌트: 라우트 경로에 전체 URL(https://...) 또는 잘못된 파라미터 패턴이 있을 수 있어요.');
       console.error('    - OK: router.get("/login", ...), app.use("/api", router)');
-      console.error('    - NG: router.get("https://tzchat.duckdns.org/api/login", ...), app.use("https://...", router)');
+      console.error('    - NG: router.get("https://tzchat.tazocode.com/api/login", ...), app.use("https://...", router)');
       console.error('    - NG: "/api/:" 또는 "/user/:?name" (파라미터 이름 필수)');
     }
     process.exit(1);
@@ -96,7 +96,7 @@ const cors = require('cors');
 
 // ★ 운영/원격-dev 허용 오리진
 const allowedOriginsList = [
-  'https://tzchat.duckdns.org', // 배포/원격-dev 공용
+  'https://tzchat.tazocode.com', // 배포/원격-dev 공용
   'http://localhost',
   'http://localhost:8081',
   'http://127.0.0.1:8081',
@@ -231,7 +231,7 @@ const cookieForDevWeb = {
   path: '/',
 };
 
-// dev:remote(프론트 localhost:8081 → 백 https://tzchat.duckdns.org) 시
+// dev:remote(프론트 localhost:8081 → 백 https://tzchat.tazocode.com) 시
 // 백엔드는 HTTPS이므로 secure 쿠키가 필요함 → isSecureMode = true 취급
 const FORCE_SECURE_COOKIE = true; // ← dev-remote에서도 무조건 Secure+None
 const isSecureMode = FORCE_SECURE_COOKIE || isProd || isCapAppMode;

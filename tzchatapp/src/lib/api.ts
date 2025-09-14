@@ -25,7 +25,7 @@ export const API_PREFIX = '/api'
 const BUILD_ID = 'api.ts@MIXED-AUTH-RECOVERY:v3.2' // 🔧 bump
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
-const REMOTE_DEFAULT_API = 'https://tzchat.duckdns.org/api'
+const REMOTE_DEFAULT_API = 'https://tzchat.tazocode.com/api'
 
 // === 유틸 ===
 const stripTrailingSlashes = (s: string) => (s || '').replace(/\/+$/g, '')

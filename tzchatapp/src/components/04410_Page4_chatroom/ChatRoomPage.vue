@@ -140,7 +140,7 @@ const openImage = (url) => {
 const getImageUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const base = window.location.origin.replace(/\/+$/, '')         // https://tzchat.duckdns.org
+  const base = window.location.origin.replace(/\/+$/, '')         // https://tzchat.tazocode.com
   const p = String(path).startsWith('/') ? path : `/${path}`
   return `${base}${p}`
 }

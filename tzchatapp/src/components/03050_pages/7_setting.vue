@@ -41,6 +41,7 @@
         <li class="list-item" @click="goPage('/home/setting/0004')">건의하기</li>
         <li class="list-item" @click="goPage('/home/setting/0005')">개인정보 처리방침</li>
         <li class="list-item" @click="goPage('/home/setting/0006')">서비스 이용약관</li>
+        <li class="list-item" @click="goPage('/home/setting/0007')">아동 안전 정책</li>
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">

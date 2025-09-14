@@ -18,7 +18,7 @@ const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN';
 const AUTH_MODE = (import.meta as any)?.env?.VITE_AUTH_MODE || 'jwt';
 
 // 원격 기본값(서버)
-const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.duckdns.org';
+const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.tazocode.com';
 
 // 플래그
 const FORCE_DEV_REMOTE =
@@ -189,7 +189,7 @@ export const api = axios.create({
 
 // ✅ 인스턴스 레벨 안전장치: dev-remote인데 기본 baseURL이 로컬이면 즉시 교체
 (() => {
-  const DEV_REMOTE_BASE = normalize(REMOTE_DEFAULT_ORIGIN); // https://tzchat.duckdns.org/api
+  const DEV_REMOTE_BASE = normalize(REMOTE_DEFAULT_ORIGIN); // https://tzchat.tazocode.com/api
   const cur = api.defaults.baseURL || '';
   if (IS_DEV_REMOTE && /^http:\/\/localhost:2000\/api/i.test(cur)) {
     console.warn('[HTTP][CFG] api.defaults.baseURL rewrite (init) →', { from: cur, to: DEV_REMOTE_BASE });
@@ -200,7 +200,7 @@ export const api = axios.create({
 // 요청 인터셉터
 api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
   // ✅ dev-remote 핫픽스: 가장 먼저 baseURL 교체 (로그 조립 이전)
-  const DEV_REMOTE_BASE = normalize(REMOTE_DEFAULT_ORIGIN); // => https://tzchat.duckdns.org/api
+  const DEV_REMOTE_BASE = normalize(REMOTE_DEFAULT_ORIGIN); // => https://tzchat.tazocode.com/api
   const isDevRemoteFlag =
     IS_DEV_REMOTE ||
     (import.meta as any)?.env?.MODE === 'dev-remote' ||

@@ -17,7 +17,7 @@ let currentOrigin: string | null = null // 현재 연결 대상(origin) 추적
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 
 // 🔒 원격 기본 대상(프로덕션 도메인)
-const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.duckdns.org'
+const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.tazocode.com'
 
 // === 모드/env ===
 const RAW_MODE = (import.meta as any)?.env?.MODE as string | undefined

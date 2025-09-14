@@ -1,5 +1,5 @@
 # =========================================================
-# tzchat.duckdns.org - Vue(정적) + /api 프록시 + WebSocket
+# tzchat.tazocode.com - Vue(정적) + /api 프록시 + WebSocket
 # - CSP 완화: Ionic Shadow DOM 스타일 허용('unsafe-inline')
 # - 캐시 전략(배포 최적): assets=immutable, index.html=revalidate
 # - 자산/프론트/API/WS/Privacy/Debug 별도 액세스 로그
@@ -16,7 +16,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name tzchat.duckdns.org;
+    server_name tzchat.tazocode.com;
 
     # Let's Encrypt HTTP-01 검증 경로
     location /.well-known/acme-challenge/ {
@@ -33,11 +33,11 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name tzchat.duckdns.org;
+    server_name tzchat.tazocode.com;
 
     # --- SSL (Let's Encrypt) : tzchat 전용 인증서 명시 ---
-    ssl_certificate     /etc/letsencrypt/live/tzchat.duckdns.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/tzchat.duckdns.org/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/tzchat.tazocode.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tzchat.tazocode.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
@@ -153,8 +153,8 @@ server {
 
     # --- 디버그 엔드포인트(백엔드로 프록시) : 쿠키/JWT 부착/세션 확인 ---
     # 앱에서 로그인 직후 아래 두 URL 호출하여 즉시 진단:
-    #   https://tzchat.duckdns.org/debug/echo
-    #   https://tzchat.duckdns.org/debug/session
+    #   https://tzchat.tazocode.com/debug/echo
+    #   https://tzchat.tazocode.com/debug/session
     location ^~ /debug/ {
         proxy_pass http://localhost:2000;
 
