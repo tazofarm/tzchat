@@ -1,27 +1,30 @@
 # =========================================================
 # tzchat.tazocode.com - Vue(정적) + /api 프록시 + WebSocket
-# - HTTP→HTTPS 리다이렉트
-# - Let's Encrypt 인증서 사용
-# - CSP 완화(Ionic/Capacitor), 캐시 정책, 로그 분리
 # =========================================================
 
-# 1) HTTP → HTTPS 리다이렉트 + ACME 검증 허용
+# 0) www → 비-www 리다이렉트 (HTTP)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name www.tzchat.tazocode.com;
+    return 301 https://tzchat.tazocode.com$request_uri;
+}
+
+# 1) HTTP → HTTPS 리다이렉트 + ACME 검증 허용 (비-www)
 server {
     listen 80;
     listen [::]:80;
     server_name tzchat.tazocode.com;
 
-    # ACME 검증 경로(인증/갱신용)
     location /.well-known/acme-challenge/ {
         root /var/www/html;
         access_log /var/log/nginx/acme_access.log;
         error_log  /var/log/nginx/acme_error.log;
     }
-
     return 301 https://$host$request_uri;
 }
 
-# 2) HTTPS 서버
+# 2) HTTPS 서버 (비-www)
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
@@ -33,12 +36,9 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # (선택) HSTS
-    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-
     client_max_body_size 20m;
 
-    # 🚩 CSP (Ionic/Capacitor 호환 확장)
+    # CSP (Ionic/Capacitor 호환)
     add_header Content-Security-Policy "
       default-src 'self' capacitor:;
       connect-src 'self' https: wss: capacitor: data: blob:;
@@ -65,21 +65,17 @@ server {
     index index.html;
 
     # -----------------------------------------------------
-    # ✅ 정적 법/정책 문서: SPA보다 우선 매칭
-    #   실제 경로는 서버의 public/legal 위치로 맞춰주세요.
-    #   (백엔드 저장소가 /home/tazofarm/project/tzchat/public/legal 이라고 가정)
+    # ✅ 정적 법/정책 문서 (SPA보다 우선)
     # -----------------------------------------------------
     # /legal → /legal/index.html
-    location = /legal {
-        return 301 /legal/;
-    }
+    location = /legal { return 301 /legal/; }
 
+    # 디렉터리 정적 서빙(문서 내부 리소스 대비)
     location /legal/ {
         alias /home/tazofarm/project/tzchat/public/legal/;
         index index.html;
         try_files $uri $uri/ =404;
 
-        # 초기에는 캐시 비활성화(문서 잦은 업데이트 대응)
         add_header Cache-Control "no-cache, no-store, must-revalidate";
         add_header Pragma "no-cache";
         add_header Expires "0";
@@ -87,6 +83,24 @@ server {
         access_log /var/log/nginx/legal_access.log;
         error_log  /var/log/nginx/legal_error.log;
     }
+
+    # 🔒 슬러그 → 실제 파일 매핑 (프록시 불필요, HTTP/2 안전)
+    #   필요에 따라 목록을 늘리거나 수정하세요.
+    default_type text/html;
+    location = /legal/privacy           { alias /home/tazofarm/project/tzchat/public/legal/01_privacy.html; }
+    location = /legal/terms             { alias /home/tazofarm/project/tzchat/public/legal/02_terms.html; }
+    location = /legal/location          { alias /home/tazofarm/project/tzchat/public/legal/03_location.html; }
+    location = /legal/delete-account    { alias /home/tazofarm/project/tzchat/public/legal/04_delete-account.html; }
+    location = /legal/youth             { alias /home/tazofarm/project/tzchat/public/legal/05_youth.html; }
+    location = /legal/eula              { alias /home/tazofarm/project/tzchat/public/legal/06_eula.html; }
+    location = /legal/cookies           { alias /home/tazofarm/project/tzchat/public/legal/07_cookies.html; }
+    location = /legal/data-retention    { alias /home/tazofarm/project/tzchat/public/legal/08_data-retention.html; }
+    location = /legal/marketing-consent { alias /home/tazofarm/project/tzchat/public/legal/09_marketing-consent.html; }
+    location = /legal/third-parties     { alias /home/tazofarm/project/tzchat/public/legal/10_third-parties.html; }
+    location = /legal/processors        { alias /home/tazofarm/project/tzchat/public/legal/11_processors.html; }
+    location = /legal/opensource        { alias /home/tazofarm/project/tzchat/public/legal/12_opensource.html; }
+    location = /legal/community         { alias /home/tazofarm/project/tzchat/public/legal/13_community.html; }
+    location = /legal/report-block      { alias /home/tazofarm/project/tzchat/public/legal/14_report-block.html; }
 
     # 파비콘(루트)
     location = /favicon.png {
@@ -97,13 +111,11 @@ server {
         error_log  /var/log/nginx/frontend_error.log;
     }
 
-    # -----------------------------------------------------
-    # 과거 개별 경로 호환(선택): /privacy(.html) → /legal/privacy
-    # -----------------------------------------------------
-    location = /privacy { return 301 /legal/privacy; }
+    # 과거 경로 호환: /privacy(.html) → /legal/privacy
+    location = /privacy      { return 301 /legal/privacy; }
     location = /privacy.html { return 301 /legal/privacy; }
 
-    # 정적 청크(/assets/) : 장기 캐시
+    # 정적 청크
     location /assets/ {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
@@ -113,7 +125,7 @@ server {
         error_log  /var/log/nginx/assets_error.log;
     }
 
-    # Service Worker : 캐시 금지
+    # Service Worker
     location = /service-worker.js {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
@@ -154,7 +166,7 @@ server {
         error_log  /var/log/nginx/debug_error.log;
     }
 
-    # WebSocket (Socket.IO)
+    # WebSocket
     location = /socket.io {
         proxy_pass http://localhost:2000;
         proxy_buffering off;
@@ -180,7 +192,7 @@ server {
         error_log  /var/log/nginx/ws_error.log;
     }
 
-    # SPA history (※ /legal/ 블록보다 아래에 둬야 우선순위 OK)
+    # SPA history
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;

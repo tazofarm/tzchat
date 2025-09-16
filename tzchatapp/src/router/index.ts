@@ -17,6 +17,15 @@ import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
 import Success from '@/components/03050_pages/Success.vue'
 
+
+import privacy from '@/views_legal/01_privacy.vue'
+import deleteaccount from '@/views_legal/04_delete-account.vue'
+
+
+
+
+
+
 // 각 페이지 컴포넌트 import
 import Page0 from '@/components/03050_pages/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
@@ -89,6 +98,11 @@ const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
+
+{ path: '/privacy2', component: privacy },
+{ path: '/delete-account2', component: deleteaccount },
+
+
 
   // ★ 공개(비로그인) 라우트 — Play Console용 계정 삭제 안내
   {

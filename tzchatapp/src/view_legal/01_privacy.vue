@@ -1,0 +1,157 @@
+<!-- src/views/PrivacyPolicy.vue -->
+<template>
+  <main class="page">
+    <!-- 뒤로가기 버튼 -->
+    <div class="back-wrap">
+      <button class="back-btn" @click="goBack">← 뒤로가기</button>
+    </div>
+
+    <h1>개인정보 처리방침</h1>
+    <p><small>최종 업데이트: 2025-09-14</small></p>
+
+    <p>
+      본 개인정보 처리방침은 <b>네네챗</b>(이하 “회사”)가 제공하는 서비스(이하 “서비스”) 이용과
+      관련하여, 정보주체의 개인정보를 어떤 목적으로, 어떤 방식으로 처리하는지 및 정보주체의 권리를
+      어떻게 보장하는지 설명합니다.
+    </p>
+
+    <h2>1. 수집하는 개인정보</h2>
+    <ul>
+      <li>필수: 계정 ID, 비밀번호(해시), 닉네임, 이메일, 기기식별정보(로그인/보안), 서비스 이용기록, 접속 로그, IP</li>
+      <li>선택: 프로필 이미지, 상태메시지, 연락처 동기화 정보(선택 동의 시)</li>
+      <li>
+        위치기반 서비스 이용 시: 기기 위치정보(별도 동의 시,
+        <RouterLink to="/legal/location">위치정보 이용약관</RouterLink> 참조)
+      </li>
+    </ul>
+
+    <h2>2. 처리 목적</h2>
+    <ul>
+      <li>회원 가입·인증 및 서비스 제공, 안정적 운영 및 장애 대응</li>
+      <li>부정이용 방지, 보안 및 안전 확보</li>
+      <li>고객문의 대응, 민원처리, 공지사항 전달</li>
+      <li>
+        선택 동의 시, 마케팅 정보 제공(
+        <RouterLink to="/legal/marketing-consent">광고성 정보 수신 동의</RouterLink>)
+      </li>
+    </ul>
+
+    <h2>3. 처리 및 보관 기간</h2>
+    <p>
+      개인정보는 목적 달성 시 지체없이 파기합니다. 단, 법령에 따라 일정 기간 보관할 수 있으며 상세는
+      <RouterLink to="/legal/data-retention">데이터 보관 및 파기 정책</RouterLink>을 따릅니다.
+    </p>
+
+    <h2>4. 제3자 제공 및 처리위탁</h2>
+    <p>
+      회사는 원칙적으로 개인정보를 외부에 제공하지 않습니다. 불가피하게 제공이 필요한 경우,
+      정보주체에게 사전 고지·동의를 받습니다. 처리위탁 시 수탁자와 목적, 보유기간 등은
+      <RouterLink to="/legal/processors">처리위탁 현황</RouterLink>에 공개합니다. 제3자 제공이 발생할 경우
+      <RouterLink to="/legal/third-parties">제3자 제공 현황</RouterLink>에 공개합니다.
+    </p>
+
+    <h2>5. 국외 이전</h2>
+    <p>국외 이전이 필요한 경우 법령에 따라 필요한 고지·동의 및 보호조치를 이행합니다.</p>
+
+    <h2>6. 정보주체의 권리</h2>
+    <ul>
+      <li>열람·정정·삭제·처리정지 요구권</li>
+      <li>동의 철회 및 탈퇴(<RouterLink to="/legal/delete-account">계정 삭제 안내</RouterLink>)</li>
+      <li>권리행사 방법: 서비스 내 설정 또는 아래 연락처로 요청</li>
+    </ul>
+
+    <h2>7. 아동·청소년 보호</h2>
+    <p>
+      미성년자의 개인정보는 법정대리인의 동의가 필요한 경우에 한해 수집·이용하며,
+      유해정보로부터의 보호 원칙은
+      <RouterLink to="/legal/youth">청소년 보호정책</RouterLink>에 따릅니다.
+    </p>
+
+    <h2>8. 쿠키 이용</h2>
+    <p>
+      서비스 품질 향상 및 보안 유지를 위해 쿠키를 사용할 수 있습니다. 자세한 내용은
+      <RouterLink to="/legal/cookies">쿠키 정책</RouterLink>을 확인하세요. 브라우저 설정에서 쿠키 수신을
+      거부할 수 있습니다.
+    </p>
+
+    <h2>9. 보안조치</h2>
+    <ul>
+      <li>암호화 저장(비밀번호 해시), 전송구간 암호화(HTTPS)</li>
+      <li>접근통제, 권한관리, 로그 모니터링, 취약점 점검</li>
+    </ul>
+
+    <h2>10. 변경 고지</h2>
+    <p>방침 변경 시 시행일 최소 7일 전 공지합니다(중요 변경은 30일 전).</p>
+
+    <h2>11. 문의처</h2>
+    <div class="box">
+      <p><b>개인정보 보호책임자</b> : 김영주</p>
+      <p><b>이메일</b> : <a href="mailto:tazocode@gmail.com">tazocode@gmail.com</a></p>
+      <p><b>주소</b> : (예) 서울특별시 …</p>
+    </div>
+  </main>
+</template>
+
+<script setup>
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+function goBack() {
+  // 앱/웹 공통 백 동작: 히스토리가 있으면 뒤로, 없으면 홈으로
+  if (window.history.length > 1) window.history.back()
+  else router.push('/')
+}
+
+onMounted(() => {
+  // SFC에서는 <head>를 직접 못 넣으므로 타이틀만 동적으로 세팅
+  document.title = '개인정보 처리방침 | 네네챗'
+})
+</script>
+
+<style scoped>
+.page{
+  max-width: 900px;
+  margin: 0 auto;
+  background: #fff;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+  line-height: 1.7;
+  color: #111;
+}
+:root, :host, body { background: #fafafa; }
+
+h1{ margin-top: 0; }
+h2{ margin-top: 2rem; }
+code, b{
+  background:#f3f3f3;
+  padding:.08rem .35rem;
+  border-radius:4px;
+}
+ul{ padding-left: 1.2rem; }
+small{ color:#666; }
+a{ color:#0a66c2; text-decoration:none; }
+a:hover{ text-decoration: underline; }
+
+.box{
+  background:#f7fbff;
+  border:1px solid #e0f0ff;
+  padding:1rem;
+  border-radius:10px;
+}
+
+.back-wrap{ margin-bottom: 1rem; }
+.back-btn{
+  background-color:#0077cc;
+  color:#fff;
+  border:none;
+  padding:0.6rem 1.2rem;
+  border-radius:6px;
+  font-size:0.9rem;
+  cursor:pointer;
+}
+.back-btn:hover{ opacity: .9; }
+</style>
