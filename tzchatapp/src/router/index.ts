@@ -18,8 +18,8 @@ import HomePage from '@/views/HomePage.vue'
 import Success from '@/components/03050_pages/Success.vue'
 
 
-import privacy from '@/views_legal/01_privacy.vue'
-import deleteaccount from '@/views_legal/04_delete-account.vue'
+import privacy2 from '@/views_legal/01_privacy.vue'
+import deleteaccount2 from '@/views_legal/04_delete-account.vue'
 
 
 
@@ -99,8 +99,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
 
-{ path: '/privacy2', component: privacy },
-{ path: '/delete-account2', component: deleteaccount },
+{ path: '/privacy2', component: privacy2 },
+{ path: '/delete-account2', component: deleteaccount2 },
 
 
 
