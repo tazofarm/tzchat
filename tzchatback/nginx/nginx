@@ -39,10 +39,6 @@ server {
     client_max_body_size 20m;
 
     # 🚩 CSP (Ionic/Capacitor 호환 확장)
-    #  - capacitor: 스킴 허용(브릿지)
-    #  - blob:/data: 리소스 허용
-    #  - wss: 소켓 허용
-    #  - script-src: 일부 환경에서 초기 부트에 inline/eval 필요 → 최소한으로 허용
     add_header Content-Security-Policy "
       default-src 'self' capacitor:;
       connect-src 'self' https: wss: capacitor: data: blob:;
@@ -61,30 +57,51 @@ server {
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Host  $host;
     proxy_set_header X-Forwarded-Port  443;
-    proxy_set_header X-Forwarded-Proto $scheme;   # https 전달
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_http_version 1.1;
 
     # 프론트(dist) 루트
     root  /home/tazofarm/project/tzchat/tzchatapp/dist;
     index index.html;
 
-    # Privacy: 정적 → 백엔드 폴백
-    location = /privacy { return 301 /privacy.html; }
-
-    location = /privacy.html {
-        try_files /privacy.html @privacy_backend;
-        add_header Cache-Control "max-age=0, must-revalidate";
-        access_log /var/log/nginx/privacy_access.log;
-        error_log  /var/log/nginx/privacy_error.log;
+    # -----------------------------------------------------
+    # ✅ 정적 법/정책 문서: SPA보다 우선 매칭
+    #   실제 경로는 서버의 public/legal 위치로 맞춰주세요.
+    #   (백엔드 저장소가 /home/tazofarm/project/tzchat/public/legal 이라고 가정)
+    # -----------------------------------------------------
+    # /legal → /legal/index.html
+    location = /legal {
+        return 301 /legal/;
     }
 
-    location @privacy_backend {
-        proxy_pass http://localhost:2000;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header Origin $http_origin;
-        access_log /var/log/nginx/privacy_access.log;
-        error_log  /var/log/nginx/privacy_error.log;
+    location /legal/ {
+        alias /home/tazofarm/project/tzchat/public/legal/;
+        index index.html;
+        try_files $uri $uri/ =404;
+
+        # 초기에는 캐시 비활성화(문서 잦은 업데이트 대응)
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+
+        access_log /var/log/nginx/legal_access.log;
+        error_log  /var/log/nginx/legal_error.log;
     }
+
+    # 파비콘(루트)
+    location = /favicon.png {
+        alias /home/tazofarm/project/tzchat/public/favicon.png;
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=86400";
+        access_log /var/log/nginx/frontend_access.log;
+        error_log  /var/log/nginx/frontend_error.log;
+    }
+
+    # -----------------------------------------------------
+    # 과거 개별 경로 호환(선택): /privacy(.html) → /legal/privacy
+    # -----------------------------------------------------
+    location = /privacy { return 301 /legal/privacy; }
+    location = /privacy.html { return 301 /legal/privacy; }
 
     # 정적 청크(/assets/) : 장기 캐시
     location /assets/ {
@@ -163,7 +180,7 @@ server {
         error_log  /var/log/nginx/ws_error.log;
     }
 
-    # SPA history
+    # SPA history (※ /legal/ 블록보다 아래에 둬야 우선순위 OK)
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;
