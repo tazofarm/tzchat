@@ -1,11 +1,11 @@
 <template>
-  <div class="popup-overlay" @click.self="$emit('close')">
-    <div class="popup-content">
-      <h3>검색 특징 수정</h3>
+  <div class="popup-overlay" @click.self="$emit('close')" role="presentation">
+    <div class="popup-content" role="dialog" aria-modal="true" aria-labelledby="search-pref-title">
+      <h3 id="search-pref-title">검색 특징 수정</h3>
 
-      <!-- ✅ DB값(현재 저장값)이 항상 먼저 선택되도록 v-model 초기화/동기화 -->
-      <!-- ✅ 비활성 옵션도 "현재 값"일 때는 선택된 상태로 표시되도록 disabled 동적 제어 -->
-      <select v-model="preference" class="preference-select">
+      <!-- ✅ DB값(현재 저장값) 우선 선택 -->
+      <!-- ✅ 비활성 옵션도 "현재 값"일 때는 선택 허용 -->
+      <select v-model="preference" class="preference-select" aria-label="검색 특징 선택">
         <option value="">선택</option>
         <option
           v-for="opt in options"
@@ -17,14 +17,14 @@
         </option>
       </select>
 
-      <!-- 인라인 메시지 -->
+      <!-- 메시지 -->
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
       <p v-if="successMsg" class="success-msg">{{ successMsg }}</p>
 
-      <!-- 버튼 -->
+      <!-- 버튼: 가로 2분할(좌 닫기 / 우 수정) + 선명한 색상 -->
       <div class="button-group">
-        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
-        <ion-button expand="block" color="primary" @click="submit">수정</ion-button>
+        <ion-button expand="block" class="btn-close" @click="$emit('close')">닫기</ion-button>
+        <ion-button expand="block" class="btn-submit" @click="submit">수정</ion-button>
       </div>
     </div>
   </div>
@@ -33,26 +33,26 @@
 <script setup>
 /* ============================================================
    Search_Preference_Modal.vue
-   - DB에서 받은 값(props.message)이 항상 우선 보이도록 구현
-   - 비활성 옵션도 "현재 DB값"일 경우엔 선택 상태 유지(비활성 해제)
-   - 변경 요청 외 나머지는 최대한 유지 / 상세 로그 포함
+   - DB에서 받은 값(props.message) 우선 노출
+   - 비활성 옵션도 현재 선택값이면 선택 허용
+   - 기준 모달 레이아웃/색상 통일
 ============================================================ */
 import { ref, onMounted, watch } from 'vue'
 import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 
-/* 🔹 부모가 넘겨주는 현재 저장값 */
+/* 현재 저장값 */
 const props = defineProps({
   message: { type: String, default: '' } // 예: "이성친구 - 전체"
 })
 const emit = defineEmits(['close', 'updated'])
 
-/* 🔹 상태 */
-const preference = ref('')      // 현재 선택 값(초기/재오픈 시 props.message로 동기화)
+/* 상태 */
+const preference = ref('')      // 현재 선택 값
 const errorMsg   = ref('')
 const successMsg = ref('')
 
-/* 🔹 옵션 목록 (기본 disabled 포함) */
+/* 옵션 목록 (일부 기본 disabled) */
 const options = [
   { label: '이성친구 - 전체', value: '이성친구 - 전체', disabled: false },
   { label: '이성친구 - 일반', value: '이성친구 - 일반', disabled: false },
@@ -62,10 +62,7 @@ const options = [
   { label: '동성친구 - 특수', value: '동성친구 - 특수', disabled: true  },
 ]
 
-/* 🔹 옵션 disabled 여부 계산
-   - 기본은 opt.disabled 값을 따름
-   - 단, 현재 선택값(preference.value)과 같으면 선택 가능하도록 disabled 해제
-     → DB값이 비활성 옵션이어도 모달을 열었을 때 "현재 값"이 그대로 보이게 함 */
+/* disabled 판단: 기본 disabled지만 현재 선택값과 같으면 허용 */
 function isOptionDisabled(value) {
   const opt = options.find(o => o.value === value)
   if (!opt) return false
@@ -73,7 +70,7 @@ function isOptionDisabled(value) {
   return !!opt.disabled
 }
 
-/* 🔹 초기값/재오픈 동기화: DB값이 항상 먼저 보이도록 */
+/* 초기/재오픈 시 DB값 우선 동기화 */
 function syncFromProps() {
   preference.value = props.message || ''
   console.log('▶ [SearchPreferenceModal] 초기/동기화 preference:', preference.value)
@@ -81,12 +78,11 @@ function syncFromProps() {
 onMounted(syncFromProps)
 watch(() => props.message, syncFromProps)
 
-/* 🔹 서버 PATCH */
+/* 저장 */
 const submit = async () => {
   errorMsg.value = ''
   successMsg.value = ''
 
-  // 유효성
   if (!preference.value) {
     errorMsg.value = '특징을 선택해주세요.'
     return
@@ -97,7 +93,7 @@ const submit = async () => {
   }
 
   try {
-    console.log('▶ [SearchPreferenceModal] PATCH /api/search/preference', { preference: preference.value })
+    console.log('▶ PATCH /api/search/preference', { preference: preference.value })
     const res = await axios.patch(
       '/api/search/preference',
       { preference: preference.value },
@@ -106,53 +102,145 @@ const submit = async () => {
 
     if (res.data?.success) {
       successMsg.value = '검색 특징이 수정되었습니다.'
-      console.log('✅ 검색특징 수정 성공:', res.data)
       setTimeout(() => {
-        emit('updated', preference.value) // 부모 UI 즉시 반영
+        emit('updated', preference.value)
         emit('close')
-      }, 800)
+      }, 700)
     } else {
       errorMsg.value = res.data?.message || '수정 실패'
-      console.warn('❗ 검색특징 수정 실패:', res.data)
     }
   } catch (err) {
-    console.error('❌ 서버 요청 실패:', err)
+    console.warn('❌ 서버 요청 실패:', err)
     errorMsg.value = '서버 오류가 발생했습니다.'
   }
 }
 </script>
 
 <style scoped>
-/* 가독성: 기본 검정 글씨 유지 + 모달 레이아웃 */
+/* ===========================================================
+   기준 모달 스타일 + 버튼 선명 색상
+   - dim+blur 오버레이, safe-area 패딩
+   - 카드 폭: min(92vw, 420px)
+   - 버튼: 항상 가로 2분할 (닫기=회색, 수정=노랑)
+=========================================================== */
+
+/* 오버레이 */
 .popup-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
   z-index: 1000;
+  overscroll-behavior: contain;
 }
+
+/* 카드 */
 .popup-content {
   background: #fff;
   color: #000;
-  padding: 1.5rem;
-  border-radius: 10px;
-  width: 80%;
-  max-width: 320px;
+  width: min(92vw, 420px);
+  max-height: min(86vh, 640px);
+  border: 1px solid #eaeaea;
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.18);
+  padding: 16px 18px;
   text-align: center;
   box-sizing: border-box;
+  animation: modal-in .18s ease-out;
+  transform-origin: center;
 }
+
+/* 제목 */
+.popup-content h3 {
+  margin: 0 0 12px;
+  font-size: clamp(16px, 3.4vw, 18px);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+/* 셀렉트 */
 .preference-select {
   width: 100%;
-  padding: 0.5rem;
-  font-size: 1rem;
-  margin: 1rem 0;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  min-height: 44px;
+  padding: 10px 12px;
+  margin: 12px 0 8px;
+  font-size: clamp(14px, 2.6vw, 15px);
   color: #000;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 12px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  appearance: none;
 }
-.button-group { display: flex; gap: 0.5rem; margin-top: 1rem; }
-.error-msg   { color: #c0392b; font-size: 0.9rem; margin-top: -0.5rem; }
-.success-msg { color: #2d7a33; font-size: 0.9rem; margin-top: -0.5rem; }
+.preference-select:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25);
+}
+
+/* 메시지 */
+.error-msg,
+.success-msg {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.error-msg { color: #c0392b; }
+.success-msg { color: #2d7a33; }
+
+/* 버튼: 가로 2분할 + 명확한 색상 */
+.button-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.button-group ion-button {
+  --border-radius: 12px;
+  --padding-start: 12px;
+  --padding-end: 12px;
+  --padding-top: 10px;
+  --padding-bottom: 10px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+/* ▶ 색상 커스터마이즈 (스샷 톤) */
+.button-group .btn-close {
+  --background: #b5b5bb;       /* 진한 회색 */
+  --background-hover: #a6a6ad;
+  --background-focused: #a6a6ad;
+  --background-activated: #9a9aa1;
+  --color: #ffffff;            /* 글자 흰색 */
+}
+.button-group .btn-submit {
+  --background: #f8d146;       /* 선명한 노랑 */
+  --background-hover: #f6c600;
+  --background-focused: #f6c600;
+  --background-activated: #efbd00;
+  --color: #000000;            /* 글자 검정 */
+}
+
+/* 포커스 링 */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.35);
+  border-radius: 12px;
+}
+
+/* 모션 최소화 */
+@media (prefers-reduced-motion: reduce) {
+  .popup-content { animation: none !important; }
+}
+
+/* 등장 애니메이션 */
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 </style>

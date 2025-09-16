@@ -2,122 +2,46 @@
 import { io } from 'socket.io-client'
 import type { Socket, ManagerOptions, SocketOptions } from 'socket.io-client'
 
-/**
- * ✅ 목표
- * - 앱(WebView/Capacitor)에서도 항상 "원격 HTTPS"로 소켓 연결
- * - 백엔드가 세션 쿠키 인증일 때를 고려하여 withCredentials:true (polling에도 쿠키 동반)
- * - JWT를 병행 지원(auth: { token }) → 서버가 JWT 전환 시 바로 연동 가능
- * - 잘못된 대상(origin 혼선, http→https 불일치) 원천 차단 및 상세 로그
- */
+// ✅ Vite는 "직접 접근"에만 .env를 주입합니다.
+const {
+  MODE: VITE_BUILD_MODE,         // Vite가 넣어주는 모드
+  VITE_MODE,                     // 우리가 추가로 쓰는 모드 키(있으면 사용)
+  VITE_WS_BASE,
+  VITE_SOCKET_BASE,
+} = import.meta.env as any
+
+// 모드 문자열
+const MODE = String(VITE_MODE || VITE_BUILD_MODE || '')
+
+// .env에서 직접 읽기 (정적 접근)
+const WS_BASE = String(VITE_WS_BASE || VITE_SOCKET_BASE || '').trim()
 
 let socket: Socket | null = null
 let listenersBound = false
-let currentOrigin: string | null = null // 현재 연결 대상(origin) 추적
+let currentOrigin: string | null = null
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 
-// 🔒 원격 기본 대상(프로덕션 도메인)
-const REMOTE_DEFAULT_ORIGIN = 'https://tzchat.tazocode.com'
+function isHttpLike(u: string): boolean { return /^https?:\/\//i.test(u || '') }
+function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
 
-// === 모드/env ===
-const RAW_MODE = (import.meta as any)?.env?.MODE as string | undefined
-const RAW_VITE_MODE = (import.meta as any)?.env?.VITE_MODE as string | undefined
-const MODE = (RAW_VITE_MODE && RAW_VITE_MODE.trim()) || RAW_MODE || 'development'
+// .env가 있으면 엄격 검사 통과, 없거나 형식이 틀리면 명확히 실패
+;(function assertEnv() {
+  if (!WS_BASE) {
+    throw new Error(
+      `[CFG][socket] VITE_WS_BASE(VITE_SOCKET_BASE)가 비었습니다. 실행 모드: "${MODE}". `
+      + `.env.${MODE}에 http(s) 오리진을 설정하세요. 예: http://localhost:2000`
+    )
+  }
+  if (!isHttpLike(WS_BASE)) {
+    throw new Error(`[CFG][socket] VITE_WS_BASE가 http(s) 오리진이 아닙니다: "${WS_BASE}"`)
+  }
+})()
 
-// .env에서 소켓 대상 읽기(선택)
-const ENV_WS_BASE: string =
-  (import.meta as any)?.env?.VITE_WS_BASE ||
-  (import.meta as any)?.env?.VITE_SOCKET_BASE ||
-  ''
+const TARGET_ORIGIN = originOf(new URL(WS_BASE))
 
-// === 유틸 ===
 function getToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
-}
-function toAbsoluteURL(urlLike: string): URL {
-  try { return new URL(urlLike) }
-  catch {
-    const fallback = (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:2000')
-    return new URL(urlLike, fallback)
-  }
-}
-function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
-function isHttpLike(u: string): boolean { return /^https?:\/\//i.test(u) }
-function isLocalLike(u: string): boolean {
-  const s = String(u || '')
-  return /(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d{2,5})?/i.test(s)
-}
-function isCapacitorOrigin(): boolean {
-  try { return typeof window !== 'undefined' && /^capacitor:\/\//i.test(window.location.origin) } catch { return false }
-}
-function enforceHttpsIfPageIsHttps(abs: URL): URL {
-  try {
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && abs.protocol !== 'https:') {
-      const f = new URL(abs.href); f.protocol = 'https:'
-      console.log('🛡️ [Socket] protocol forced to https:', { before: abs.href, after: f.href })
-      return f
-    }
-  } catch {}
-  return abs
-}
-
-/**
- * ENV → 페이지 → 폴백
- * + dev-remote/8081 가드
- * + 비HTTP(예: capacitor://) 또는 **로컬 오리진( localhost/127 )은 원격으로 강제**
- */
-function resolveSocketOrigin(): string {
-  // 0) Capacitor(webview) 오리진이면 무조건 원격 HTTPS 강제
-  if (isCapacitorOrigin()) {
-    console.warn('🔧 [Socket] capacitor origin 감지 → 원격 기본 강제:', REMOTE_DEFAULT_ORIGIN)
-    return REMOTE_DEFAULT_ORIGIN
-  }
-
-  // 1) dev-remote 보호(브라우저 8081에서 로컬 ENV를 썼을 때)
-  const on8081 =
-    typeof window !== 'undefined' &&
-    /^http:\/\/localhost:8081$/i.test(window.location.origin)
-  if (on8081 && (MODE === 'dev-remote') && (!ENV_WS_BASE || isLocalLike(ENV_WS_BASE))) {
-    console.error('🔧 [Socket] 8081/dev-remote → 원격 기본 강제', { ENV_WS_BASE, forced: REMOTE_DEFAULT_ORIGIN })
-    return REMOTE_DEFAULT_ORIGIN
-  }
-
-  // 2) ENV가 있으면: HTTP(S)만 허용, http→https 필요 시 자동 승격
-  if (ENV_WS_BASE && ENV_WS_BASE.trim()) {
-    if (!isHttpLike(ENV_WS_BASE)) {
-      console.error('🚫 [Socket] ENV_WS_BASE가 비-HTTP 스킴입니다. 원격 기본으로 교정', { ENV_WS_BASE, forced: REMOTE_DEFAULT_ORIGIN })
-      return REMOTE_DEFAULT_ORIGIN
-    }
-    const abs = enforceHttpsIfPageIsHttps(toAbsoluteURL(ENV_WS_BASE.trim()))
-    const origin = originOf(abs)
-    console.log('🔧 [Socket] origin from ENV:', { ENV_WS_BASE, origin, MODE })
-    return origin
-  }
-
-  // 3) 페이지 오리진 사용: 비HTTP이거나 로컬이면 원격으로 강제  ← ★추가 가드
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    const pageOrigin = window.location.origin
-    // 비HTTP(예: capacitor://) → 원격 강제
-    if (!isHttpLike(pageOrigin)) {
-      console.warn('🚫 [Socket] page origin 비-HTTP → 원격 기본 강제', { pageOrigin, forced: REMOTE_DEFAULT_ORIGIN })
-      return REMOTE_DEFAULT_ORIGIN
-    }
-    // 로컬 오리진(https://localhost, http://127.0.0.1 등) → 원격 강제
-    if (isLocalLike(pageOrigin)) {
-      console.warn('🚫 [Socket] page origin이 로컬입니다 → 원격 기본 강제', { pageOrigin, forced: REMOTE_DEFAULT_ORIGIN })
-      return REMOTE_DEFAULT_ORIGIN
-    }
-    const abs = enforceHttpsIfPageIsHttps(new URL(pageOrigin))
-    const origin = originOf(abs)
-    console.log('🔧 [Socket] origin from page:', origin, { MODE })
-    return origin
-  }
-
-  // 4) 마지막 폴백(노드 등)
-  const host = (typeof window !== 'undefined' && window.location?.hostname) ? window.location.hostname : 'localhost'
-  const origin = `http://${host}:2000`
-  console.log('🔧 [Socket] origin fallback local:', origin)
-  return origin
 }
 
 function buildOptions(): Partial<ManagerOptions & SocketOptions> {
@@ -127,29 +51,19 @@ function buildOptions(): Partial<ManagerOptions & SocketOptions> {
     transports: ['websocket', 'polling'],
     upgrade: true,
     rememberUpgrade: true,
-    withCredentials: true, // 세션 쿠키 동반
+    withCredentials: true,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 800,
     reconnectionDelayMax: 8000,
     randomizationFactor: 0.5,
     timeout: 30000,
-    auth: token ? { token } : undefined, // JWT 병행
+    auth: token ? { token } : undefined,
   }
-  console.log('🔌 [Socket] options:', {
-    path: opts.path,
-    transports: opts.transports,
-    withCredentials: opts.withCredentials,
-    reconnectionAttempts: opts.reconnectionAttempts,
-    reconnectionDelay: opts.reconnectionDelay,
-    reconnectionDelayMax: opts.reconnectionDelayMax,
-    timeout: opts.timeout,
-    hasToken: !!token,
-  })
+  console.log('[Socket][CFG]', { MODE, TARGET_ORIGIN, hasToken: !!token, path: opts.path })
   return opts
 }
 
-/** 이벤트 리스너(한 번만 바인딩) */
 function bindCoreListeners(sock: Socket, originStr: string) {
   if (listenersBound) return
   listenersBound = true
@@ -181,55 +95,29 @@ function bindCoreListeners(sock: Socket, originStr: string) {
 }
 
 export function connectSocket(): Socket {
-  // 1) 대상 origin 계산
-  let SOCKET_ORIGIN = resolveSocketOrigin()
-
-  // 2) https 페이지에서 localhost:2000 방지(혼합콘텐츠 차단)
-  if (typeof window !== 'undefined' &&
-      window.location.protocol === 'https:' &&
-      /^https?:\/\/localhost:2000$/i.test(SOCKET_ORIGIN)) {
-    console.warn('🚫 [Socket] https 페이지에서 localhost:2000 감지 → remote로 교정')
-    SOCKET_ORIGIN = originOf(enforceHttpsIfPageIsHttps(toAbsoluteURL(REMOTE_DEFAULT_ORIGIN)))
-  }
-
-  const abs = toAbsoluteURL(SOCKET_ORIGIN)
-  const corrected = enforceHttpsIfPageIsHttps(abs)
-  const targetOrigin = originOf(corrected)
-
   const options = buildOptions()
 
-  // 3) 동일 origin이면 기존 소켓 재사용(토큰 갱신)
-  if (socket && currentOrigin === targetOrigin) {
+  if (socket && currentOrigin === TARGET_ORIGIN) {
     const token = getToken()
     ;(socket as any).auth = token ? { token } : undefined
     if (!socket.connected) {
-      console.log('🔌 [Socket] reconnecting existing socket to same origin...')
+      console.log('[Socket] reconnecting existing socket...')
       socket.connect()
     }
-    bindCoreListeners(socket, targetOrigin)
+    bindCoreListeners(socket, TARGET_ORIGIN)
     return socket
   }
 
-  // 4) origin 변경/신규: 기존 소켓 정리 후 새 연결
   if (socket) {
-    try {
-      socket.off()
-      socket.disconnect()
-    } catch {}
+    try { socket.off(); socket.disconnect() } catch {}
     socket = null
     listenersBound = false
   }
 
-  console.log('🔌 [Socket] connecting new instance...', {
-    origin: targetOrigin,
-    path: options.path,
-    pageProtocol: typeof window !== 'undefined' ? window.location.protocol : '(no-window)',
-  })
-
-  socket = io(targetOrigin, options)
-  currentOrigin = targetOrigin
-  bindCoreListeners(socket, targetOrigin)
-
+  console.log('[Socket] connecting...', { origin: TARGET_ORIGIN, path: options.path })
+  socket = io(TARGET_ORIGIN, options)
+  currentOrigin = TARGET_ORIGIN
+  bindCoreListeners(socket, TARGET_ORIGIN)
   return socket!
 }
 
@@ -238,11 +126,11 @@ export function getSocket(): Socket | null { return socket }
 export function disconnectSocket(): void {
   if (socket) {
     try {
-      console.log('🔌 [Socket] disconnect requested')
+      console.log('[Socket] disconnect requested')
       socket.off()
       socket.disconnect()
     } catch (e: any) {
-      console.warn('⚠️ [Socket] disconnect error:', e?.message)
+      console.warn('[Socket] disconnect error:', e?.message)
     } finally {
       socket = null
       currentOrigin = null
@@ -251,18 +139,43 @@ export function disconnectSocket(): void {
   }
 }
 
+/**
+ * 새 토큰 반영을 위한 재연결 유틸
+ * - origin 변경이 필요 없으면 파라미터 없이 호출
+ * - 다른 오리진으로 바꾸고 싶다면 newOrigin(http/https) 전달
+ */
+export function reconnectSocket(newOrigin?: string): Socket {
+  const nextOrigin = (newOrigin && isHttpLike(newOrigin))
+    ? originOf(new URL(newOrigin))
+    : TARGET_ORIGIN
+
+  if (socket && currentOrigin === nextOrigin) {
+    try {
+      const token = getToken()
+      ;(socket as any).auth = token ? { token } : undefined
+    } catch {}
+    try { socket.disconnect() } catch {}
+    try { socket.connect() } catch {}
+    return socket
+  }
+
+  disconnectSocket()
+  const options = buildOptions()
+  console.log('[Socket] reconnecting...', { from: currentOrigin, to: nextOrigin, path: options.path })
+  socket = io(nextOrigin, options)
+  currentOrigin = nextOrigin
+  bindCoreListeners(socket, nextOrigin)
+  return socket!
+}
+
 export function refreshSocketAuth(): void {
   const token = getToken()
   if (!socket) return
   try {
     ;(socket as any).auth = token ? { token } : undefined
-    console.log('🔄 [Socket] auth refreshed', { hasToken: !!token })
-    // 연결 중이면 재협상 위해 재연결
-    if (socket.connected) {
-      socket.disconnect()
-      socket.connect()
-    }
+    console.log('[Socket] auth refreshed', { hasToken: !!token })
+    if (socket.connected) { socket.disconnect(); socket.connect() }
   } catch (e: any) {
-    console.warn('⚠️ [Socket] refresh auth error:', e?.message)
+    console.warn('[Socket] refresh auth error:', e?.message)
   }
 }

@@ -1,20 +1,31 @@
 // backend/routes/supportRouter.js
-// ---------------------------------------------
-// 공개 지원 라우터(로그인 불필요)
+// -------------------------------------------------------------
+// 🧩 공개 "지원" API 라우터 (로그인 불필요, /api prefix 하위에서 사용)
 // - POST /api/public-delete-request : 계정 삭제 요청 접수
-//   * 최소 유효성 검사 + 간단한 레이트 리밋(메모리)
-//   * 저장 후 운영자 처리(수동/자동)에 넘김
-//   * 운영분석 로그 강화(요청/응답/에러/레이트리밋)
-// ---------------------------------------------
+//   • 입력 유효성 최소 검증 (username 필수, 길이 제한 등)
+//   • 간단한 레이트 리밋(메모리 저장형)으로 과도한 요청 차단
+//   • 요청 메타(원 IP, UA)와 함께 DB 저장 (DeletionRequest)
+//   • 운영 로그(REQ/RES/ERR) 상세화로 추적성 강화
+// - 주의: 여기서는 "정적 문서 제공"을 하지 않습니다.
+//   → 정적 문서는 routes/publicRouter.js 가 담당합니다.
+// -------------------------------------------------------------
 const express = require('express');
 const router = express.Router();
 const DeletionRequest = require('../models/DeletionRequest');
 
-// 간단 레이트리밋(메모리) - IP당 n초에 1회
-const RATE_WINDOW_MS = 30 * 1000;
-const lastHitMap = new Map();
+// -------------------------------------------------------------
+// 🔒 간단 레이트리밋(메모리 기반)
+// - IP별로 RATE_WINDOW_MS 내 1회만 허용
+// - 목적: 부하/스팸 방지 (정교한 솔루션은 Redis 등으로 대체 가능)
+// -------------------------------------------------------------
+const RATE_WINDOW_MS = 30 * 1000; // 30초
+const lastHitMap = new Map();     // key: ip, value: timestamp(ms)
 
-// 🔐 민감정보 마스킹 유틸 (로그 전용)
+// -------------------------------------------------------------
+// 🧹 로그용 민감정보 마스킹 & 입력 길이 제한 유틸
+// - 운영 로그에서 이메일 전체 노출을 피함
+// - 과대 입력으로 인한 부하/로그 오염 방지
+// -------------------------------------------------------------
 function maskEmail(email = '') {
   if (!email) return '';
   const [id = '', domain = ''] = String(email).split('@');
@@ -26,18 +37,23 @@ function clamp(str = '', max = 500) {
   return s.length > max ? s.slice(0, max) : s;
 }
 
+// -------------------------------------------------------------
+// 🚪 POST /api/public-delete-request
+// - 공개 폼 제출을 직접 받는 API (인증 불필요)
+// - publicRouter의 POST /legal/public-delete-request 가 307으로 여기로 위임
+// -------------------------------------------------------------
 router.post('/public-delete-request', async (req, res) => {
   const started = Date.now();
   const ua = req.headers['user-agent'] || '';
   const path = '/api/public-delete-request';
 
-  // 원 IP 추출(프록시 고려)
+  // 원 IP 추출 (리버스 프록시(Nginx) 환경 고려)
   const ip =
     req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
     req.socket.remoteAddress ||
     '';
 
-  // [API][REQ] 로그
+  // [API][REQ] 요청 로그 (개요만)
   console.log('[API][REQ]', {
     path,
     method: 'POST',
@@ -47,7 +63,9 @@ router.post('/public-delete-request', async (req, res) => {
   });
 
   try {
-    // 레이트리밋 확인
+    // -----------------------------
+    // 1) 레이트 리밋 체크
+    // -----------------------------
     const now = Date.now();
     const last = lastHitMap.get(ip) || 0;
     if (now - last < RATE_WINDOW_MS) {
@@ -58,7 +76,9 @@ router.post('/public-delete-request', async (req, res) => {
     }
     lastHitMap.set(ip, now);
 
-    // 입력값 파싱 + 기본 유효성
+    // -----------------------------
+    // 2) 입력 파싱 & 기본 유효성 검사
+    // -----------------------------
     const { username, email = '', note = '' } = req.body || {};
     if (!username || typeof username !== 'string') {
       console.log('[HTTP][ERR]', { path, code: 400, reason: 'invalid username', bodySample: (req.body ? JSON.stringify(req.body).slice(0, 200) : null) });
@@ -67,12 +87,14 @@ router.post('/public-delete-request', async (req, res) => {
       return res.status(400).json(body);
     }
 
-    // 길이 제한/트리밍(비정상 과대입력 방지)
+    // 과대 입력 방지: 길이 제한 + 트리밍
     const usernameSafe = clamp(String(username).trim(), 64);
-    const emailSafe = clamp(String(email).trim(), 128);
-    const noteSafe = clamp(String(note).trim(), 1000);
+    const emailSafe    = clamp(String(email).trim(), 128);
+    const noteSafe     = clamp(String(note).trim(), 1000);
 
-    // DB 저장
+    // -----------------------------
+    // 3) DB 저장
+    // -----------------------------
     const doc = await DeletionRequest.create({
       username: usernameSafe,
       email: emailSafe,
@@ -81,7 +103,7 @@ router.post('/public-delete-request', async (req, res) => {
       ua
     });
 
-    // 운영 로그(민감정보 마스킹)
+    // 운영(보안) 로그: 이메일은 마스킹 처리
     console.log('[API][INFO]', {
       event: 'PublicDelete.received',
       id: doc._id.toString(),
@@ -90,18 +112,21 @@ router.post('/public-delete-request', async (req, res) => {
       ip
     });
 
-    // TODO(운영 선택): 이메일/슬랙 알림, 1회용 코드 발송 등 후속 처리
+    // TODO(운영): 이메일/슬랙 알림, 승인 플로우, 자동화 등 연결 가능
     const body = { message: '삭제 요청이 접수되었습니다. 확인 후 처리 예정입니다.' };
     console.log('[API][RES]', { path, status: 200, ms: Date.now() - started, size: JSON.stringify(body).length });
     return res.json(body);
+
   } catch (err) {
-    // 에러 로그(민감정보 주의)
+    // -----------------------------
+    // 4) 에러 처리
+    // -----------------------------
     console.error('[HTTP][ERR]', {
       path,
       code: 500,
       name: err?.name,
       message: err?.message,
-      stack: (err?.stack || '').split('\n')[0]
+      stack: (err?.stack || '').split('\n')[0] // 첫 줄만
     });
     const body = { error: '요청 처리 중 오류가 발생했습니다.' };
     console.log('[API][RES]', { path, status: 500, ms: Date.now() - started, size: JSON.stringify(body).length });

@@ -35,13 +35,32 @@
     <div class="list-wrap">
       <ul class="list">
         <!-- 번호 리스트 -->
-        <li class="list-item" @click="goPage('/home/setting/0001')">구독신청하기</li>
-        <li class="list-item" @click="goPage('/home/setting/0002')">알림설정</li>
-        <li class="list-item" @click="goPage('/home/setting/0003')">공지사항</li>
-        <li class="list-item" @click="goPage('/home/setting/0004')">건의하기</li>
-        <li class="list-item" @click="goPage('/home/setting/0005')">개인정보 처리방침</li>
-        <li class="list-item" @click="goPage('/home/setting/0006')">서비스 이용약관</li>
-        <li class="list-item" @click="goPage('/home/setting/0007')">아동 안전 정책</li>
+        <li class="list-item" @click="goPage('/home/setting/0001')">01구독신청하기</li>
+
+        <li class="list-item" @click="goPage('/home/setting/0002')">02약관 및 법적조치</li>
+
+        <!-- ✅ 권한 관련: 알림/위치 요청 -->
+        <li class="list-item" @click="askPerms">
+          <ion-icon :icon="icons.notificationsOutline" class="icon-left" aria-hidden="true" />
+          <span>권한 요청 (알림/위치)</span>
+        </li>
+
+        <!-- ✅ 권한 관련: 테스트 알림 보내기 -->
+        <li class="list-item" @click="sendTestNoti">
+          <ion-icon :icon="icons.locateOutline" class="icon-left" aria-hidden="true" />
+          <span>테스트 알림 보내기</span>
+        </li>
+
+        <!--
+        <li class="list-item" @click="goPage('/home/setting/0003')">03공지사항</li>
+        <li class="list-item" @click="goPage('/home/setting/0004')">04건의하기</li>
+        <li class="list-item" @click="goPage('/home/setting/0005')">05개인정보 처리방침</li>
+        <li class="list-item" @click="goPage('/home/setting/0006')">06서비스 이용약관</li>
+        <li class="list-item" @click="goPage('/home/setting/0007')">07아동 안전 정책</li>
+        <li class="list-item" @click="goPage('/home/setting/0008')">08프로필테스트</li>
+        -->
+
+        <li class="list-item" @click="goPage('/home/setting/0019')">19비밀번호변경</li>
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">
@@ -67,12 +86,26 @@ import {
   happyOutline,
   settingsOutline,
   logOutOutline,
-  trashOutline
+  trashOutline,
+  notificationsOutline,
+  locateOutline,
 } from 'ionicons/icons'
 import { api, AuthAPI } from '@/lib/api'
+import { Capacitor } from '@capacitor/core'
+import {
+  requestBasicPermissions,
+  testLocalNotification,
+} from '@/lib/permissions'
 
 const router = useRouter()
-const icons = { happyOutline, settingsOutline, logOutOutline, trashOutline }
+const icons = {
+  happyOutline,
+  settingsOutline,
+  logOutOutline,
+  trashOutline,
+  notificationsOutline,
+  locateOutline,
+}
 
 const nickname = ref<string>('')
 const meRole = ref<string>('')
@@ -80,7 +113,7 @@ const meRole = ref<string>('')
 /** 로그인 사용자 정보 가져오기 */
 onMounted(async () => {
   try {
-    const meRes = await api.get('/me')
+    const meRes = await api.get('/api/me')
     nickname.value = meRes.data?.user?.nickname || ''
     meRole.value = meRes.data?.user?.role || ''
     console.log('[SettingsSections] me:', { nickname: nickname.value, role: meRole.value })
@@ -112,10 +145,42 @@ const logout = async () => {
   }
 }
 
+/** ✅ 권한 요청(알림/위치) */
+const askPerms = async () => {
+  try {
+    if (Capacitor.getPlatform() !== 'android') {
+      console.log('↪️ non-Android platform: 권한 요청은 Android에서만 수행됩니다.')
+      return
+    }
+    const res = await requestBasicPermissions()
+    console.log('[SettingsSections] 권한 요청 결과:', res)
+    if (res.notification) {
+      console.log('🔔 알림 권한 승인됨 → 테스트 알림 예약')
+      await testLocalNotification()
+    }
+  } catch (e: any) {
+    console.warn('⚠️ 권한 요청 중 오류:', e?.message)
+  }
+}
+
+/** ✅ 테스트 알림 (알림 권한 승인 시 표시) */
+const sendTestNoti = async () => {
+  try {
+    if (Capacitor.getPlatform() !== 'android') {
+      console.log('↪️ non-Android platform: 테스트 알림은 Android에서만 수행됩니다.')
+      return
+    }
+    await testLocalNotification()
+    console.log('✅ 테스트 알림 스케줄 완료')
+  } catch (e: any) {
+    console.warn('⚠️ 테스트 알림 오류:', e?.message)
+  }
+}
+
 /** (예시) 회원탈퇴 직접 실행 시 사용할 수 있는 헬퍼
 const withdraw = async () => {
   try {
-    await api.post('/account/delete-request')
+    await api.post('/api/account/delete-request')
     router.push('/login')
   } catch (e) {
     console.error('❌ 탈퇴 요청 실패:', e)

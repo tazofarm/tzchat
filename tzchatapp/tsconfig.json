@@ -24,7 +24,18 @@
     "src/**/*.d.ts",
     "src/**/*.tsx",
     "src/**/*.vue",
-    "src/data/regions.js"
+    "src/data/regions.js",
+    "env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "android",
+    "ios",
+    "public",
+    "vite.config.*",
+    "vitest.config.*",
+    "capacitor.config.ts"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

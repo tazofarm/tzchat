@@ -69,8 +69,19 @@ function applyFriendPermission(users, forceAllowOpt) {
  *   - options.excludeIds {Set<string>}      : 관계 제외용 ID Set (friends/pending/blocks)
  * @returns {Array<object>} 최종 필터링 결과
  */
+// ⬇️ 추가: selfintro 표준화 유틸
+function normalizeUsers(list = []) {
+  return (Array.isArray(list) ? list : []).map(u => {
+    const intro = ((u?.selfintro ?? u?.selfIntro ?? '') + '').trim();
+    return { ...u, selfintro: intro };
+  });
+}
+
+
+
 export function applyTotalFilter(users = [], me = {}, options = {}) {
-  const safeUsers = Array.isArray(users) ? users : []
+  //const safeUsers = Array.isArray(users) ? users : []
+  const safeUsers = normalizeUsers(users);          // ← 여기 추가!
   const meId = me?._id
 
   console.time('[FilterTotal] apply')

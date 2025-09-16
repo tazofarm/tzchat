@@ -54,6 +54,13 @@ const FRIENDS_PATH = '/home/3page'
 const CHAT_PATH    = '/home/4page'
 
 const menuItems = [
+{ name: 't-emer', path: '/home/91page', icon: warningOutline },
+{ name: 't-tar', path: '/home/92page', icon: warningOutline },
+{ name: 't-all', path: '/home/93page', icon: warningOutline },
+
+
+
+  //{ name: 'all', path: '/home/5page', icon: warningOutline },
   { name: 'Premium', path: '/home/0page', icon: warningOutline },
   { name: '타겟',    path: '/home/2page', icon: locateOutline },
   { name: '친구',    path: FRIENDS_PATH,  icon: peopleOutline },
@@ -80,7 +87,7 @@ const onFriendsState = (e) => {
 /* ===== 채팅 탭: 총 미읽음 조회 ===== */
 const refreshChatBadge = async (label = 'init') => {
   try {
-    const res = await api.get('/chatrooms/unread-total')
+    const res = await api.get('/api/chatrooms/unread-total')
     const total = Number(res?.data?.total || 0)
     badgeChat.value = total > 0
     console.log(`[TopMenu] refreshChatBadge(${label}) → total=`, total)
@@ -142,7 +149,8 @@ watch(() => route.path, (p) => {
 /* ===== 마운트 ===== */
 onMounted(async () => {
   try {
-    const me = await api.get('/me')
+    const me = await api.get('/api/me')
+
     myId.value = me.data?.user?._id || null
   } catch (e) {
     console.warn('[TopMenu] /me 실패', e)

@@ -1,30 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
 
-  <!-- 🌐 기본: HTTPS만 허용 (HTTP 차단) -->
-  <domain-config cleartextTrafficPermitted="false">
-    <!-- 운영 도메인 (본인 도메인으로 유지) -->
-    <domain includeSubdomains="true">tzchat.tazocode.com</domain>
+  <!-- 🧪 디버그 전체에서 HTTP 허용 -->
+  <base-config cleartextTrafficPermitted="true" />
+
+  <!-- 에뮬레이터(안드로이드 스튜디오): 호스트PC localhost -> 10.0.2.2 -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain>10.0.2.2</domain>
   </domain-config>
 
-  <!-- 🧪 개발/에뮬레이터: HTTP 예외 허용 -->
-  <!-- 에뮬레이터 localhost → 10.0.2.2 -->
-  <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">10.0.2.2</domain>
-  </domain-config>
-
-  <!-- 로컬 네트워크(예: Wi-Fi 테스트) -->
-  <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">192.168.0.0</domain>
-  </domain-config>
-  <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">192.168.1.0</domain>
-  </domain-config>
-
-  <!-- 필요 시 추가 (사무실 대역 등) -->
+  <!-- 실기기에서 사설망 테스트 시: 사용 '호스트'를 정확히 지정하세요.
+       ★ 범위/대역 표기는 불가합니다! 예시: 192.168.0.12, 192.168.1.34 등 -->
   <!--
   <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">172.16.0.0</domain>
+    <domain>192.168.0.12</domain>
+  </domain-config>
+  <domain-config cleartextTrafficPermitted="true">
+    <domain>192.168.1.34</domain>
   </domain-config>
   -->
 

@@ -93,7 +93,7 @@ const sortRoomsDesc = (rooms) => {
 const loadMeAndRooms = async () => {
   console.time('[LOAD] /me + /chatrooms')
   try {
-    const meRes = await api.get('/me')
+    const meRes = await api.get('/api/me')
     myId.value = meRes.data?.user?._id || meRes.data?._id || ''
     console.log('👤 Me OK:', { myId: myId.value })
   } catch (err) {
@@ -107,7 +107,8 @@ const loadMeAndRooms = async () => {
 const loadChatRooms = async () => {
   console.time('[LOAD] /chatrooms')
   try {
-    const roomRes = await api.get('/chatrooms')
+    const roomRes = await api.get('/api/chatrooms')
+
     const raw = normalizeRooms(roomRes.data)
     const mapped = raw.map(r => ({
       ...r,

@@ -8,7 +8,7 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
 const path = require('path');          // 파일 경로 관련 내장 모듈
-const fs = require('fs');              // ✅ public/pubblic 자동 감지용
+const fs = require('fs');              // ✅ public 존재 검사
 
 app.disable('x-powered-by'); // 소소한 보안 헤더
 
@@ -57,30 +57,23 @@ app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
 /**
- * ✅ /public 정적 파일 서빙
+ * ✅ /public 정적 파일 서빙 — 단일 경로 강제
  * - privacy.html 등 정적 페이지 직접 서빙.
- * - "pubblic" 오타 폴더 존재 시 자동 감지.
+ * - public 폴더가 없으면 즉시 실패하여 배포 사고 조기 발견
  */
-let publicBase = 'public';
-if (!fs.existsSync(path.join(__dirname, 'public')) && fs.existsSync(path.join(__dirname, 'pubblic'))) {
-  publicBase = 'pubblic';
-  console.warn('⚠️ "public" 폴더가 없어 "pubblic" 폴더를 사용합니다. (권장: 폴더명을 public로 통일)');
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) {
+  console.error('❌ "public" 폴더가 없습니다. public/ 디렉토리를 생성하거나 경로를 확인하세요.');
+  process.exit(1);
 }
-const publicDir = path.join(__dirname, publicBase);
 app.use(express.static(publicDir));
 console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
 
-/**
- * ✅ (유지) /privacy → /public/privacy.html
- */
-app.get('/privacy', (req, res) => {
-  console.log(`[ROUTE] GET /privacy  ua=${req.get('user-agent')} ip=${req.ip}`);
-  res.sendFile(path.join(publicDir, 'privacy.html'));
-});
+// 프로필 이미지
+app.use('/uploads/profile', express.static(path.join(__dirname, 'uploads/profile')));
 
-// ✅ 사진 업로드 정적 경로
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-console.log('🖼️ /uploads 정적 파일 경로 설정');
+// 채팅 이미지
+app.use('/uploads/chat', express.static(path.join(__dirname, 'uploads/chat')));
 
 // ✅ 요청 로그 및 Private-Network 헤더
 app.use((req, res, next) => {
@@ -141,7 +134,6 @@ const corsOptions = {
     // 'null' 오리진 허용(옵션)
     if (origin === 'null' && ALLOW_NULL_ORIGIN) {
       console.log('[CORS-CHECK] null => ALLOW(explicit)');
-      // cors 패키지가 헤더를 'null'로 세팅하도록 문자열 그대로 허용
       return cb(null, true);
     }
     if (allowedOriginsList.includes(origin)) {
@@ -350,14 +342,20 @@ app.get('/debug/set-cookie', (req, res) => {
 // =======================================
 // 2) 라우터 등록 (safeMountRouter)
 // =======================================
-safeMountRouter('/api', './routes/userRouter');
+
+// ✅ 비로그인 공개 라우터 (신규)
+safeMountRouter('/', './routes/publicRouter');
+
+safeMountRouter('/api/admin', './routes/adminRouter');
 safeMountRouter('/api', './routes/authRouter');
-safeMountRouter('/api', './routes/targetRouter');
-safeMountRouter('/api', './routes/friendRouter');
 safeMountRouter('/api', './routes/chatRouter');
+safeMountRouter('/api', './routes/emergencyRouter');
+safeMountRouter('/api', './routes/friendRouter');
+safeMountRouter('/api', './routes/profileImageRouter');
 safeMountRouter('/api/push', './routes/pushRouter'); // 별도 prefix
 safeMountRouter('/api', './routes/supportRouter');   // 공개 라우터
-safeMountRouter('/api/admin', './routes/adminRouter');
+safeMountRouter('/api', './routes/targetRouter');
+safeMountRouter('/api', './routes/userRouter');
 
 // =======================================
 // 3) Socket.IO 설정 (+온라인유저/방현황 트래킹)

@@ -145,7 +145,7 @@
  * -----------------------------------------------------*/
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, http, API_PREFIX } from '@/lib/api' // 공용 래퍼 사용
+import { api } from '@/lib/api'
 import { regions } from '@/data/regions'          // named export
 
 const router = useRouter()
@@ -253,7 +253,7 @@ async function onSubmit() {
 
   try {
     // 경로/프리픽스 통일: `${API_PREFIX}/signup` → http 래퍼가 '/api' 중복 제거
-    const res = await http.post(`${API_PREFIX}/signup`, payload)
+    const res = await api.post('/api/signup', payload)
     console.log('✅ [Signup] API OK:', res.status, res.data)
     successMsg.value = '회원가입이 완료되었습니다.'
     router.push('/login')

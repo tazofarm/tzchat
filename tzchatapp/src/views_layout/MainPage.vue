@@ -8,7 +8,7 @@
 .main-page {
   position: relative;
 
-  height: 100%;
+  height: calc(100vh - 56px); /* 상단 바(56px) 제외한 높이 */
   min-height: 0;
 
   overflow-y: auto;

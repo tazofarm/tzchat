@@ -143,35 +143,55 @@ router.patch('/search/preference', requireLogin, async (req, res) => {
     return res.status(500).json({ success: false, error: '검색 특징 업데이트 실패' });
   }
 });
+// 파일 상단 근처에 공용 상수 추가
+const USER_FIELDS =
+  'username nickname birthyear gender region1 region2 preference selfintro last_login updatedAt createdAt';
+
+// 서버에서 응답 직전에 selfintro 표준화(둘 중 하나라도 채워서 내려줌)
+function shapeUsers(list) {
+  return list.map(u => ({
+    ...u,
+    selfintro: u.selfintro ?? u.selfIntro ?? '',
+  }));
+}
 
 // ────────────────────────────────────────────────────────────
-// 4) 다중 지역 조건으로 사용자 검색
-//    (현재는 인증 필요하도록 유지)
+// 4) 다중 지역 조건으로 사용자 검색 (필드 제한 + selfintro 표준화)
 // ────────────────────────────────────────────────────────────
 router.post('/search/users', requireLogin, async (req, res) => {
   try {
-    const { regions } = req.body;
+    // 안전 정규화
+    const raw = Array.isArray(req.body?.regions) ? req.body.regions : [];
+    const regions = raw
+      .filter(r => r && (r.region1 || r.region2))
+      .map(r => ({ region1: s(r.region1), region2: s(r.region2) }));
+
     console.log('[API][REQ] POST /search/users - 검색 조건:', regions);
 
     // 전체/빈 조건
-    if (
-      !regions ||
+    const isAll =
       regions.length === 0 ||
-      regions.some((r) => r.region1 === '전체')
-    ) {
-      const allUsers = await User.find({});
+      regions.some(r => r.region1 === '전체') ||
+      regions.some(r => r.region2 === '전체');
+
+    if (isAll) {
+      const allUsers = await User.find({})
+        .select(USER_FIELDS)
+        .lean();
       console.log(`[API][RES] /search/users 전체 조회: ${allUsers.length}명`);
-      return res.json(allUsers);
+      return res.json(shapeUsers(allUsers));
     }
 
-    const orConditions = regions.map(({ region1, region2 }) => {
-      if (region2 === '전체') return { region1 };
-      return { region1, region2 };
-    });
+    const orConditions = regions.map(({ region1, region2 }) =>
+      !region2 || region2 === '전체' ? { region1 } : { region1, region2 }
+    );
 
-    const users = await User.find({ $or: orConditions });
+    const users = await User.find({ $or: orConditions })
+      .select(USER_FIELDS)
+      .lean();
+
     console.log(`[API][RES] /search/users 조건 일치: ${users.length}명`);
-    return res.json(users);
+    return res.json(shapeUsers(users));
   } catch (err) {
     console.error('[API][ERR] /search/users', err);
     return res.status(500).json({ success: false, error: '사용자 검색 실패' });

@@ -51,7 +51,7 @@
 // ⚠️ 가독성 + 유지보수: 주석 및 로그 최대화
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from '@/lib/api' // 공통 인스턴스( baseURL = <origin>/api, withCredentials = true )
+import { http as axios } from '@/lib/api'
 import { refreshSocketAuth, disconnectSocket } from '@/lib/socket' // JWT 갱신/종료 (옵션)
 
 // Ionic 컴포넌트 (import만 하고 안 쓰면 트리쉐이킹/타입 경고 가능)
@@ -83,7 +83,7 @@ onMounted(async () => {
 
   try {
     // ✅ 공통 axios 인스턴스 사용: baseURL이 이미 /api 이므로 경로는 '/users'
-    const resUsers = await axios.get('/users')
+    const resUsers = await axios.get('/api/users')
     users.value = Array.isArray(resUsers.data?.users) ? resUsers.data.users : []
     console.log('[HTTP][OK]', { path: '/users', count: users.value.length })
   } catch (error) {
@@ -94,7 +94,7 @@ onMounted(async () => {
   }
 
   try {
-    const resMe = await axios.get('/me')
+    const resMe = await axios.get('/api/me')
     nickname.value = resMe.data?.user?.nickname || ''
     console.log('[HTTP][OK]', { path: '/me', nickname: nickname.value })
   } catch (error) {
@@ -111,7 +111,7 @@ const logout = async () => {
   console.log('[UI] 로그아웃 시도')
   try {
     // ✅ baseURL=/api → 경로는 '/logout'
-    await axios.post('/logout')
+    await axios.post('/api/logout')
     // 로컬 JWT 토큰이 있다면 정리(앱/WebView 대응)
     try {
       localStorage.removeItem('TZCHAT_AUTH_TOKEN')

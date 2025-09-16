@@ -66,6 +66,7 @@
         <ion-button size="small" fill="outline" class="icon-btn" @click="toggleEmoji" aria-label="이모지 선택">😊</ion-button>
 
         <textarea
+          ref="textareaRef"
           v-model="newMessage"
           placeholder="메시지를 입력하세요"
           @keydown="handleKeydown"
@@ -80,7 +81,7 @@
     <transition name="fade">
       <div v-if="enlargedImage" class="image-modal" role="dialog" aria-modal="true" aria-label="이미지 보기">
         <div class="image-wrapper">
-          <button class="close-button" @click="enlargedImage = ''" aria-label="닫기">×</button>
+          <button class="close-button" @click="closeImageModal" aria-label="닫기">×</button>
           <img :src="enlargedImage" class="modal-image" @click.stop />
         </div>
       </div>
@@ -94,21 +95,13 @@
 // - 텍스트/이미지 전송, 이모지, 이미지 확대
 // - Socket.IO 실시간 수신
 // - ✅ 읽음 처리 디바운스 + 소켓 동기화
-// - 로그/주석 최대화
+// - ✅ 메시지 중복 방지, 이미지 붙여넣기, 업로드 가드, 하단 고정 로직
 // ------------------------------------------------------------------
 import { ref, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
 import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
-
-// ❌ (삭제) 개별 컴포넌트에서 직접 io 생성 → 혼성콘텐츠/중복연결 원인
-// import { io } from 'socket.io-client'
-
-// ✅ (추가) 공용 소켓 모듈 사용: 현재 오리진 기반 연결 유지
-import { connectSocket, getSocket } from '@/lib/socket' // ★ 변경
-
-// emoji-picker-element는 main.ts에서 전역 import 권장
-// import 'emoji-picker-element'
+import { connectSocket, getSocket } from '@/lib/socket' // ✅ 공용 소켓
 
 const route = useRoute()
 const router = useRouter()
@@ -116,7 +109,7 @@ const router = useRouter()
 const roomId = String(route.params.id || '')
 
 // ✅ 공용 소켓 인스턴스: 페이지 라이프사이클 동안 참조만
-let socket = null // ★ 변경: 전역 disconnect() 지양(앱 전체 1회 연결 유지)
+let socket = null
 
 console.log('[ChatRoom] socket module ready, roomId:', roomId)
 
@@ -127,20 +120,31 @@ const partnerNickname = ref('상대방')
 const messages = ref([])
 const newMessage = ref('')
 const chatScroll = ref(null)
+const textareaRef = ref(null)
 const showEmoji = ref(false)
 const fileInput = ref(null)
 
 const enlargedImage = ref('')
+
+// ===== 이미지 모달 열기/닫기 (+ ESC 닫기)
 const openImage = (url) => { 
   enlargedImage.value = url 
   console.log('[ChatRoom] openImage:', url)
+}
+const onEscClose = (e) => {
+  if (e.key === 'Escape' && enlargedImage.value) {
+    closeImageModal()
+  }
+}
+const closeImageModal = () => {
+  enlargedImage.value = ''
 }
 
 // ✅ 이미지 URL 보정: http 접두 제거 → 동일 오리진(https)로 강제
 const getImageUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const base = window.location.origin.replace(/\/+$/, '')         // https://tzchat.tazocode.com
+  const base = window.location.origin.replace(/\/+$/, '')
   const p = String(path).startsWith('/') ? path : `/${path}`
   return `${base}${p}`
 }
@@ -188,15 +192,35 @@ const sendMessage = async () => {
     // ✅ 공용 소켓 통해 브로드캐스트
     getSocket()?.emit('chatMessage', { roomId, message: res.data })
     console.log('[ChatRoom] emit chatMessage:', { roomId, id: res.data?._id })
+    // 로컬에서도 즉시 표시(중복 방지 로직이 있으므로 안전)
+    pushMessageSafe({ ...res.data, createdAt: res.data.createdAt || new Date().toISOString() })
+    scrollToBottom()
   } catch (err) {
     console.error('❌ 텍스트 메시지 전송 실패:', err)
   }
+}
+
+// ===== 이미지 업로드 가드 =====
+const MAX_SIZE = 10 * 1024 * 1024 // 10MB
+const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+const validateImage = (file) => {
+  if (!ACCEPTED.includes(file.type)) {
+    console.warn('지원하지 않는 타입:', file.type)
+    return false
+  }
+  if (file.size > MAX_SIZE) {
+    console.warn('파일 용량 초과:', file.size)
+    return false
+  }
+  return true
 }
 
 // 이미지 업로드 + 전송
 const uploadImage = async (e) => {
   const file = e.target.files?.[0]
   if (!file) return
+  if (!validateImage(file)) { e.target.value = ''; return }
+
   const formData = new FormData()
   formData.append('image', file)
   try {
@@ -214,10 +238,46 @@ const uploadImage = async (e) => {
 
     getSocket()?.emit('chatMessage', { roomId, message: messageRes.data })
     console.log('[ChatRoom] emit chatMessage(image):', { roomId, id: messageRes.data?._id })
+    // 로컬 표시
+    pushMessageSafe({ ...messageRes.data, createdAt: messageRes.data.createdAt || new Date().toISOString() })
+    scrollToBottom()
   } catch (err) {
     console.error('❌ 이미지 업로드 실패:', err)
   } finally {
     e.target.value = '' // 같은 파일 재선택 가능하도록 초기화
+  }
+}
+
+// 붙여넣기 이미지 지원
+const onPaste = async (e) => {
+  const items = e.clipboardData?.items || []
+  for (const it of items) {
+    if (it.kind === 'file') {
+      const file = it.getAsFile()
+      if (file && validateImage(file)) {
+        const formData = new FormData()
+        formData.append('image', file)
+        try {
+          console.log('[ChatRoom] paste upload start:', file.type, file.size)
+          const uploadRes = await axios.post('/api/chatrooms/upload-image', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            withCredentials: true
+          })
+          const imageUrl = uploadRes.data.imageUrl
+          const messageRes = await axios.post(`/api/chatrooms/${roomId}/message`, {
+            content: imageUrl, type: 'image'
+          }, { withCredentials: true })
+
+          getSocket()?.emit('chatMessage', { roomId, message: messageRes.data })
+          pushMessageSafe({ ...messageRes.data, createdAt: messageRes.data.createdAt || new Date().toISOString() })
+          scrollToBottom()
+        } catch (err) {
+          console.error('붙여넣기 업로드 실패:', err)
+        }
+        e.preventDefault()
+        break
+      }
+    }
   }
 }
 
@@ -242,15 +302,20 @@ const insertEmoji = (event) => {
   if (emoji) {
     newMessage.value += emoji
     console.log('[ChatRoom] insertEmoji:', emoji)
+    // 입력창 포커스 복귀
+    requestAnimationFrame(() => textareaRef.value?.focus())
   } else {
     console.warn('[ChatRoom] insertEmoji: no unicode in event', event)
   }
 }
 
-// 이모지 토글
+// 이모지 토글 (닫을 때 입력창 포커스 복귀)
 const toggleEmoji = () => {
   showEmoji.value = !showEmoji.value
   console.log('[ChatRoom] toggleEmoji:', showEmoji.value)
+  if (!showEmoji.value) {
+    requestAnimationFrame(() => textareaRef.value?.focus())
+  }
 }
 
 // 시간 포맷
@@ -295,14 +360,41 @@ const markAsReadNow = async () => {
   }
 }
 
+/* ───────── 메시지 중복 방지 + 하단 자동고정 보강 ───────── */
+const seenMsgIds = new Set()
+const pushMessageSafe = (m) => {
+  const id = m?._id
+  if (!id) return
+  if (seenMsgIds.has(id)) return
+  seenMsgIds.add(id)
+  messages.value.push(m)
+  // 메모리 보호: 최근 1000개까지만 추적
+  if (seenMsgIds.size > 1000) {
+    const firstId = messages.value[0]?._id
+    if (firstId) seenMsgIds.delete(firstId)
+  }
+}
+
+// 컨테이너 resize에 따른 자동 하단 고정(이미지 로딩 포함)
+let resizeObs = null
+const attachAutoScroll = () => {
+  const el = chatScroll.value
+  if (!el || resizeObs) return
+  resizeObs = new ResizeObserver(() => {
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (nearBottom) el.scrollTop = el.scrollHeight
+  })
+  resizeObs.observe(el)
+}
+
 /* ───────── 라이프사이클 ───────── */
 onMounted(async () => {
   console.log('[ChatRoom] onMounted, roomId:', roomId)
 
   // ✅ 공용 소켓 연결 확보
-  socket = connectSocket() // ★ 변경: 현재 오리진(HTTPS) 기반으로 1회 연결
+  socket = connectSocket()
 
-  // 연결 상태 로그 (추적 강화)
+  // 연결 상태 로그
   socket.on('connect', () => {
     console.log('[ChatRoom] socket connected:', socket.id)
   })
@@ -313,7 +405,12 @@ onMounted(async () => {
     console.warn('[ChatRoom] socket disconnected:', reason)
   })
 
+  // 전역 핫키/붙여넣기
+  window.addEventListener('keydown', onEscClose)
+  window.addEventListener('paste', onPaste)
+
   await loadMessages()
+  attachAutoScroll()
 
   socket.emit('joinRoom', roomId)
   console.log('[ChatRoom] joinRoom emitted')
@@ -329,7 +426,9 @@ onMounted(async () => {
       message?.chatRoom?._id === roomId
     if (!inSameRoom) return
 
-    messages.value.push(message)
+    // createdAt 폴백
+    if (!message.createdAt) message.createdAt = new Date().toISOString()
+    pushMessageSafe(message)
     scrollToBottom()
 
     const mine = isMine(message)
@@ -368,13 +467,15 @@ watch(messages, () => {
 
 onBeforeUnmount(() => {
   try {
+    if (readTimer) clearTimeout(readTimer)
+    if (resizeObs) { resizeObs.disconnect(); resizeObs = null }
+    window.removeEventListener('keydown', onEscClose)
+    window.removeEventListener('paste', onPaste)
+
     // ✅ 방만 떠난다(소켓 연결 유지 → 다른 페이지에서도 재사용)
     getSocket()?.emit('leaveRoom', roomId)
     getSocket()?.off('chatMessage')
     getSocket()?.off('messagesRead')
-
-    // ❌ 공용 연결 강제 종료는 지양 (페이지 전환시 재연결 지연/오류 방지)
-    // getSocket()?.disconnect()
 
     console.log('[ChatRoom] onBeforeUnmount: leaveRoom/off done')
   } catch (e) {
@@ -446,7 +547,7 @@ const goToPartnerProfile = () => {
 }
 .chat-title{
   font-weight:800; letter-spacing:.2px; color:var(--gold-500);
-  font-size:var(--fz-title); line-height:1.15; justify-self:start;
+  font-size:var(--fz-title); line-height:2.15; justify-self:start;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
   overflow:hidden; text-overflow:ellipsis; white-space:normal; cursor:pointer;
 }

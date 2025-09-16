@@ -1,4 +1,11 @@
 // src/lib/api.ts
+// -------------------------------------------------------------
+// 🌐 ENV 우선 (정적 직접 접근)
+// - 1순위: .env.* 의 VITE_API_BASE_URL (절대주소 권장; 뒤에 /api 붙이지 않음)
+// - 2순위: 브라우저 오리진 (개발 편의용 폴백)
+// - withCredentials, JWT Authorization 헤더 자동 부착
+// - ✅ 규칙: 실제 호출 시 경로는 항상 '/api/...' 로 명시
+// -------------------------------------------------------------
 import axios, {
   type InternalAxiosRequestConfig,
   type AxiosResponse,
@@ -6,286 +13,146 @@ import axios, {
   type AxiosRequestConfig,
 } from 'axios'
 
-/**
- * ✅ 현재 로그인 실패 원인 정리
- * - 프론트는 JWT 단일 가정(withCredentials:false), 백엔드는 세션 쿠키 기반 → /me 비로그인
- * - 일부 환경에서 baseURL이 https://localhost 로 굳어지는 오염 가능성
- *
- * ✅ 조치 (안전 복구)
- * 1) 기본을 "쿠키 세션 + JWT 병행" 으로 전환:
- *    - axios 기본값 withCredentials = true (쿠키 항상 전송)
- *    - 응답에 token이 있으면 로컬 저장 → Authorization 헤더도 병행
- * 2) baseURL 강제 가드 강화:
- *    - capacitor://, http(s)://localhost/*, 8081(dev-remote) 등에서는 REMOTE_DEFAULT_API 강제
- *    - (🔧 NEW) origin 폴백 단계에서도 localhost/127.0.0.1 이면 원격 강제
- * 3) 모든 요청에서 baseURL/withCredentials 재보정 + 상세 로그
- */
+// ====== 🔑 ENV (정적 직접 접근) ======
+const {
+  MODE: VITE_BUILD_MODE,
+  VITE_MODE,
+  VITE_API_BASE_URL,
+} = import.meta.env as any
 
-export const API_PREFIX = '/api'
-const BUILD_ID = 'api.ts@MIXED-AUTH-RECOVERY:v3.2' // 🔧 bump
+const MODE = String(VITE_MODE || VITE_BUILD_MODE || '')
 
+// --------------------- utils ---------------------
+function stripTrailingSlashes(u: string) { return (u || '').replace(/\/+$/, '') }
+function ensureLeadingSlash(p: string) { return p.startsWith('/') ? p : `/${p}` }
+function isHttpAbs(u: string) { return /^https?:\/\//i.test(u || '') }
+function joinUrl(base: string, path: string) {
+  const b = stripTrailingSlashes(base || '')
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${b}${p}`
+}
+
+// 토큰 유틸
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
-const REMOTE_DEFAULT_API = 'https://tzchat.tazocode.com/api'
+function getAuthToken(): string | null { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
+export function setAuthToken(tok: string | null) { try { tok ? localStorage.setItem(TOKEN_KEY, tok) : localStorage.removeItem(TOKEN_KEY) } catch {} }
+export function clearAuthToken() { setAuthToken(null) }
 
-// === 유틸 ===
-const stripTrailingSlashes = (s: string) => (s || '').replace(/\/+$/g, '')
-const stripLeadingApi = (p: string) => (p || '').replace(/^\/api(?=\/|$)/i, '')
-const ensureLeadingSlash = (u: string) => (u?.startsWith('/') ? u : '/' + (u || ''))
-const isHttpAbs = (u: string) => /^https?:\/\//i.test(u || '')
-const isLocalLike = (u: string) =>
-  /(localhost|127\.0\.0\.1)(:\d+)?/i.test(String(u || '')) || /:8081$/i.test(String(u || ''))
-
-const isBrowser = typeof window !== 'undefined'
-const pageOrigin = isBrowser ? window.location.origin : '(no-window)'
-const isCapacitor = isBrowser && /^capacitor:\/\//i.test(pageOrigin)
-
-function getModeLabel() {
-  const mode = (import.meta as any)?.env?.MODE as string | undefined
-  const viteMode = (import.meta as any)?.env?.VITE_MODE as string | undefined
-  return (viteMode && viteMode.trim()) || mode || '(unknown)'
-}
-
-/** .env → baseURL 해석 + 앱/프로덕션 안전장치 */
-function resolveBaseURL(): string {
-  const mode = getModeLabel()
-  let envBase = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined
-  envBase = envBase?.trim()
-
-  // === Capacitor 앱: 무조건 원격 HTTPS 절대 URL만 허용 ===
-  if (isCapacitor) {
-    if (!envBase || !isHttpAbs(envBase) || isLocalLike(envBase)) {
-      console.error('[HTTP][CFG] Capacitor 환경 → 원격 기본 API로 강제', {
-        mode, envBase, forced: REMOTE_DEFAULT_API, pageOrigin,
-      })
-      return REMOTE_DEFAULT_API
+// ------------------ baseURL 계산 ------------------
+// ❗️여기서는 절대로 '/api'를 덧붙이지 않습니다.
+function computeBaseURL(): string {
+  const raw = String(VITE_API_BASE_URL || '').trim()
+  if (raw) {
+    // 절대경로면 그대로, 상대경로면 브라우저 오리진 기준으로 붙여 사용
+    if (isHttpAbs(raw)) return stripTrailingSlashes(raw)
+    try {
+      const origin = `${window.location.protocol}//${window.location.host}`
+      return stripTrailingSlashes(joinUrl(origin, raw))
+    } catch {
+      // 브라우저 컨텍스트가 아닐 때를 대비한 폴백
+      return stripTrailingSlashes(raw)
     }
-    return stripTrailingSlashes(envBase)
   }
 
-  // === 8081(dev-remote) 개발 페이지에서 자주 나는 실수 방지 ===
-  const on8081 = isBrowser && /^http:\/\/localhost:8081$/i.test(pageOrigin)
-  if (on8081 && (mode === 'dev-remote' || !envBase || isLocalLike(envBase))) {
-    console.error('[HTTP][CFG] 8081(dev-remote) → 원격 기본으로 강제', {
-      mode, envBase, forced: REMOTE_DEFAULT_API,
-    })
-    return REMOTE_DEFAULT_API
-  }
-
-  // === dev-remote 모드: ENV 우선, 없거나 로컬이면 원격 강제 ===
-  if (mode === 'dev-remote') {
-    if (!envBase || isLocalLike(envBase)) {
-      console.error('[HTTP][CFG] dev-remote ENV 비었거나 로컬 → 원격 기본 강제', {
-        envBase, forced: REMOTE_DEFAULT_API,
-      })
-      return REMOTE_DEFAULT_API
-    }
-    return stripTrailingSlashes(envBase)
-  }
-
-  // === 기타 모드: ENV가 있으면 사용하되 로컬/비HTTP면 원격 강제 ===
-  if (envBase && envBase.length) {
-    if (!isHttpAbs(envBase) || isLocalLike(envBase)) {
-      console.error('[HTTP][CFG] 기타 모드 ENV가 비HTTP/로컬 → 원격 기본 강제', {
-        mode, envBase, forced: REMOTE_DEFAULT_API,
-      })
-      return REMOTE_DEFAULT_API
-    }
-    return stripTrailingSlashes(envBase)
-  }
-
-  // === 최후 폴백(브라우저 웹 전용): origin + '/api'
-  try {
-    if (isBrowser && window.location?.origin) {
-      const origin = window.location.origin
-      // 🔧 NEW: 폴백 오리진이 localhost/127인 경우 원격 강제
-      if (isLocalLike(origin)) {
-        console.error('[HTTP][CFG] origin 폴백이 localhost/127 → 원격 기본 강제', {
-          origin, forced: REMOTE_DEFAULT_API,
-        })
-        return REMOTE_DEFAULT_API
-      }
-      // 비-HTTP 오리진(예: capacitor://)은 차단하고 원격으로
-      if (!/^https?:\/\//i.test(origin)) {
-        console.error('[HTTP][CFG] non-HTTP origin 폴백 차단 → 원격 기본 강제', {
-          origin, forced: REMOTE_DEFAULT_API,
-        })
-        return REMOTE_DEFAULT_API
-      }
-      return `${stripTrailingSlashes(origin)}/api`
-    }
-  } catch {}
-
-  // Node 등 비브라우저 환경의 마지막 폴백(개발용)
-  return REMOTE_DEFAULT_API
+  // dev-remote에서 env 주입이 실패하면 여기로 내려옵니다.
+  let origin = ''
+  try { origin = `${window.location.protocol}//${window.location.host}` } catch {}
+  const fallback = origin || 'http://localhost:2000'
+  console.warn('[CFG][api] VITE_API_BASE_URL 미설정/형식불량 → 폴백 사용', { MODE, origin: fallback })
+  return stripTrailingSlashes(fallback)
 }
 
-// === 토큰 헬퍼 ===
-export function getAuthToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
-}
-export function setAuthToken(token?: string | null) {
-  try {
-    if (token && token.trim()) {
-      localStorage.setItem(TOKEN_KEY, token)
-      console.log('[AUTH][SET]', { hasToken: true, len: token.length })
-    } else {
-      localStorage.removeItem(TOKEN_KEY)
-      console.log('[AUTH][SET]', { hasToken: false })
-    }
-  } catch {}
-}
-export function clearAuthToken() {
-  try { localStorage.removeItem(TOKEN_KEY); console.log('[AUTH][CLR]', { ok: true }) } catch {}
-}
-
-// === 구성값 ===
-const ENV_BASE = resolveBaseURL()
-
-// ✅ 복구 포인트: 기본은 "쿠키 세션 사용(true) + JWT 병행"
+const ENV_BASE = computeBaseURL()
 const USE_COOKIES = true
 
+// ------------------ Axios 인스턴스 ----------------
 export const api = axios.create({
-  baseURL: ENV_BASE,
+  baseURL: ENV_BASE,                 // ← 뒤에 '/api' 를 붙이지 않습니다.
   withCredentials: USE_COOKIES,
-  timeout: 15000,
-  headers: {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 })
 
-console.log('%c[HTTP][CFG][BANNER]', 'color:#0a0;font-weight:bold', {
-  BUILD_ID,
-  MODE: (import.meta as any)?.env?.MODE,
-  VITE_MODE: (import.meta as any)?.env?.VITE_MODE,
-  VITE_API_BASE_URL: (import.meta as any)?.env?.VITE_API_BASE_URL,
-  baseURL: api.defaults.baseURL,
-  pageOrigin,
-  isCapacitor,
-  USE_COOKIES,
+console.log('%c[HTTP][CFG]', 'color:#0a0;font-weight:bold', {
+  MODE,
+  VITE_API_BASE_URL: VITE_API_BASE_URL || '(from env)',
+  finalBaseURL: ENV_BASE,
+  withCredentials: USE_COOKIES,
 })
 
-api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
-  // baseURL, withCredentials 오염 방지(항상 재보정)
-  if (cfg.baseURL !== ENV_BASE) {
-    console.warn('[HTTP][CFG] normalize baseURL', { from: cfg.baseURL, to: ENV_BASE })
-    ;(cfg as any).baseURL = ENV_BASE
-  }
-  if (api.defaults.baseURL !== ENV_BASE) api.defaults.baseURL = ENV_BASE
-
-  // ✅ 항상 쿠키 동반
-  if (cfg.withCredentials !== true) {
-    (cfg as any).withCredentials = true
-  }
-
-  // URL 정규화
-  let u = cfg.url || '/'
-  // 절대 로컬 URL은 상대경로로 축약
-  if (u && isHttpAbs(u) && isLocalLike(u)) {
-    try {
-      const abs = new URL(u)
-      u = abs.pathname + (abs.search || '')
-    } catch {
-      u = u.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, '')
-    }
-  }
-  if (u.startsWith('/api')) u = stripLeadingApi(u)
-  u = ensureLeadingSlash(u)
-  cfg.url = u
-
-  // JWT 토큰 주입(있으면 병행)
+// 요청 인터셉터: 토큰 부착
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAuthToken()
   if (token) {
-    ;(cfg.headers as any) = { ...(cfg.headers as any), Authorization: `Bearer ${token}` }
+    config.headers = config.headers || {}
+    ;(config.headers as any).Authorization = `Bearer ${token}`
   }
-
-  // 로그(민감정보 마스킹)
-  let safeData: any = cfg.data
-  if (safeData && typeof safeData === 'object') {
-    try {
-      const clone: any = { ...(safeData as any) }
-      if ('password' in clone) clone.password = '(hidden)'
-      if ('pw' in clone) clone.pw = '(hidden)'
-      safeData = clone
-    } catch {}
-  }
-  console.log('[HTTP][REQ]', {
-    method: (cfg.method || 'get').toUpperCase(),
-    url: `${cfg.baseURL || ''}${cfg.url}`,
-    params: cfg.params,
-    data: safeData,
-    withCredentials: cfg.withCredentials,
-  })
-
-  return cfg
+  return config
 })
 
+// 응답 인터셉터: 에러 로깅
 api.interceptors.response.use(
-  (res: AxiosResponse) => {
-    console.log('[HTTP][RES]', {
-      status: res.status,
-      url: res.config?.url,
-      size: typeof res.data === 'string' ? res.data.length : undefined,
-    })
-    return res
-  },
+  (res: AxiosResponse) => res,
   (err: AxiosError) => {
     const status = err.response?.status
-    const data = err.response?.data
-    const url = err.config?.url
-    console.log('[HTTP][ERR]', { status, url, message: err.message, isAxiosError: true, data })
-    if (status === 401) clearAuthToken()
+    const url = (err.config as any)?.url
+    console.warn('[HTTP][ERR]', {
+      status,
+      url,
+      message: err.message,
+      isAxiosError: (err as any).isAxiosError,
+      data: err.response?.data
+    })
     return Promise.reject(err)
-  },
+  }
 )
 
+// ------------------ 경로 정규화 래퍼 ----------------
+// ✅ 더 이상 '/api'를 제거하지 않습니다. 호출부에서 항상 '/api/...' 를 넘기세요.
 type HttpResponse<T = any> = Promise<AxiosResponse<T>>
-function norm(p: string) { return ensureLeadingSlash(stripLeadingApi(p || '/')) }
+function norm(p: string) { return ensureLeadingSlash(p || '/') }
 
 export const http = {
   get<T = any>(url: string, config?: AxiosRequestConfig): HttpResponse<T> {
-    const path = norm(url)
-    console.log('[API][REQ]', { method: 'GET', path, base: api.defaults.baseURL })
+    const path = norm(url) // e.g. '/api/users'
+    console.log('[HTTP][REQ]', { method: 'GET', url: joinUrl(ENV_BASE, path), params: config?.params, withCredentials: USE_COOKIES })
     return api.get<T>(path, config)
   },
   post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): HttpResponse<T> {
     const path = norm(url)
-    console.log('[API][REQ]', { method: 'POST', path, base: api.defaults.baseURL, hasBody: !!data })
+    console.log('[HTTP][REQ]', { method: 'POST', url: joinUrl(ENV_BASE, path), params: config?.params, data, withCredentials: USE_COOKIES })
     return api.post<T>(path, data, config)
   },
   put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): HttpResponse<T> {
     const path = norm(url)
-    console.log('[API][REQ]', { method: 'PUT', path, base: api.defaults.baseURL, hasBody: !!data })
+    console.log('[HTTP][REQ]', { method: 'PUT', url: joinUrl(ENV_BASE, path), params: config?.params, data, withCredentials: USE_COOKIES })
     return api.put<T>(path, data, config)
   },
   patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): HttpResponse<T> {
     const path = norm(url)
-    console.log('[API][REQ]', { method: 'PATCH', path, base: api.defaults.baseURL, hasBody: !!data })
+    console.log('[HTTP][REQ]', { method: 'PATCH', url: joinUrl(ENV_BASE, path), params: config?.params, data, withCredentials: USE_COOKIES })
     return api.patch<T>(path, data, config)
   },
   delete<T = any>(url: string, config?: AxiosRequestConfig): HttpResponse<T> {
     const path = norm(url)
-    console.log('[API][REQ]', { method: 'DELETE', path, base: api.defaults.baseURL })
+    console.log('[HTTP][REQ]', { method: 'DELETE', url: joinUrl(ENV_BASE, path), params: config?.params, withCredentials: USE_COOKIES })
     return api.delete<T>(path, config)
   },
 }
 
-// === 인증 API: 세션/쿠키 + JWT 병행 지원 ===
-export const AuthAPI = {
-  async login(payload: { username: string; password: string }) {
-    // 서버가 { token } 또는 { data: { token } } 를 줄 수도 있고, 오직 쿠키만 줄 수도 있음
-    const res = await api.post('/login', payload)
-    const token =
-      (res?.data as any)?.token ??
-      (res?.data as any)?.data?.token ??
-      null
-    if (token) setAuthToken(token) // JWT가 오면 저장(병행)
+// ------------------ 인증 편의 함수 ----------------
+// ✅ 모든 엔드포인트는 명시적으로 '/api/...' 사용
+export const auth = {
+  async login(body: { username: string; password: string }) {
+    const res = await api.post('/api/login', body)
+    const token = (res?.data as any)?.token ?? (res?.data as any)?.data?.token ?? null
+    if (token) setAuthToken(token)
     return res
   },
-  me() { return api.get('/me') }, // 세션 쿠키 동반 + JWT 병행
+  me() { return api.get('/api/me') },
   async logout() {
-    try { await api.post('/logout') } finally { clearAuthToken() }
+    try { await api.post('/api/logout') } finally { clearAuthToken() }
   },
 }
 
 export default api
+export const AuthAPI = auth

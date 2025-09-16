@@ -307,7 +307,8 @@ const handleClick = (user) => {
 
 /* ===== API 리프레시 (baseURL=/api 이므로 경로는 짧게) ===== */
 async function refreshSent () {
-  const res = await axios.get('/friend-requests/sent')
+  const res = await axios.get('/api/friend-requests/sent')
+
   sentRequests.value = res.data.map(it => {
     const prev = sentRequests.value.find(x => x._id === it._id)
     return prev ? { ...it, _isNew: !!prev._isNew } : { ...it, _isNew: false }
@@ -316,7 +317,8 @@ async function refreshSent () {
   broadcastFriendsState()
 }
 async function refreshReceived () {
-  const res = await axios.get('/friend-requests/received')
+  const res = await axios.get('/api/friend-requests/received')
+
   receivedRequests.value = res.data.map(it => {
     const prev = receivedRequests.value.find(x => x._id === it._id)
     return prev ? { ...it, _isNew: !!prev._isNew } : { ...it, _isNew: false }
@@ -325,12 +327,14 @@ async function refreshReceived () {
   broadcastFriendsState()
 }
 async function refreshFriends () {
-  const res = await axios.get('/friends')
+  const res = await axios.get('/api/friends')
+
   friends.value = res.data
   console.log('[UI][RES]', { page:'3_list', step:'refreshFriends', count: friends.value.length })
 }
 async function refreshBlocks () {
-  const res = await axios.get('/blocks')
+  const res = await axios.get('/api/blocks')
+
   blocks.value = res.data
   console.log('[UI][RES]', { page:'3_list', step:'refreshBlocks', count: blocks.value.length })
 }
@@ -354,7 +358,8 @@ async function cancelFriendRequest (idOrObj) {
     if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'cancelFriendRequest', message:'id missing' })
     console.log('[API][REQ]', { path:'/friend-request/:id', method:'DELETE', id })
 
-    await axios.delete(`/friend-request/${id}`)
+    await axios.delete(`/api/friend-request/${id}`)
+
 
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
@@ -371,7 +376,8 @@ async function acceptFriendRequest (payload) {
     if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'acceptFriendRequest', message:'id missing' })
     console.log('[API][REQ]', { path:'/friend-request/:id/accept', method:'PUT', id })
 
-    await axios.put(`/friend-request/${id}/accept`, {})
+    await axios.put(`/api/friend-request/${id}/accept`, {})
+
 
     removeById(receivedRequests, id)
     await refreshFriends()
@@ -389,7 +395,8 @@ async function rejectFriendRequest (payload) {
     if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'rejectFriendRequest', message:'id missing' })
     console.log('[API][REQ]', { path:'/friend-request/:id/reject', method:'PUT', id })
 
-    await axios.put(`/friend-request/${id}/reject`, {})
+    await axios.put(`/api/friend-request/${id}/reject`, {})
+
 
     removeById(sentRequests, id)
     removeById(receivedRequests, id)
@@ -407,7 +414,8 @@ async function blockFriendRequest (payload) {
     if (!id) return console.log('[UI][ERR]', { page:'3_list', step:'blockFriendRequest', message:'id missing' })
     console.log('[API][REQ]', { path:'/friend-request/:id/block', method:'PUT', id })
 
-    await axios.put(`/friend-request/${id}/block`, {})
+    await axios.put(`/api/friend-request/${id}/block`, {})
+
 
     removeById(receivedRequests, id)
     await refreshBlocks()
@@ -479,16 +487,18 @@ function bindSocketHandlers () {
 onMounted(async () => {
   try {
     console.log('%c[FriendsList] 초기 로드 시작', 'color:#d4af37')
-    const me = await axios.get('/me')
+    const me = await axios.get('/api/me')
+
     myId.value = me.data.user?._id || null
     nickname.value = me.data.user?.nickname || ''
     console.log('[UI][RES]', { page:'3_list', step:'me', userId: myId.value, nickname: nickname.value })
 
     const [s, r, f, b] = await Promise.all([
-      axios.get('/friend-requests/sent'),
-      axios.get('/friend-requests/received'),
-      axios.get('/friends'),
-      axios.get('/blocks')
+axios.get('/api/friend-requests/sent'),
+axios.get('/api/friend-requests/received'),
+axios.get('/api/friends'),
+axios.get('/api/blocks')
+
     ])
 
     sentRequests.value     = s.data.map(it => ({ ...it, _isNew: false }))

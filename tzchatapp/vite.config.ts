@@ -15,15 +15,16 @@ export default defineConfig(({ command, mode }) => {
   const outDir = 'dist'                      // 🔒 Nginx root와 동일 (/tzchatapp/dist)
 
   // === 모드 플래그(로깅용) ===
-  const isDevLocal  = isDev && mode === 'development'  // npm run dev
-  const isDevRemote = isDev && mode === 'dev-remote'   // npm run dev:remote
-  const isWebBuild  = !isDev && mode === 'web'         // npm run build:web
-  const isProdBuild = !isDev && mode === 'production'  // npm run build:app
+  const isDevLocal     = isDev && mode === 'development'   // npm run dev
+  const isDevRemote    = isDev && mode === 'dev-remote'    // npm run dev:remote
+  const isWebBuild     = !isDev && mode === 'web'          // npm run build:web
+  const isAppBuild     = !isDev && mode === 'app'          // npm run build:app
+  const isProdWebBuild = !isDev && mode === 'production'   // npm run build:production
 
   // ===== 콘솔 로그(동작 확인용) =====
   console.log('================= Vite Config =================')
   console.log('command:', command, '| mode:', mode)
-  console.log('flags:', { isDevLocal, isDevRemote, isWebBuild, isProdBuild })
+  console.log('flags:', { isDevLocal, isDevRemote, isWebBuild, isAppBuild, isProdWebBuild })
   console.log('base:', '/')
   console.log('outDir:', outDir)
   console.log('dev port:', 8081, '| preview port:', 4173)
@@ -87,3 +88,4 @@ export default defineConfig(({ command, mode }) => {
     },
   }
 })
+ 

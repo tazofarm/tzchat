@@ -1,5 +1,8 @@
 <template>
   <ion-page class="home-page" aria-label="홈 레이아웃">
+    
+   <TopSpace height="8vh" /> <!-- ← 원하는 높이로 조절 --> 
+    
     <!-- 상단 메뉴 -->
     <TopMenu />
 
@@ -7,10 +10,13 @@
     <MainPage />
 
     <!-- 하단 여백 -->
-    <Space height="8vh" /> <!-- ← 원하는 높이로 조절 -->
+    <Space height="20vh" /> <!-- ← 원하는 높이로 조절 -->
 
-    <!-- 하단 메뉴 -->
+    <!-- 하단 메뉴 
     <BottomMenu />
+-->
+
+
   </ion-page>
 </template>
 
@@ -20,6 +26,7 @@ import TopMenu from '../views_layout/TopMenu.vue'
 import MainPage from '../views_layout/MainPage.vue'
 import BottomMenu from '../views_layout/BottomMenu.vue'
 import Space from '../views_layout/Space.vue'
+import TopSpace from '../views_layout/topspace.vue'
 
 // 로그
 console.log('[HomePage] layout: Top / Main / Space / Bottom')

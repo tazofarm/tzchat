@@ -3,7 +3,7 @@
 // - 기존 내용 최대한 유지
 // - keystore.properties 읽어서 release 서명 적용
 // - 콘솔 로그로 상태 확인 가능 (lifecycle 로그)
-// ------------------------------------------------------------
+// -----------------------------------------------------------
 
 apply plugin: 'com.android.application'
 
@@ -38,8 +38,8 @@ android {
 
         // ✅ 스토어 업로드 핵심: 업로드할 때마다 versionCode는 1,2,3… 증가
         //    (이미 1을 올리셨다면 다음은 2 이상으로 올려주세요)
-        versionCode 12
-        versionName "1.12"
+        versionCode 16
+        versionName "1.16"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

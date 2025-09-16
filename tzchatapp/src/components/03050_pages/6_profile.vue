@@ -3,14 +3,23 @@
     <div class="container">
       <!-- ✅ 내 프로필 카드 -->
       <!-- ★ 변경지점: 공통코드 충돌을 막기 위한 스코프 클래스 pf-scope 추가 -->
-
       <div v-if="user" class="card pf-scope">
         <h3 class="card-title">
           <IonIcon :icon="icons.personCircleOutline" class="title-icon" />
-          {{ user.nickname }} 님의 프로필
+          {{ user.nickname }}
         </h3>
 
-        <!-- ✅ [추가] 우측 상단 '설정' 버튼 (절대배치) -->
+        <!-- ✅ 프로필 사진 컴포넌트 (제목 아래, 중앙) -->
+        <div class="pf-photo">
+          <ProfilePhotoManager
+            :gender="user?.gender || ''"
+            :readonly="false"
+            @updated="onProfilePhotoUpdated"
+            @main-changed="onProfileMainChanged"
+          />
+        </div>
+
+        <!-- ✅ 우측 상단 '설정' 버튼 (절대배치) -->
         <button
           class="title-action-btn"
           type="button"
@@ -28,20 +37,17 @@
             <col class="pf-col-td" />
           </colgroup>
           <tbody>
-
-              <tr
+            <tr
               class="editable-row"
               @click="goMembership"
               tabindex="0"
               @keydown.enter="goMembership"
             >
-            
               <td class="pf-th">
                 <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
                 <strong class="label">일반회원</strong>
               </td>
               <td class="pf-td editable-text">
-                
                 <span class="inline-cta">구독하기</span>
               </td>
             </tr>
@@ -64,16 +70,6 @@
               <td class="pf-td readonly">
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
               </td>
-            </tr>
-
-            <!-- 매칭율-->
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.calendarOutline" class="row-icon" />
-                <strong class="label">매칭율</strong>
-              </td>
-              <td class="pf-td readonly">보냄 {{ user.sentRequestCountTotal|| '0' }} / 받음 {{ user.receivedRequestCountTotal|| '0' }} / 매칭 {{ user.acceptedChatCountTotal|| '0' }}</td>
-              
             </tr>
 
             <!-- 비밀번호 변경 -->
@@ -127,27 +123,11 @@
             >
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">성향</strong>
+                <strong class="label">특징</strong>
               </td>
               <td class="pf-td editable-text">{{ user.preference }}</td>
             </tr>
 
-            <!-- 결혼유무 
-            <tr
-              @click="openPopup(2, user.preference)"
-              class="editable-row"
-              tabindex="0"
-              @keydown.enter="openPopup(2, user.preference)"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">결혼</strong>
-              </td>
-              <td class="pf-td editable-text">{{ user.preference }}</td>
-            </tr>
-
-            -->
-            
             <!-- 소개 -->
             <tr
               @click="openPopup(3, user.selfintro || '소개 없음')"
@@ -161,29 +141,10 @@
               </td>
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
-
-            <!-- 가입/마지막 접속 (주석 유지) -->
-            <!--
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.logInOutline" class="row-icon" />
-                <strong class="label">가입일</strong>
-              </td>
-              <td class="pf-td readonly">{{ formatDate(user.createdAt) }}</td>
-            </tr>
-
-            <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.timeOutline" class="row-icon" />
-                <strong class="label">마지막 접속</strong>
-              </td>
-              <td class="pf-td readonly">{{ formatDate(user.last_login) }}</td>
-            </tr>
-            -->
-
           </tbody>
         </table>
       </div>
+
       <br />
 
       <!-- ✅ 친구 찾기 설정 카드 -->
@@ -240,12 +201,29 @@
             >
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">검색성향</strong>
+                <strong class="label">검색특징</strong>
               </td>
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
+          </tbody>
+        </table>
+      </div>
 
-            <!-- 결혼유무
+      <br />
+
+      <!-- ✅ 노출제한 설정 카드 -->
+      <div v-if="user" class="card pf-scope">
+        <h3 class="card-title">
+          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
+          설정 제한
+        </h3>
+
+        <table class="info-table">
+          <colgroup>
+            <col class="pf-col-th" />
+            <col class="pf-col-td" />
+          </colgroup>
+          <tbody>
             <tr
               class="editable-row"
               @click="openSearchPreferenceModal"
@@ -254,13 +232,10 @@
             >
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">결혼유무</strong>
+                <strong class="label">휴대폰에 포함된</strong>
               </td>
-              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+              <td class="pf-td editable-text">사람 검색 제외하기</td>
             </tr>
-            -->
-
-            <!-- 상대매칭율
             <tr
               class="editable-row"
               @click="openSearchPreferenceModal"
@@ -269,13 +244,10 @@
             >
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">상대 매칭율 필터</strong>
+                <strong class="label">휴대폰에 포함된</strong>
               </td>
-              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+              <td class="pf-td editable-text">사람에게 노출 되지 않기</td>
             </tr>
-            -->
-
-            <!-- 전화번호 제외
             <tr
               class="editable-row"
               @click="openSearchPreferenceModal"
@@ -284,34 +256,40 @@
             >
               <td class="pf-th">
                 <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">보유전화번호제외</strong>
+                <strong class="label">사진이 없는</strong>
               </td>
-              <td class="pf-td editable-text">{{ user.search_preference }}</td>
+              <td class="pf-td editable-text">사람 검색 제외하기</td>
             </tr>
-            -->
-
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">사진이 없는</strong>
+              </td>
+              <td class="pf-td editable-text">사람에게 노출 되지 않기</td>
+            </tr>
+            <tr
+              class="editable-row"
+              @click="openSearchPreferenceModal"
+              tabindex="0"
+              @keydown.enter="openSearchPreferenceModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">알림설정</strong>
+              </td>
+              <td class="pf-td editable-text">온 / off</td>
+            </tr>
           </tbody>
         </table>
       </div>
 
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
-<br></br>
 
     <!-- ✅ 모달들 -->
     <PopupModal_1
@@ -373,8 +351,7 @@
 /* ===========================================================
    6_profile.vue
    - 우측 상단 '설정' 버튼 추가 (절대배치)
-   - 클릭 시 /home/setting 이동 (라우트 원하는 경로로 변경 가능)
-   - 주석/로그 강화
+   - 프로필 사진 컴포넌트 삽입
    =========================================================== */
 import { ref, computed, onMounted } from 'vue'
 import { toastController, IonIcon } from '@ionic/vue'
@@ -395,6 +372,9 @@ import Search_Preference_Modal from '@/components/04610_Page6_profile/Search_Pre
 /* 비밀번호 변경 모달 */
 import PasswordChangeModal from '@/components/04610_Page6_profile/Modal_password_chagne.vue'
 
+/* ✅ 프로필 사진 컴포넌트 */
+import ProfilePhotoManager from '@/components/04610_Page6_profile/ProfilePhotoManager.vue'
+
 /* Ionicons 아이콘들 */
 import {
   personCircleOutline,
@@ -408,8 +388,8 @@ import {
   logInOutline,
   timeOutline,
   optionsOutline,
-  settingsOutline,  
-  ribbonOutline,        // ✅ [추가] 설정 아이콘
+  settingsOutline,
+  ribbonOutline,
 } from 'ionicons/icons'
 
 /* 템플릿에서 사용하기 쉽게 묶어서 노출 */
@@ -425,8 +405,8 @@ const icons = {
   logInOutline,
   timeOutline,
   optionsOutline,
-  settingsOutline, 
-  ribbonOutline,         // ✅ [추가]
+  settingsOutline,
+  ribbonOutline,
 }
 
 const router = useRouter()
@@ -447,12 +427,8 @@ const showSearchPreference = ref(false)
 
 /* 비밀번호 변경 */
 const showPasswordModal = ref(false)
-function openPasswordModal() {
-  console.log('[profile] openPasswordModal')
-  showPasswordModal.value = true
-}
+function openPasswordModal() { showPasswordModal.value = true }
 async function onPasswordUpdated() {
-  console.log('[profile] password updated')
   const t = await toastController.create({
     message: '비밀번호가 변경되었습니다.',
     duration: 1400,
@@ -463,14 +439,26 @@ async function onPasswordUpdated() {
 
 /* ✅ 설정 버튼 핸들러 */
 function goSetting() {
-  console.log('[profile] goSetting → /home/setting')
-  // 필요 시 아래 경로를 프로젝트의 실제 설정 페이지로 맞춰주세요.
   router.push('/home/7page')
+}
+
+/* [추가] 사진 컴포넌트 이벤트 핸들러 */
+function onProfilePhotoUpdated() {
+  // 필요 시 유저 정보/목록 재조회 로직 추가
+  console.log('[profile] photos updated')
+}
+async function onProfileMainChanged(imageId) {
+  console.log('[profile] main changed:', imageId)
+  const t = await toastController.create({
+    message: '대표 사진이 변경되었습니다.',
+    duration: 1200,
+    color: 'success'
+  })
+  t.present()
 }
 
 // [함수 추가: 구독 페이지로 이동]
 function goMembership() {
-  console.log('[profile] goMembership → /home/subscribe')
   router.push('/home/setting/0001') // 필요 시 실제 라우트로 변경
 }
 
@@ -484,43 +472,25 @@ const openPopup = (modalNum, value) => {
   showModal2.value = modalNum === 2
   showModal3.value = modalNum === 3
   showModal4.value = modalNum === 4
-  console.log('[profile] openPopup:', { modalNum, value })
 }
 
 /* ----- 5_find 모달 오픈 ----- */
-const openSearchYearModal = () => {
-  console.log('[profile] openSearchYearModal')
-  showSearchYear.value = true
-}
-const openSearchRegionModal = () => {
-  console.log('[profile] openSearchRegionModal')
-  showSearchRegion.value = true
-}
-const openSearchPreferenceModal = () => {
-  console.log('[profile] openSearchPreferenceModal')
-  showSearchPreference.value = true
-}
+const openSearchYearModal = () => { showSearchYear.value = true }
+const openSearchRegionModal = () => { showSearchRegion.value = true }
+const openSearchPreferenceModal = () => { showSearchPreference.value = true }
 
 /* ===========================================================
    ✅ 화면/모달 복원용 regions 계산 (검색조건)
    =========================================================== */
 const regionsForModal = computed(() => {
   if (!user.value) return []
-
-  const fromSnake = Array.isArray(user.value.search_regions)
-    ? user.value.search_regions
-    : []
-  const fromCamel = Array.isArray(user.value.searchRegions)
-    ? user.value.searchRegions
-    : []
-
+  const fromSnake = Array.isArray(user.value.search_regions) ? user.value.search_regions : []
+  const fromCamel = Array.isArray(user.value.searchRegions) ? user.value.searchRegions : []
   const list = (fromSnake.length ? fromSnake : fromCamel).map((r) => ({
     region1: r?.region1 || '',
     region2: r?.region2 || ''
   }))
-
   if (list.length) return list
-
   const r1 = user.value.search_region1 || ''
   const r2 = user.value.search_region2 || ''
   if (!r1 && !r2) return []
@@ -532,15 +502,10 @@ const regionsForModal = computed(() => {
    ✅ “표시에 사용할” 지역 배열(검색조건)
    =========================================================== */
 const searchRegionsBuffer = ref([])
-
 const effectiveRegions = computed(() => {
   if (searchRegionsBuffer.value?.length) return searchRegionsBuffer.value
-  const snake = Array.isArray(user.value?.search_regions)
-    ? user.value.search_regions
-    : []
-  const camel = Array.isArray(user.value?.searchRegions)
-    ? user.value.searchRegions
-    : []
+  const snake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
+  const camel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
   if (snake.length) return snake
   if (camel.length) return camel
   const r1 = user.value?.search_region1 || ''
@@ -559,12 +524,10 @@ function labelOf(item) {
   if (r2 === '전체') return `${r1} 전체`
   return `${r1} ${r2}`.trim()
 }
-
 const searchRegionDisplay = computed(() => {
   const list = effectiveRegions.value
   if (!list.length) return '전체'
-  if (list.length === 1 && list[0].region1 === '전체' && list[0].region2 === '전체')
-    return '전체'
+  if (list.length === 1 && list[0].region1 === '전체' && list[0].region2 === '전체') return '전체'
   const firstLabel = labelOf(list[0])
   return list.length === 1 ? firstLabel : `${firstLabel} 외 ${list.length - 1}`
 })
@@ -573,15 +536,12 @@ const searchRegionDisplay = computed(() => {
    ✅ 검색나이 저장 (기존 그대로)
    =========================================================== */
 async function onSearchYearUpdated(payload) {
-  console.log('[profile] onSearchYearUpdated payload:', payload)
   let from = '', to = ''
   if (typeof payload === 'string') {
     const [f = '', t = ''] = payload.split('~').map((s) => s.trim())
-    from = f
-    to = t
+    from = f; to = t
   } else if (Array.isArray(payload)) {
-    from = payload[0] ?? ''
-    to = payload[1] ?? ''
+    from = payload[0] ?? ''; to = payload[1] ?? ''
   } else if (payload && typeof payload === 'object') {
     from = payload.from ?? payload.year1 ?? ''
     to = payload.to ?? payload.year2 ?? ''
@@ -593,26 +553,12 @@ async function onSearchYearUpdated(payload) {
   }
 
   try {
-    console.log('▶ PATCH /api/search/year:', { year1: from, year2: to })
-    const { data } = await axios.patch(
-      '/api/search/year',
-      { year1: from, year2: to },
-      { withCredentials: true }
-    )
-    console.log('✅ saved /search/year:', data)
-    const t = await toastController.create({
-      message: '검색 나이가 적용되었습니다.',
-      duration: 1500,
-      color: 'success'
-    })
+    const { data } = await axios.patch('/api/search/year', { year1: from, year2: to }, { withCredentials: true })
+    console.log('saved /search/year:', data)
+    const t = await toastController.create({ message: '검색 나이가 적용되었습니다.', duration: 1500, color: 'success' })
     await t.present()
   } catch (err) {
-    console.error('❌ /search/year failed:', err?.response?.data || err)
-    const t = await toastController.create({
-      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
-      duration: 2000,
-      color: 'danger'
-    })
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
   } finally {
     showSearchYear.value = false
@@ -625,48 +571,22 @@ async function onSearchYearUpdated(payload) {
 function normalizeRegionsPayload(payload) {
   let arr = []
   if (Array.isArray(payload)) {
-    if (payload.length && typeof payload[0] === 'object') {
-      arr = payload
-    } else {
-      const [r1 = '', r2 = ''] = payload
-      arr = [{ region1: r1, region2: r2 }]
-    }
+    if (payload.length && typeof payload[0] === 'object') arr = payload
+    else { const [r1 = '', r2 = ''] = payload; arr = [{ region1: r1, region2: r2 }] }
   } else if (payload && typeof payload === 'object') {
-    arr = [
-      {
-        region1: payload.region1 ?? payload.r1 ?? '',
-        region2: payload.region2 ?? payload.r2 ?? ''
-      }
-    ]
+    arr = [{ region1: payload.region1 ?? payload.r1 ?? '', region2: payload.region2 ?? payload.r2 ?? '' }]
   } else if (typeof payload === 'string') {
-    const parts = payload
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
+    const parts = payload.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
     const [r1 = '', r2 = ''] = parts
     arr = [{ region1: r1, region2: r2 }]
   }
-
-  // 빈값 제거
-  arr = arr
-    .map((it) => ({
-      region1: (it.region1 || '').trim(),
-      region2: (it.region2 || '').trim()
-    }))
-    .filter((it) => it.region1 && it.region2)
-
-  // 전국은 정확히 {전체,전체} 한 건만 유지
-  if (arr.some((it) => it.region1 === '전체' && it.region2 === '전체')) {
-    return [{ region1: '전체', region2: '전체' }]
-  }
+  arr = arr.map((it) => ({ region1: (it.region1 || '').trim(), region2: (it.region2 || '').trim() }))
+           .filter((it) => it.region1 && it.region2)
+  if (arr.some((it) => it.region1 === '전체' && it.region2 === '전체')) return [{ region1: '전체', region2: '전체' }]
   return arr
 }
-
 async function onSearchRegionUpdated(payload) {
-  console.log('[profile] onSearchRegionUpdated raw:', payload)
   const normalized = normalizeRegionsPayload(payload)
-  console.log('[profile] normalized regions:', normalized)
-
   if (user.value) {
     const first = normalized[0] || { region1: '', region2: '' }
     user.value.search_region1 = first.region1 || ''
@@ -675,28 +595,13 @@ async function onSearchRegionUpdated(payload) {
     user.value.searchRegions = normalized
   }
   searchRegionsBuffer.value = normalized
-
   try {
-    console.log('▶ PATCH /api/search/regions:', { regions: normalized })
-    const { data } = await axios.patch(
-      '/api/search/regions',
-      { regions: normalized },
-      { withCredentials: true }
-    )
-    console.log('✅ saved /search/regions:', data)
-    const t = await toastController.create({
-      message: '검색 지역이 적용되었습니다.',
-      duration: 1500,
-      color: 'success'
-    })
+    const { data } = await axios.patch('/api/search/regions', { regions: normalized }, { withCredentials: true })
+    console.log('saved /search/regions:', data)
+    const t = await toastController.create({ message: '검색 지역이 적용되었습니다.', duration: 1500, color: 'success' })
     await t.present()
   } catch (err) {
-    console.error('❌ /search/regions failed:', err?.response?.data || err)
-    const t = await toastController.create({
-      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
-      duration: 2000,
-      color: 'danger'
-    })
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
   } finally {
     showSearchRegion.value = false
@@ -707,34 +612,15 @@ async function onSearchRegionUpdated(payload) {
    ✅ 검색특징 저장 (기존 그대로)
    =========================================================== */
 async function onSearchPreferenceUpdated(payload) {
-  console.log('[profile] onSearchPreferenceUpdated payload:', payload)
   const preference = typeof payload === 'string' ? payload : payload?.preference ?? ''
-
-  if (user.value) {
-    user.value.search_preference = preference
-  }
-
+  if (user.value) user.value.search_preference = preference
   try {
-    console.log('▶ PATCH /api/search/preference:', { preference })
-    const { data } = await axios.patch(
-      '/api/search/preference',
-      { preference },
-      { withCredentials: true }
-    )
-    console.log('✅ saved /search/preference:', data)
-    const t = await toastController.create({
-      message: '검색 특징이 적용되었습니다.',
-      duration: 1500,
-      color: 'success'
-    })
+    const { data } = await axios.patch('/api/search/preference', { preference }, { withCredentials: true })
+    console.log('saved /search/preference:', data)
+    const t = await toastController.create({ message: '검색 특징이 적용되었습니다.', duration: 1500, color: 'success' })
     await t.present()
   } catch (err) {
-    console.error('❌ /search/preference failed:', err?.response?.data || err)
-    const t = await toastController.create({
-      message: '저장 실패: ' + (err?.response?.data?.error || err.message),
-      duration: 2000,
-      color: 'danger'
-    })
+    const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
   } finally {
     showSearchPreference.value = false
@@ -745,107 +631,37 @@ async function onSearchPreferenceUpdated(payload) {
    ⭐ 프로필 편집 반영용 핸들러 4종 (즉시 반영)
    =========================================================== */
 async function handleNicknameUpdate(payload) {
-  const newNickname =
-    typeof payload === 'string' ? payload : payload?.nickname ?? ''
-  console.log('[profile] handleNicknameUpdate:', newNickname)
-
-  if (user.value && newNickname) {
-    user.value.nickname = newNickname
-  }
-
-  try {
-    const t = await toastController.create({
-      message: '닉네임이 변경되었습니다.',
-      duration: 1400,
-      color: 'success'
-    })
-    await t.present()
-  } catch (err) {
-    console.error('❌ nickname local-update notice:', err)
-  } finally {
-    showModal4.value = false
-  }
+  const newNickname = typeof payload === 'string' ? payload : payload?.nickname ?? ''
+  if (user.value && newNickname) user.value.nickname = newNickname
+  const t = await toastController.create({ message: '닉네임이 변경되었습니다.', duration: 1400, color: 'success' })
+  await t.present()
+  showModal4.value = false
 }
-
 async function handleRegionUpdate(payload) {
-  console.log('[profile] handleRegionUpdate raw:', payload)
-
-  let r1 = ''
-  let r2 = ''
-  if (Array.isArray(payload)) {
-    ;[r1 = '', r2 = ''] = payload
-  } else if (payload && typeof payload === 'object') {
-    r1 = payload.region1 ?? payload.r1 ?? ''
-    r2 = payload.region2 ?? payload.r2 ?? ''
-  } else if (typeof payload === 'string') {
-    const parts = payload
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    ;[r1 = '', r2 = ''] = parts
+  let r1 = '', r2 = ''
+  if (Array.isArray(payload)) { [r1 = '', r2 = ''] = payload }
+  else if (payload && typeof payload === 'object') { r1 = payload.region1 ?? payload.r1 ?? ''; r2 = payload.region2 ?? payload.r2 ?? '' }
+  else if (typeof payload === 'string') {
+    const parts = payload.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean); [r1 = '', r2 = ''] = parts
   }
-
-  if (user.value) {
-    user.value.region1 = r1
-    user.value.region2 = r2
-  }
-
-  try {
-    const t = await toastController.create({
-      message: '지역이 변경되었습니다.',
-      duration: 1400,
-      color: 'success'
-    })
-    await t.present()
-  } catch (err) {
-    console.error('❌ region local-update notice:', err)
-  } finally {
-    showModal1.value = false
-  }
+  if (user.value) { user.value.region1 = r1; user.value.region2 = r2 }
+  const t = await toastController.create({ message: '지역이 변경되었습니다.', duration: 1400, color: 'success' })
+  await t.present()
+  showModal1.value = false
 }
-
 async function handlePreferenceUpdate(payload) {
   const pref = typeof payload === 'string' ? payload : payload?.preference ?? ''
-  console.log('[profile] handlePreferenceUpdate:', pref)
-
-  if (user.value) {
-    user.value.preference = pref
-  }
-
-  try {
-    const t = await toastController.create({
-      message: '성향이 변경되었습니다.',
-      duration: 1400,
-      color: 'success'
-    })
-    await t.present()
-  } catch (err) {
-    console.error('❌ preference local-update notice:', err)
-  } finally {
-    showModal2.value = false
-  }
+  if (user.value) user.value.preference = pref
+  const t = await toastController.create({ message: '성향이 변경되었습니다.', duration: 1400, color: 'success' })
+  await t.present()
+  showModal2.value = false
 }
-
 async function handleIntroUpdate(payload) {
   const intro = typeof payload === 'string' ? payload : payload?.selfintro ?? ''
-  console.log('[profile] handleIntroUpdate:', intro)
-
-  if (user.value) {
-    user.value.selfintro = intro
-  }
-
-  try {
-    const t = await toastController.create({
-      message: '소개가 변경되었습니다.',
-      duration: 1400,
-      color: 'success'
-    })
-    await t.present()
-  } catch (err) {
-    console.error('❌ selfintro local-update notice:', err)
-  } finally {
-    showModal3.value = false
-  }
+  if (user.value) user.value.selfintro = intro
+  const t = await toastController.create({ message: '소개가 변경되었습니다.', duration: 1400, color: 'success' })
+  await t.present()
+  showModal3.value = false
 }
 
 /* ===========================================================
@@ -856,37 +672,21 @@ onMounted(async () => {
     const res = await axios.get('/api/me', { withCredentials: true })
     nickname.value = res.data.user?.nickname || ''
     user.value = res.data.user
-    console.log('[profile] loaded me:', user.value)
 
-    // 서버에 다중 지역(snake/camel) 있으면 버퍼에 복원
-    const fromSnake = Array.isArray(user.value?.search_regions)
-      ? user.value.search_regions
-      : []
-    const fromCamel = Array.isArray(user.value?.searchRegions)
-      ? user.value.searchRegions
-      : []
+    const fromSnake = Array.isArray(user.value?.search_regions) ? user.value.search_regions : []
+    const fromCamel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
     const list = fromSnake.length ? fromSnake : fromCamel
-    if (list.length) {
-      searchRegionsBuffer.value = list
-      console.log('[profile] buffer restore (regions):', searchRegionsBuffer.value)
-    }
+    if (list.length) searchRegionsBuffer.value = list
   } catch (err) {
     console.error('유저 정보 로딩 실패:', err)
   }
 })
 
 /* (유지) 유틸 */
-const formatDate = (dateStr) => {
-  if (!dateStr) return '없음'
-  return new Date(dateStr).toLocaleString()
-}
+const formatDate = (dateStr) => (!dateStr ? '없음' : new Date(dateStr).toLocaleString())
 const logout = async () => {
-  try {
-    await axios.post('/api/logout', {}, { withCredentials: true })
-    router.push('/login')
-  } catch (err) {
-    console.error('로그아웃 실패:', err)
-  }
+  try { await axios.post('/api/logout', {}, { withCredentials: true }); router.push('/login') }
+  catch (err) { console.error('로그아웃 실패:', err) }
 }
 </script>
 
@@ -933,7 +733,7 @@ const logout = async () => {
 /* 타이틀 */
 .card-title {
   display: flex; align-items: center; gap: 8px;
-  margin: 0 0 10px;
+  margin: 0 0 5px;     /* 사진 윗부분 간격 조정 */
   font-size: clamp(15px, 4.2vw, 18px);
   font-weight: 800; color: var(--text);
   position: relative;
@@ -945,11 +745,26 @@ const logout = async () => {
 }
 .title-icon { font-size: 18px; color: var(--gold); }
 
+/* ✅ 프로필 사진 컨테이너- 사진 사이즈 */
+.pf-photo {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+/* 프로필 사진 썸네일 크기 오버라이드 (컴포넌트 수정 없이) */
+.pf-photo :deep(.avatar) {
+  /* 기존 컴포넌트 기본이 180px일 텐데, 150px로 축소 예시 */
+  max-width: 120px;
+  /* 필요 시 더 작게: 140px, 128px 등으로만 조절 */
+}
+
+
 /* ✅ 우측 상단 '설정' 버튼 */
 .title-action-btn {
   position: absolute;
-  top: 10px;              /* 제목 라인과 정렬 */
-  right: 10px;            /* 우측 여백 */
+  top: 10px;
+  right: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -957,7 +772,7 @@ const logout = async () => {
   border-radius: 10px;
   border: 1px solid var(--divider);
   background: rgba(0,0,0,0.25);
-  color: #ffffff;         /* 가독성 확보(요청대로 진한 글씨) */
+  color: #ffffff;
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
@@ -985,9 +800,9 @@ const logout = async () => {
 /* ★ 교체 후 (안전: 테이블 셀 유지) */
 .pf-scope .pf-th {
   padding: 8px 8px;
-  vertical-align: middle;                           
+  vertical-align: middle;
   color: var(--text) !important;
-  font-size: clamp(12.5px, 3.6vw, 14px) !important; 
+  font-size: clamp(12.5px, 3.6vw, 14px) !important;
   line-height: 1.28;
   background: transparent !important;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -997,14 +812,14 @@ const logout = async () => {
 .pf-scope .pf-th .row-icon {
   font-size: 14px !important;
   color: var(--gold) !important;
-  margin-right: 6px;                                 
+  margin-right: 6px;
   vertical-align: middle;
 }
 
 /* 라벨은 한 줄 말줄임 */
 .pf-scope .pf-th .label {
   display: inline-block;
-  max-width: calc(100% - 26px);                      
+  max-width: calc(100% - 26px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: var(--text) !important;
   font-weight: 700;
@@ -1052,14 +867,14 @@ const logout = async () => {
 /* 편집 가능 행: 항상 강조된 흰색 */
 .pf-scope .editable-row .pf-th,
 .pf-scope .editable-row .pf-td {
-  color: #ffffff;     
-  font-weight: 600;   
+  color: #ffffff;
+  font-weight: 600;
 }
 
 /* 읽기 전용 행: 항상 흐린 회색 */
 .pf-scope .readonly-row .pf-th,
 .pf-scope .readonly-row .pf-td {
-  color: var(--ink-weak);  
+  color: var(--ink-weak);
   font-weight: 400;
 }
 

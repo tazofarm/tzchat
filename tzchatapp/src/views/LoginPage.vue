@@ -59,15 +59,15 @@
 /**
  * LoginPage.vue
  * ------------------------------------------------------
- * - 공통 API 인스턴스만 사용(api / AuthAPI) + 경로만 전달('/login', '/me')
+ * - 공통 API 인스턴스(api / auth)만 사용하여 경로('/login', '/me') 전달
  * - JWT 병행: 로그인 후 쿠키/토큰 기반으로 /me 재검증
- * - 소켓 인증 갱신(refreshSocketAuth) 시도
- * - 가드의 redirect 파라미터(예: /login?redirect=/home/2page) 반영
+ * - 소켓: refreshSocketAuth 의존 제거 → connect/reconnect 방식으로 간소화
+ * - 가드 redirect 파라미터(예: /login?redirect=/home/2page) 반영
  */
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { api, AuthAPI } from '@/lib/api'
-import { refreshSocketAuth } from '@/lib/socket'
+import api, { auth as AuthAPI } from '@/lib/api'  // ✅ 수정: AuthAPI → auth 이름 내보내기 사용
+import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
 
 const router = useRouter()
 const route = useRoute()
@@ -103,12 +103,12 @@ onMounted(async () => {
   debugBaseURL()
   console.log('[UI][REQ] LoginPage mounted: /me precheck')
   try {
-    const me = await api.get('/me') // 경로만 전달
+    const me = await api.get('/api/me')
     console.log('[UI][RES] already signed-in', { user: (me?.data as any)?.user?.username })
-    // 이미 로그인 상태면 redirect 파라미터 우선 이동
-    const redirectTo = typeof route.query.redirect === 'string' && route.query.redirect
-      ? route.query.redirect
-      : '/home/6page'
+    const redirectTo =
+      typeof route.query.redirect === 'string' && route.query.redirect
+        ? route.query.redirect
+        : '/home/6page'
     router.push(redirectTo)
   } catch (e: any) {
     const status = e?.response?.status
@@ -156,25 +156,29 @@ const login = async () => {
     // 민감정보 정리
     password.value = ''
 
-    // 소켓 인증 갱신 (JWT 병행 중이면 즉시 반영)
+    // ===== 소켓 인증 반영: 연결 상태에 따라 connect/reconnect 처리 =====
     try {
-      refreshSocketAuth()
+      const s = getSocket()
+      if (s && s.connected) {
+        reconnectSocket()
+      } else {
+        connectSocket()
+      }
     } catch (sockErr: any) {
-      console.log('[SOCKET][ERR] refreshSocketAuth', { message: sockErr?.message })
+      console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
     }
 
     // 로그인 직후 /me 재검증
     try {
-      const me = await api.get('/me') // 경로만 전달
+      const me = await api.get('/api/me')
       console.log('[UI][RES] /me after login', { user: (me?.data as any)?.user?.username })
 
-      // UI 안내
       message.value = ((res?.data as any)?.message || (res?.data as any)?.msg) || '로그인 되었습니다.'
 
-      // 가드가 넘겨준 redirect 목적지로 이동(없으면 기본)
-      const redirectTo = typeof route.query.redirect === 'string' && route.query.redirect
-        ? route.query.redirect
-        : '/home/2page'
+      const redirectTo =
+        typeof route.query.redirect === 'string' && route.query.redirect
+          ? route.query.redirect
+          : '/home/6page'
       router.push(redirectTo)
       return
     } catch (meErr: any) {

@@ -21,9 +21,10 @@
 
         <!-- ✅ 버튼 그룹: 초기화 적용하기 닫기 -->
         <div class="button-group">
-          <ion-button class="small-btn" @click="resetSelection" color="medium">초기화</ion-button>
-          <ion-button class="small-btn" @click="applySelection" color="primary">적용하기</ion-button>
-          <ion-button class="small-btn" @click="onClose" color="danger">닫기</ion-button>
+          <ion-button class="small-btn" @click="onClose" color="medium">닫기</ion-button>
+          <ion-button class="small-btn" @click="resetSelection" color="primary">초기화</ion-button>
+          <ion-button class="small-btn" @click="applySelection" color="danger">적용하기</ion-button>
+         
         </div>
 
         <!-- ✅ 인라인 상태 메시지 (선택사항) -->
@@ -392,6 +393,18 @@ onMounted(() => {
 .button-group {
   display: flex; justify-content: space-between; gap: 6px; margin: 4px 0;
 }
+
+.button-group ion-button {
+  --border-radius: 12px;
+  --padding-start: 22px;
+  --padding-end: 22px;
+  --padding-top: 10px;
+  --padding-bottom: 10px;
+  min-height: 44px;
+}
+
+
+
 .small-btn {
   --padding-start: 8px; --padding-end: 8px;   /* 더 컴팩트 */
   --padding-top: 3px; --padding-bottom: 3px;

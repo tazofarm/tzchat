@@ -7,7 +7,7 @@
 <style scoped>
 .bottom-menu {
   position: fixed;
-  bottom: 0vh; /* 화면 바닥에서 10px 위 */
+  bottom: 8vh; /* 화면 바닥에서 10px 위 */
   left: 0;
   width: 100%;
   height: 50px;

@@ -12,7 +12,7 @@
       <pre class="terms-text" aria-label="계정 삭제 안내 전문">
 [앱/개발자]
 - 앱명: 네네챗 (NeneChat)
-- 개발자: (예) Tzofar / 연락: support@tzchat.tazocode.com
+- 개발자: 김영주 / 연락: tazocode@gmail.com
 
 [삭제 방법]
 1) 앱에서: 설정 → 계정 → "탈퇴하기" 버튼을 눌러 탈퇴 신청을 완료합니다.

@@ -1,3 +1,5 @@
+console.log('[main] env?', import.meta.env.MODE, import.meta.env.VITE_API_BASE_URL)
+
 // src/main.ts
 import { createApp, nextTick } from 'vue'
 import App from './App.vue'
@@ -12,6 +14,10 @@ import api from '@/lib/api'
 
 // ✅ 소켓 유틸
 import { connectSocket, getSocket } from '@/lib/socket'
+
+// ✅ (추가) 안드로이드 권한 유틸
+import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
+import { Capacitor } from '@capacitor/core'
 
 /* Ionicons */
 import { addIcons } from 'ionicons'
@@ -67,12 +73,16 @@ async function killServiceWorkersInDev() {
   }
 }
 
+// ❌ (기존) Top-level await
+// await killServiceWorkersInDev()
+
 // ✅ 즉시실행 async 함수(IIFE)로 감싸 Top-level await 제거
 ;(async () => {
   await killServiceWorkersInDev()
 })().catch(err => {
   console.warn('SW/Cache cleanup IIFE 오류:', err?.message)
 })
+/* ================================================= */
 
 /* ✅ 최종 API 설정 진단 */
 try {
@@ -117,9 +127,10 @@ function hasToken(): boolean {
   try { return !!localStorage.getItem(TOKEN_KEY) } catch { return false }
 }
 
+// ✅ 규칙 준수: '/api/me' 로 수정
 async function hasSession(): Promise<boolean> {
   try {
-    const me = await api.get('/me')
+    const me = await api.get('/api/me')
     return !!(me?.status === 200)
   } catch {
     return false
@@ -155,7 +166,7 @@ async function bootstrapSocketOnce() {
 }
 
 /* =======================
- * 유틸 함수
+ * 유틸 함수 (function 선언문으로 변경)
  * ===================== */
 function checkIonicBasicStyle() {
   const probe = document.createElement('ion-button')
@@ -243,6 +254,22 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
+    // ✅ 안드로이드에서만 기본 권한 요청(알림/위치)
+    try {
+      if (Capacitor.getPlatform() === 'android') {
+        const res = await requestBasicPermissions()
+        console.log('🔐 [perm] requested →', res)
+        // 알림 권한 승인 시 1회 테스트 알림 (심사/기기 검증용)
+        if (res.notification) {
+          await testLocalNotification()
+        }
+      } else {
+        console.log('↪️ non-Android platform: 권한 요청 생략')
+      }
+    } catch (e: any) {
+      console.warn('⚠️ 권한 요청 중 오류:', e?.message)
+    }
+
     await bootstrapSocketOnce()
 
     await nextTick()
@@ -257,10 +284,8 @@ router.isReady()
     console.error('💥 router.isReady() 실패:', err)
   })
 
-/* ✂️ [FIX] 전역 텍스트 색 강제 제거
-   - 기존:
-     document.documentElement.style.setProperty('--base-text-color', '#000')
-     document.addEventListener('DOMContentLoaded', () => { document.body.style.color = 'black' })
-   - 다크 테마(배경 #121212)에서 텍스트가 검은색으로 고정되어 화면이 비어보이는 문제 유발
-   - 필요 시: 라이트 테마에서만 조건부 적용하도록 별도 테마 스위처에서 처리하세요.
-*/
+// 기본 글자색 보정
+document.documentElement.style.setProperty('--base-text-color', '#000')
+document.addEventListener('DOMContentLoaded', () => {
+  document.body.style.color = 'black'
+})

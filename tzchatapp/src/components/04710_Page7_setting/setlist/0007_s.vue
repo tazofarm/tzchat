@@ -1,3 +1,6 @@
+
+<!-- 아동 안전 정책 -->
+
 <template>
   <ion-page>
     <ion-header>

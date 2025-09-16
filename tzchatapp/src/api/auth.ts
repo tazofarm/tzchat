@@ -16,7 +16,8 @@ export async function login(username: string, password: string) {
   console.log('[AUTH][REQ] login', { username, len: (password || '').length });
 
   // ✅ baseURL에는 이미 "/api"가 포함되어 있으므로 경로는 짧게 사용
-  const r = await api.post('/login', { username, password });
+  const r = await api.post('/api/login', { username, password });
+
   const data = r.data || {};
 
   if (data?.token) {
@@ -32,14 +33,16 @@ export async function login(username: string, password: string) {
 export async function me() {
   console.log('[AUTH][REQ] me');
   // ✅ baseURL이 /api 포함 → '/me'로 호출
-  const r = await api.get('/me'); // 쿠키 또는 Bearer로 인증
+  const r = await api.get('/api/me'); // 쿠키 또는 Bearer로 인증
+
   console.log('[AUTH][RES] me', { ok: r?.data?.ok === true });
   return r.data;
 }
 
 export async function logout() {
   console.log('[AUTH][REQ] logout');
-  const r = await api.post('/logout');
+  const r = await api.post('/api/logout');
+
   // 서버 쿠키는 clearCookie, 클라이언트 저장 토큰도 정리
   clearAuthToken();
   console.log('[AUTH][RES] logout', { ok: r?.data?.ok === true });

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- 📡 네트워크 권한 -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -7,6 +9,41 @@
 
     <!-- 📌 Android 13 이상 광고 ID 권한 -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+
+    <!-- 🔔 Android 13+ 알림 권한 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 📍 위치 권한(정밀/대략) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- ✅ 태블릿/대형 화면 지원 신호 강화 -->
+    <supports-screens
+        android:smallScreens="true"
+        android:normalScreens="true"
+        android:largeScreens="true"
+        android:xlargeScreens="true"
+        android:anyDensity="true" />
+
+    <!-- ✅ 기기 필터 완화(필수 아님으로 선언) -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- 🔑 핵심: 위치 하드웨어를 필수 아님으로 강제 (병합 충돌 대비 tools:replace) -->
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="false"
+        tools:replace="android:required" />
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false"
+        tools:replace="android:required" />
+    <uses-feature
+        android:name="android.hardware.location.network"
+        android:required="false"
+        tools:replace="android:required" />
 
     <application
         android:allowBackup="true"
@@ -30,13 +67,13 @@
             android:label="@string/title_activity_main"
             android:launchMode="singleTask"
             android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
 
         <!-- 📂 파일 공유(FileProvider) -->

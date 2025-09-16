@@ -1,21 +1,23 @@
 <template>
   <ion-page>
-    <!-- ✅ 상단 헤더 -->
-    <ion-header>
+    <ion-header translucent>
       <ion-toolbar>
-        <!-- 뒤로가기 버튼 -->
         <ion-buttons slot="start">
-          <ion-button class="back-btn" @click="goBack" aria-label="뒤로가기">←</ion-button>
+          <ion-back-button default-href="/home/setting"></ion-back-button>
         </ion-buttons>
-
-        <!-- 가운데 제목 -->
-        <ion-title>간단 페이지</ion-title>
+        <ion-title>레거시 페이지</ion-title>
       </ion-toolbar>
     </ion-header>
 
-    <!-- ✅ 본문 -->
-    <ion-content class="ion-padding">
-      <p class="text-white">준비 중 입니다.</p>
+    <ion-content :fullscreen="true" class="no-padding">
+      <!-- ✅ 서버의 /legal 페이지를 iframe 으로 그대로 표시 -->
+      <iframe
+        :src="legalUrl"
+        class="legacy-iframe"
+        title="Legal Page"
+        allowfullscreen
+        referrerpolicy="no-referrer-when-downgrade"
+      ></iframe>
     </ion-content>
   </ion-page>
 </template>
@@ -26,57 +28,33 @@ import {
   IonHeader,
   IonToolbar,
   IonButtons,
-  IonButton,
+  IonBackButton,
   IonTitle,
   IonContent
 } from '@ionic/vue'
-import { useRouter } from 'vue-router'
 
-const router = useRouter()
-
-/** 뒤로가기 동작 */
-const goBack = () => {
-  console.log('[SimplePage] 뒤로가기 클릭')
-  router.back()
-}
+// ✅ .env에서 백엔드 베이스 URL을 읽어와 /legal 로 고정 연결
+// 예: VITE_API_BASE_URL=https://tzchat.tazocode.com
+const base = import.meta.env.VITE_API_BASE_URL || 'https://tzchat.tazocode.com'
+const legalUrl = `${String(base).replace(/\/$/, '')}/legal`
 </script>
 
 <style scoped>
-/* ✅ 상단바 스타일 */
-ion-toolbar {
-  --background: #1e1e1e; /* 다크 배경 */
-  --color: #fff;         /* 기본 텍스트 흰색 */
-  padding: 0 6px;
-  min-height: 48px;
-}
-ion-title {
-  font-weight: 600;
-  font-size: clamp(16px, 4vw, 18px);
-  color: #fff;
-  text-align: center;
+.no-padding {
+  /* Ionic 기본 패딩 제거 (iframe이 꽉 차도록) */
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
 }
 
-/* ✅ 버튼 */
-.back-btn {
-  color: #fff;
-  font-size: clamp(16px, 4vw, 18px);
-  font-weight: 600;
-  padding: 4px 8px;
-  min-width: 40px;
-}
-.back-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-}
-
-/* ✅ 본문 */
-ion-content {
-  --background: #121212;
-}
-
-.text-white {
-  color: #fff; /* 본문 글씨 흰색 */
-  font-size: clamp(14px, 3.8vw, 16px);
-  line-height: 1.5;
+/* ✅ ion-content 영역을 가득 채우도록 절대배치 */
+.legacy-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
 }
 </style>

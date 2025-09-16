@@ -4,9 +4,11 @@
 // - 전역 가드에서 /me 호출 시 반드시 공통 axios 인스턴스 사용
 //   (상대경로 fetch 사용 금지: dev 서버(8081)로 붙어 500/401 유발)
 // ----------------------------------------------------------
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
-// ✅ 공통 Axios 인스턴스 (baseURL: 서버 오리진 + /api, withCredentials: true)
+// ✅ 공통 Axios 인스턴스
+//   - baseURL: 서버 오리진 (⚠️ '/api' 미포함)
+//   - 호출 시 경로는 항상 '/api/...' 로 명시
 import api from '@/lib/api' // 반드시 이걸로 /me 호출
 
 // 기본 페이지
@@ -24,6 +26,10 @@ import Page4 from '@/components/03050_pages/4_chatroom.vue'
 import Page5 from '@/components/03050_pages/5_test.vue'
 import Page6 from '@/components/03050_pages/6_profile.vue'
 import Page7 from '@/components/03050_pages/7_setting.vue'
+
+import Page91 from '@/components/03050_pages/9_test1.vue'
+import Page92 from '@/components/03050_pages/9_test2.vue'
+import Page93 from '@/components/03050_pages/9_test3.vue'
 
 // minipage
 import PageuserProfile from '@/components/02010_minipage/PageuserProfile.vue'
@@ -79,7 +85,7 @@ import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 // - /home 은 인증 필요(meta.requiresAuth: true)
 // - /home/admin 은 인증 + 마스터 권한 필요(meta.requiresMaster: true)
 // ----------------------------------------------------------
-const routes = [
+const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
@@ -88,7 +94,8 @@ const routes = [
   {
     path: '/legal/delete-account',
     name: 'DeleteAccountInfo',
-    component: () => import('@/views/public/DeleteAccountInfoPage.vue'),
+    // ⛱️ 동적 임포트 경로 오타 수정: '@/components/...' 로
+    component: () => import('@/components/04710_Page7_setting/setlist/0000_LegalHost.vue'),
     meta: { public: true },
   },
 
@@ -109,6 +116,10 @@ const routes = [
       { path: '5page', component: Page5 },
       { path: '6page', component: Page6 },
       { path: '7page', component: Page7 },
+
+      { path: '91page', component: Page91 },
+      { path: '92page', component: Page92 },
+      { path: '93page', component: Page93 },
 
       // minipage
       { path: 'user/:id', component: PageuserProfile },
@@ -168,6 +179,10 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  // UX: 라우트 이동 시 최상단으로 스크롤
+  scrollBehavior() {
+    return { top: 0 }
+  },
 })
 
 // ----------------------------------------------------------
@@ -206,7 +221,7 @@ router.beforeEach(async (to, _from, next) => {
     console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
 
     // ✅ 공통 axios 인스턴스 사용
-    const res = await api.get('/me', { withCredentials: true })
+    const res = await api.get('/api/me', { withCredentials: true })
     const { ok, user: me } = parseMePayload(res?.data)
 
     if (!ok || !me) {

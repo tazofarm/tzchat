@@ -1,3 +1,5 @@
+<!--  -->
+
 <template>
   <!-- ⚠️ Ionic 레이아웃 일치성: IonPage/IonContent 래퍼 필수 -->
   <ion-page>
