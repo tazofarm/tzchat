@@ -65,7 +65,7 @@
 
         
 
-
+<li class="list-item" @click="goPage('/home/legals/index')">법적 고지 및 정책 문서</li>
         <li class="list-item" @click="goPage('/home/legals/index')">법적 고지 및 정책 문서</li>
 
         <li class="list-item" @click="goPage('/home/setting/0019')">19 비밀번호변경2</li>
