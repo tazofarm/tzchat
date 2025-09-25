@@ -17,9 +17,37 @@
     </ul>
     <p>
       신고/상담:
-      <router-link to='report-block'>신고 및 차단 정책</router-link>
+      <RouterLink :to="makePath('report-block')">신고 및 차단 정책</RouterLink>
       을 확인하시거나 고객센터로 문의하세요.
     </p>
+
+    <!-- ✅ CSAE(아동 성적 학대·착취) 금지 및 신고 섹션 추가 -->
+    <section class="section">
+      <h2>아동 성적 학대 및 착취(CSAE) 금지 및 신고</h2>
+      <p>
+        회사는 아동 성적 학대 및 착취(CSAE) 자료의 제작·소지·배포·유통·조회 등 일체의 행위를
+        절대 금지합니다. 관련 의심 콘텐츠 발견 시 즉시 신고해 주시기 바랍니다. 접수된 신고는
+        신속히 검토되며, 필요 시 수사기관 및 관계기관에 통보되고 콘텐츠는 지체 없이 차단·삭제됩니다.
+      </p>
+      <ul>
+        <li>
+          <a href="https://ecrm.police.go.kr/minwon/main" target="_blank" rel="noopener">경찰청 사이버범죄 신고시스템(ECRM)</a>
+          — 온라인 접수 후 절차에 따라 수사 진행(긴급은 <strong>112</strong> 신고). 
+        </li>
+        <li>
+          <a href="https://www.kocsc.or.kr" target="_blank" rel="noopener">방송통신심의위원회(KCSC)</a>
+          — 전자민원 &gt; 불법·유해정보 신고, 상담전화 <strong>1377</strong>.
+        </li>
+        <li>
+          <a href="https://www.missingkids.org/gethelpnow/cybertipline" target="_blank" rel="noopener">NCMEC CyberTipline</a>
+          — 국제 신고 창구(해외 서비스/호스팅 연계 사례 포함).
+        </li>
+      </ul>
+      <p class="small">
+        ※ 관련 법령 및 정책에 따라, 확인된 불법 콘텐츠는 신속히 삭제·차단되며, 수사기관 요청 시 필요한 정보를 제공할 수 있습니다.
+      </p>
+      <p class="updated"><small>최종 업데이트: 2025-09-25</small></p>
+    </section>
   </main>
 </template>
 
@@ -40,7 +68,6 @@ const goBack = () => {
 };
 </script>
 
-
 <style scoped>
 .container {
   font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
@@ -57,11 +84,10 @@ const goBack = () => {
   background-clip: padding-box;
   border-radius: 12px;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch; /* iOS 부드러운 스크롤 */
-  overscroll-behavior: contain;      /* 상하단 바운스 시 상위 스크롤 방지 */
-  scrollbar-gutter: stable;          /* 스크롤바 점프 방지(지원 브라우저) */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
-
 main {
   max-width: 850px;
   margin: 0 auto;
@@ -70,11 +96,7 @@ main {
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,.08);
 }
-
-.back-wrap {
-  margin-bottom: 1rem;
-}
-
+.back-wrap { margin-bottom: 1rem; }
 .back-btn {
   background-color: #0077cc;
   color: #fff;
@@ -84,7 +106,10 @@ main {
   font-size: 0.9rem;
   cursor: pointer;
 }
-
+.section { margin-top: 2rem; }
 h1 { margin-top: 0; }
+h2 { margin: 1.2rem 0 .5rem; }
 ul { padding-left: 1.2rem; }
+.small { font-size: .9rem; color: #555; }
+.updated { margin-top: .5rem; color: #666; }
 </style>
