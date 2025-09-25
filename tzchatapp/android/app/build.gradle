@@ -1,8 +1,8 @@
 // ------------------------------------------------------------
-// app/build.gradle  (릴리스 서명 설정 포함)
+// app/build.gradle  (릴리스 서명 설정 + Firebase SDK 추가)
 // - 기존 내용 최대한 유지
 // - keystore.properties 읽어서 release 서명 적용
-// - 콘솔 로그로 상태 확인 가능 (lifecycle 로그)
+// - google-services.json 존재 시 플러그인 자동 적용 (로그로 확인 가능)
 // -----------------------------------------------------------
 
 apply plugin: 'com.android.application'
@@ -28,24 +28,22 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace "org.tzchat.app"
+    namespace "com.tazocode.tzchat"
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId "org.tzchat.app"
+        applicationId "com.tazocode.tzchat"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // ✅ 스토어 업로드 핵심: 업로드할 때마다 versionCode는 1,2,3… 증가
-        //    (이미 1을 올리셨다면 다음은 2 이상으로 올려주세요)
-        versionCode 16
-        versionName "1.16"
+        versionCode 17
+        versionName "1.17"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         aaptOptions {
             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-            // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
@@ -59,7 +57,6 @@ android {
                 logger.lifecycle("🔍 Using keystore at: ${ksFile}")
                 if (!ksFile.exists()) {
                     logger.lifecycle("❌ Keystore NOT found at: ${ksFile}")
-                    // 필요 시 즉시 실패 원하시면 아래 주석 해제
                     // throw new GradleException("Keystore not found at: ${ksFile}")
                 }
                 storeFile ksFile
@@ -75,26 +72,16 @@ android {
 
     buildTypes {
         release {
-            // ✅ [변경] 난독화/리소스 축소 활성화 → mapping.txt 생성
+            // ✅ 난독화/리소스 축소 활성화 → mapping.txt 생성
             minifyEnabled true
             shrinkResources true
 
-            // ✅ [변경] 최적화된 기본 규칙 + 사용자 규칙 파일 적용
+            // ✅ 최적화된 기본 규칙 + 사용자 규칙 파일 적용
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
 
             // ✅ 릴리스 빌드에 서명 적용
             signingConfig signingConfigs.release
-
-            // [옵션] 빌드 완료 후 mapping 파일 경로를 로그로 출력하고 싶다면 사용
-            // (AGP 버전에 따라 동작 방식 다를 수 있어 기본은 주석 처리)
-            // applicationVariants.all { variant ->
-            //     if (variant.buildType.name == "release") {
-            //         variant.assembleProvider.get().doLast {
-            //             println("[build.gradle] mapping 생성 위치: ${buildDir}/outputs/mapping/release/mapping.txt")
-            //         }
-            //     }
-            // }
         }
 
         // debug 빌드는 기본값 유지 (난독화/축소 비활성)
@@ -121,10 +108,21 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // 🔽 [ADD] Firebase BoM 및 필요한 SDK들
+    // BoM을 쓰면 하위 Firebase 의존성의 버전은 지정하지 않습니다.
+    implementation platform('com.google.firebase:firebase-bom:34.3.0')
+
+    // 사용 목적에 따라 필요한 것만 선택하세요:
+    implementation 'com.google.firebase:firebase-analytics'   // 앱 분석
+    implementation 'com.google.firebase:firebase-messaging'   // 푸시 알림(FCM)
+    // implementation 'com.google.firebase:firebase-auth'     // (선택) 전화번호/구글 로그인 등 Auth 사용 시
+    // implementation 'com.google.firebase:firebase-crashlytics' // (선택) 크래시 리포트
 }
 
 apply from: 'capacitor.build.gradle'
 
+// google-services 플러그인: google-services.json 존재 시 자동 적용
 try {
     def servicesJSON = file('google-services.json')
     if (servicesJSON.text) {

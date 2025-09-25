@@ -7,17 +7,18 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- 📌 Android 13 이상 광고 ID 권한 -->
+    <!-- 📌 Android 13 이상 광고 ID 권한 (AdMob 사용 시) -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
-    <!-- 🔔 Android 13+ 알림 권한 -->
+    <!-- 🔔 Android 13+ 알림 권한 (FCM/알림 사용 시) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 📍 위치 권한(정밀/대략) -->
+    <!-- 📍 위치 권한: 실제 사용 시에만 유지 권장 -->
+    <!-- 사용 안 하면 아래 두 줄을 제거하세요. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- ✅ 태블릿/대형 화면 지원 신호 강화 -->
+    <!-- ✅ 태블릿/대형 화면 지원 신호 -->
     <supports-screens
         android:smallScreens="true"
         android:normalScreens="true"
@@ -31,7 +32,7 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
-    <!-- 🔑 핵심: 위치 하드웨어를 필수 아님으로 강제 (병합 충돌 대비 tools:replace) -->
+    <!-- 🔑 위치 하드웨어를 필수 아님으로 강제 (병합 충돌 대비) -->
     <uses-feature
         android:name="android.hardware.location"
         android:required="false"
@@ -59,6 +60,16 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/admob_app_id" />
+
+        <!-- 🔔 FCM 기본 알림 아이콘/색상 (권장) -->
+        <!-- @drawable/ic_stat_notification 은 단색(흰색) 알파 아이콘 권장 -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
+        <!-- @color/notification_color 는 브랜드 포인트 컬러 등 단색 권장 -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
 
         <!-- 🚀 메인 액티비티 -->
         <activity

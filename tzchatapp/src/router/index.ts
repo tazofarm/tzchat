@@ -18,19 +18,12 @@ import HomePage from '@/views/HomePage.vue'
 import Success from '@/components/03050_pages/Success.vue'
 
 
-import privacy2 from '@/views_legal/01_privacy.vue'
-import deleteaccount2 from '@/views_legal/04_delete-account.vue'
-
-
-
-
-
 
 // 각 페이지 컴포넌트 import
 import Page0 from '@/components/03050_pages/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
 import Page2 from '@/components/03050_pages/2_target.vue'
-import Page3 from '@/components/03050_pages/3_list.vue'
+import Page3 from '@/components/04410_Page4_chatroom/PageList.vue'
 import Page4 from '@/components/03050_pages/4_chatroom.vue'
 import Page5 from '@/components/03050_pages/5_test.vue'
 import Page6 from '@/components/03050_pages/6_profile.vue'
@@ -89,6 +82,34 @@ import Admin18 from '@/components/04910_Page9_Admin/adminlist/0018_a.vue'
 import Admin19 from '@/components/04910_Page9_Admin/adminlist/0019_a.vue'
 import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 
+
+
+
+
+ // 정책
+import Legalindex from '@/views_legals/legals/000_index.vue'
+import Legalprivacy from '@/views_legals/legals/010_privacy.vue'
+import Legalterms from '@/views_legals/legals/020_terms.vue'
+import Legallocation from '@/views_legals/legals/030_location.vue'
+import Legaldeleteaccount from '@/views_legals/legals/040_delete-account.vue'
+import Legalyouth from '@/views_legals/legals/050_youth.vue'
+import Legaleula from '@/views_legals/legals/060_eula.vue'
+import Legalcookies from '@/views_legals/legals/070_cookies.vue'
+import Legaldataretention from '@/views_legals/legals/080_data-retention.vue'
+import Legalmarketingconsent from '@/views_legals/legals/090_marketing-consent.vue'
+import Legalthirdparties from '@/views_legals/legals/100_third-parties.vue'
+import Legalprocessors from '@/views_legals/legals/110_processors.vue'
+import Legalopensource from '@/views_legals/legals/120_opensource.vue'
+import Legalcommunity from '@/views_legals/legals/130_community.vue'
+import Legalreportblock from '@/views_legals/legals/140_report-block.vue'
+
+
+
+
+
+
+
+
 // ----------------------------------------------------------
 // 라우트 정의
 // - /home 은 인증 필요(meta.requiresAuth: true)
@@ -99,19 +120,23 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
 
-{ path: '/privacy2', component: privacy2 },
-{ path: '/delete-account2', component: deleteaccount2 },
+  // 정책
+  { path: '/legals/index', component: Legalindex },
+  { path: '/legals/privacy', component: Legalprivacy },
+  { path: '/legals/terms', component: Legalterms },
+  { path: '/legals/location', component: Legallocation },
+  { path: '/legals/delete-account', component: Legaldeleteaccount },
+  { path: '/legals/youth', component: Legalyouth },
+  { path: '/legals/eula', component: Legaleula },
+  { path: '/legals/cookies', component: Legalcookies },
+  { path: '/legals/data-retention', component: Legaldataretention },
+  { path: '/legals/marketing-consent', component: Legalmarketingconsent },
+  { path: '/legals/third-parties', component: Legalthirdparties },
+  { path: '/legals/processors', component: Legalprocessors },
+  { path: '/legals/opensource', component: Legalopensource },
+  { path: '/legals/community', component: Legalcommunity },
+  { path: '/legals/report-block', component: Legalreportblock },
 
-
-
-  // ★ 공개(비로그인) 라우트 — Play Console용 계정 삭제 안내
-  {
-    path: '/legal/delete-account',
-    name: 'DeleteAccountInfo',
-    // ⛱️ 동적 임포트 경로 오타 수정: '@/components/...' 로
-    component: () => import('@/components/04710_Page7_setting/setlist/0000_LegalHost.vue'),
-    meta: { public: true },
-  },
 
   {
     path: '/home',
@@ -120,6 +145,25 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', component: Success },
       { path: 'login-success', component: Success },
+
+ 
+      // 정책
+      { path: 'legals/index', component: Legalindex },
+      { path: 'legals/privacy', component: Legalprivacy },
+      { path: 'legals/terms', component: Legalterms },
+      { path: 'legals/location', component: Legallocation },
+      { path: 'legals/delete-account', component: Legaldeleteaccount },
+      { path: 'legals/youth', component: Legalyouth },
+      { path: 'legals/eula', component: Legaleula },
+      { path: 'legals/cookies', component: Legalcookies },
+      { path: 'legals/data-retention', component: Legaldataretention },
+      { path: 'legals/marketing-consent', component: Legalmarketingconsent },
+      { path: 'legals/third-parties', component: Legalthirdparties },
+      { path: 'legals/processors', component: Legalprocessors },
+      { path: 'legals/opensource', component: Legalopensource },
+      { path: 'legals/community', component: Legalcommunity },
+      { path: 'legals/report-block', component: Legalreportblock },
+
 
       // 0page ~ 7page
       { path: '0page', component: Page0 },
@@ -185,6 +229,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
     ],
   },
+
+
+
+
 
   // 404
   { path: '/:pathMatch(.*)*', name: 'NotFound', component: Success },

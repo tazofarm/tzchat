@@ -66,16 +66,23 @@ server {
 
     # -----------------------------------------------------
     # ✅ 정적 법/정책 문서 (SPA보다 우선)
+    #   - 프론트 public/legal → dist/legal 로 빌드된 결과를 직접 서빙
+    #   - /legal/privacy → /legal/privacy.html 로 리다이렉트
     # -----------------------------------------------------
-    # /legal → /legal/index.html
     location = /legal { return 301 /legal/; }
 
-    # 디렉터리 정적 서빙(문서 내부 리소스 대비)
+    # 확장자 없는 슬러그를 .html로 정규화
+    location ~ ^/legal/([a-z0-9\-]+)$ {
+        return 301 /legal/$1.html;
+    }
+
+    # 정적 파일 서빙
     location /legal/ {
-        alias /home/tazofarm/project/tzchat/public/legal/;
+        alias /home/tazofarm/project/tzchat/tzchatapp/dist/legal/;
         index index.html;
         try_files $uri $uri/ =404;
 
+        # 캐시 비활성(문서 갱신 반영용)
         add_header Cache-Control "no-cache, no-store, must-revalidate";
         add_header Pragma "no-cache";
         add_header Expires "0";
@@ -84,27 +91,9 @@ server {
         error_log  /var/log/nginx/legal_error.log;
     }
 
-    # 🔒 슬러그 → 실제 파일 매핑 (프록시 불필요, HTTP/2 안전)
-    #   필요에 따라 목록을 늘리거나 수정하세요.
-    default_type text/html;
-    location = /legal/privacy           { alias /home/tazofarm/project/tzchat/public/legal/01_privacy.html; }
-    location = /legal/terms             { alias /home/tazofarm/project/tzchat/public/legal/02_terms.html; }
-    location = /legal/location          { alias /home/tazofarm/project/tzchat/public/legal/03_location.html; }
-    location = /legal/delete-account    { alias /home/tazofarm/project/tzchat/public/legal/04_delete-account.html; }
-    location = /legal/youth             { alias /home/tazofarm/project/tzchat/public/legal/05_youth.html; }
-    location = /legal/eula              { alias /home/tazofarm/project/tzchat/public/legal/06_eula.html; }
-    location = /legal/cookies           { alias /home/tazofarm/project/tzchat/public/legal/07_cookies.html; }
-    location = /legal/data-retention    { alias /home/tazofarm/project/tzchat/public/legal/08_data-retention.html; }
-    location = /legal/marketing-consent { alias /home/tazofarm/project/tzchat/public/legal/09_marketing-consent.html; }
-    location = /legal/third-parties     { alias /home/tazofarm/project/tzchat/public/legal/10_third-parties.html; }
-    location = /legal/processors        { alias /home/tazofarm/project/tzchat/public/legal/11_processors.html; }
-    location = /legal/opensource        { alias /home/tazofarm/project/tzchat/public/legal/12_opensource.html; }
-    location = /legal/community         { alias /home/tazofarm/project/tzchat/public/legal/13_community.html; }
-    location = /legal/report-block      { alias /home/tazofarm/project/tzchat/public/legal/14_report-block.html; }
-
-    # 파비콘(루트)
+    # 파비콘(루트) - dist 기준
     location = /favicon.png {
-        alias /home/tazofarm/project/tzchat/public/favicon.png;
+        alias /home/tazofarm/project/tzchat/tzchatapp/dist/favicon.png;
         try_files $uri =404;
         add_header Cache-Control "public, max-age=86400";
         access_log /var/log/nginx/frontend_access.log;
@@ -115,8 +104,10 @@ server {
     location = /privacy      { return 301 /legal/privacy; }
     location = /privacy.html { return 301 /legal/privacy; }
 
-    # 정적 청크
+    # 정적 청크 (dist/assets)
     location /assets/ {
+        # root는 server 블록의 root(dist)를 그대로 사용 가능하지만
+        # 명시해도 무방
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
         expires 30d;
@@ -125,7 +116,7 @@ server {
         error_log  /var/log/nginx/assets_error.log;
     }
 
-    # Service Worker
+    # Service Worker (해시 없는 파일만 캐시 억제)
     location = /service-worker.js {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
@@ -192,7 +183,7 @@ server {
         error_log  /var/log/nginx/ws_error.log;
     }
 
-    # SPA history
+    # SPA history (⚠️ /legal/*보다 뒤에 있어야 함)
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;

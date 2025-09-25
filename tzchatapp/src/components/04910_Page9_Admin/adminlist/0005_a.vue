@@ -18,14 +18,14 @@
     <!-- ✅ 본문 -->
     <div v-if="data" class="body">
       <div class="row">
-        <b>소켓 수</b><span>{{ data.sockets }}</span>
+        소켓 수<span>{{ data.sockets }}</span>
       </div>
       <div class="row">
-        <b>온라인 유저</b><span>{{ data.onlineUsers.length }}</span>
+        온라인 유저<span>{{ data.onlineUsers.length }}</span>
       </div>
 
       <div class="row">
-        <b>방 현황</b>
+        방 현황
         <div class="rooms">
           <div
             v-for="r in data.rooms"

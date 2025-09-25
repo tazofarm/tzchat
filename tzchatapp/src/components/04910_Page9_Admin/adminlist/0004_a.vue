@@ -17,10 +17,10 @@
 
     <!-- ✅ 통계 카드 -->
     <div class="grid" v-if="!loading">
-      <div class="stat"><b>오늘 가입</b><span>{{ stats.todayJoin }}</span></div>
-      <div class="stat"><b>주간 가입</b><span>{{ stats.weekJoin }}</span></div>
-      <div class="stat"><b>긴급 매칭 ON</b><span>{{ stats.emergencyOn }}</span></div>
-      <div class="stat"><b>총 회원</b><span>{{ stats.totalUsers }}</span></div>
+      <div class="stat">오늘 가입<span>{{ stats.todayJoin }}</span></div>
+      <div class="stat">주간 가입<span>{{ stats.weekJoin }}</span></div>
+      <div class="stat">긴급 매칭 ON<span>{{ stats.emergencyOn }}</span></div>
+      <div class="stat">총 회원<span>{{ stats.totalUsers }}</span></div>
     </div>
 
     <div class="hint">※ 현재는 더미 데이터. adminRouter에 통계 API 추가하면 연동 즉시 가능</div>

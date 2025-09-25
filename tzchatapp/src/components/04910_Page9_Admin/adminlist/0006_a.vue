@@ -26,7 +26,7 @@
     <!-- ✅ 목록 -->
     <div v-for="n in notices" :key="n._id" class="item">
       <div class="meta">
-        <b>{{ n.title }}</b>
+        {{ n.title }}
         <span class="dim">({{ n.isActive ? 'ON' : 'OFF' }})</span>
         <span class="dim">/ {{ n.createdAt }}</span>
       </div>

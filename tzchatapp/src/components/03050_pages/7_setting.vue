@@ -37,6 +37,9 @@
         <!-- 번호 리스트 -->
         <li class="list-item" @click="goPage('/home/setting/0001')">01구독신청하기</li>
 
+
+
+
         <li class="list-item" @click="goPage('/home/setting/0002')">02약관 및 법적조치</li>
 
         <!-- ✅ 권한 관련: 알림/위치 요청 -->
@@ -59,6 +62,11 @@
         <li class="list-item" @click="goPage('/home/setting/0007')">07아동 안전 정책</li>
         <li class="list-item" @click="goPage('/home/setting/0008')">08프로필테스트</li>
         -->
+
+        
+
+
+        <li class="list-item" @click="goPage('/home/legals/index')">법적 고지 및 정책 문서</li>
 
         <li class="list-item" @click="goPage('/home/setting/0019')">19비밀번호변경</li>
 

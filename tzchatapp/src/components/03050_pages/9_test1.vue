@@ -36,14 +36,7 @@
           남은 시간: {{ formattedTime }}
         </div>
 
-        <!-- ===== 섹션 타이틀 ===== -->
-        <div class="section-title-wrap" role="heading" aria-level="2">
-          <div class="section-title-row">
-            <ion-icon :icon="icons.shieldCheckmarkOutline" aria-hidden="true" class="section-icon" />
-            <h2 class="section-title-text black-text">Speed Matching List</h2>
-          </div>
-          <div class="section-divider" aria-hidden="true"></div>
-        </div>
+
 
         <!-- ===== 스와이프 카드 ===== -->
         <div v-if="!isLoading && emergencyUsers.length" class="swiper-area">

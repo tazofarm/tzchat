@@ -71,10 +71,10 @@
       <div v-if="!selectedUser" class="note">테이블에서 유저를 선택하세요.</div>
 
       <div v-else class="body">
-        <div class="row row-kv"><b>username</b><span>{{ selectedUser.username }}</span></div>
-        <div class="row row-kv"><b>nickname</b><span>{{ selectedUser.nickname }}</span></div>
-        <div class="row row-kv"><b>gender</b><span>{{ selectedUser.gender ?? '-' }}</span></div>
-        <div class="row row-kv"><b>birthyear</b><span>{{ selectedUser.birthyear ?? '-' }}</span></div>
+        <div class="row row-kv">username<span>{{ selectedUser.username }}</span></div>
+        <div class="row row-kv">nickname<span>{{ selectedUser.nickname }}</span></div>
+        <div class="row row-kv">gender<span>{{ selectedUser.gender ?? '-' }}</span></div>
+        <div class="row row-kv">birthyear<span>{{ selectedUser.birthyear ?? '-' }}</span></div>
 
         <div class="btns">
           <button class="btn warn" @click="forceLogout">강제 로그아웃 (TODO)</button>
@@ -97,8 +97,8 @@
       <div v-if="!selectedUser" class="note">유저를 선택하세요.</div>
 
       <div v-else class="body">
-        <div class="row"><b>현재 권한</b><span>{{ selectedUser.role }}</span></div>
-        <div class="row"><b>잠금 상태</b><span>{{ selectedUser.suspended ? 'ON' : 'OFF' }}</span></div>
+        <div class="row">현재 권한<span>{{ selectedUser.role }}</span></div>
+        <div class="row">잠금 상태<span>{{ selectedUser.suspended ? 'ON' : 'OFF' }}</span></div>
 
         <div class="btns">
           <button class="btn" @click="setRole('master')">승격: master</button>

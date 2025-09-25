@@ -40,16 +40,7 @@
           </button>
         </div>
 
-        <!-- ===== 섹션 타이틀 ===== -->
-        <div class="section-title-wrap" role="heading" aria-level="2">
-          <div class="section-title-row">
-            <ion-icon :icon="icons.shieldCheckmarkOutline" aria-hidden="true" class="section-icon" />
-            <h2 class="section-title-text black-text">Speed Matching List</h2>
-          </div>
-          <div class="section-divider" aria-hidden="true"></div>
-        </div>
-
-        <!-- ===== 목록 (2_target과 동일 규격) ===== -->
+        <!-- ===== 목록 ===== -->
         <ion-list v-if="!isLoading && emergencyUsers.length" class="users-list">
           <ion-item
             v-for="user in emergencyUsers"
@@ -59,7 +50,6 @@
             class="user-item"
             @click="goToUserProfile(user._id)"
           >
-            <!-- 좌측: 대표사진(원형 90px, 라이트박스 비활성) -->
             <div class="list-avatar" slot="start">
               <ProfilePhotoViewer
                 :userId="user._id"
@@ -68,7 +58,6 @@
               />
             </div>
 
-            <!-- 본문 -->
             <ion-label class="black-text">
               <h3 class="title">
                 <span class="nickname">{{ user.nickname }}</span>
@@ -478,7 +467,9 @@ ion-content {
 .inline-icon { margin-right: 0; vertical-align: -2px; color: var(--gold); }
 
 /* ========= 우측 커스텀 캡슐 스위치 ========= */
-/* ✅ 요구사항: ON일 때(초록) 동그라미 오른쪽 / OFF일 때(빨강) 동그라미 왼쪽 */
+/* 요구사항: ON(초록)일 때 노브 오른쪽 / OFF(빨강)일 때 노브 왼쪽
+   - 텍스트와 겹치지 않도록 좌우 패딩을 노브 폭만큼 확보
+   - 노브는 세로 가운데 정렬(top:50% + translateY(-50%)) */
 .pill-switch {
   position: relative;
   width: 86px;
@@ -493,34 +484,40 @@ ion-content {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: background 0.18s ease, border-color 0.18s ease;
-  padding: 0;
+  padding: 0 36px; /* ✅ 노브(28px) + 여백(4+4) = 36px, 양쪽 확보 → 텍스트 겹침 방지 */
   overflow: hidden;
+  line-height: 1;  /* 텍스트 수직정렬 안정화 */
 }
+
 .pill-switch .pill-text {
   font-weight: 900;
   letter-spacing: 0.6px;
   z-index: 1;
   pointer-events: none;
-  color: #fff;               /* ✅ 글자색을 흰색으로 */
+  color: #fff;
   font-size: 14px;
+  white-space: nowrap; /* ✅ 줄바꿈 방지 */
 }
+
 /* 동그라미 노브 */
 .pill-switch .knob {
   position: absolute;
-  top: 4px;
-  left: 4px;                 /* ✅ 기본(OFF) = 왼쪽 */
+  top: 50%;               /* ✅ 세로 가운데 */
+  left: 4px;              /* ✅ 기본(OFF) = 왼쪽 */
+  transform: translateY(-50%);
   width: 28px;
   height: 28px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-  transition: left 0.18s ease;
+  transition: left 0.18s ease, transform 0.18s ease;
   z-index: 2;
 }
+
 /* 상태별 배경/노브 위치 */
-.pill-switch.on  { background: linear-gradient(180deg, #6ad66a, #34c759); }  /* ✅ 초록 */
-.pill-switch.off { background: linear-gradient(180deg, #ff8a8a, #f05a5a); }  /* ✅ 빨강 */
-.pill-switch.on .knob { left: calc(100% - 4px - 28px); }  /* ✅ ON = 오른쪽 */
+.pill-switch.on  { background: linear-gradient(180deg, #6ad66a, #34c759); }  /* 초록 */
+.pill-switch.off { background: linear-gradient(180deg, #ff8a8a, #f05a5a); }  /* 빨강 */
+.pill-switch.on .knob { left: calc(100% - 4px - 28px); }  /* ON = 오른쪽 */
 
 .pill-switch:focus-visible {
   outline: none;
@@ -537,7 +534,6 @@ ion-content {
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
 
-/* 기본 ion-item 스타일은 두고, 실제 여백은 .user-item에서 제어 */
 ion-item {
   --inner-border-width: 0 0 1px 0;
   --inner-border-color: var(--divider);
@@ -612,8 +608,8 @@ ion-text p.ion-text-center {
 /* 작은 화면 보정 */
 @media (max-width: 360px) {
   .emergency-toggle { gap: 8px; }
-  .pill-switch { width: 78px; height: 32px; }
-  .pill-switch .knob { width: 24px; height: 24px; top: 4px; }
+  .pill-switch { width: 78px; height: 32px; padding: 0 40px; } /* 패딩도 줄여 균형 유지 */
+  .pill-switch .knob { width: 24px; height: 24px; }
   .pill-switch.on .knob { left: calc(100% - 4px - 24px); }
 
   .users-list { margin: 8px; border-radius: 12px; }

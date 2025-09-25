@@ -63,7 +63,7 @@ const menuItems = [
   //{ name: 'all', path: '/home/5page', icon: warningOutline },
   { name: 'Premium', path: '/home/0page', icon: warningOutline },
   { name: '타겟',    path: '/home/2page', icon: locateOutline },
-  { name: '친구',    path: FRIENDS_PATH,  icon: peopleOutline },
+  //{ name: '친구',    path: FRIENDS_PATH,  icon: peopleOutline },
   { name: '채팅',    path: CHAT_PATH,     icon: chatbubblesOutline },
   { name: '프로필',  path: '/home/6page', icon: personCircleOutline },
   { name: '설정',    path: '/home/7page', icon: settingsOutline },

@@ -4,7 +4,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 const isDebug = process.env.CAP_ENV === 'debug'
 
 const config: CapacitorConfig = {
-  appId: 'org.tzchat.app',
+  appId: 'com.tazocode.tzchat',
   appName: '네네챗',
   webDir: 'dist',
 

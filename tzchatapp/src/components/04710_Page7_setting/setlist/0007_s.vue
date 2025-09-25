@@ -27,7 +27,7 @@
         <a href="https://inhope.org" target="_blank">INHOPE (국제 아동보호 네트워크)</a>를 참고하세요.
       </p>
 
-      <p>문의: <a href="mailto:tazocode@gmail.com">tazocode@gmail.com</a></p>
+      <p>문의: <a href="mail to:tazocode@gmail.com">tazocode@gmail.com</a></p>
     </ion-content>
   </ion-page>
 </template>

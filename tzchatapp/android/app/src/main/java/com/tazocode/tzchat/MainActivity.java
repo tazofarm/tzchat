@@ -1,5 +1,5 @@
-// tzchatapp/android/app/src/main/java/org/tzchat/app/MainActivity.java
-package org.tzchat.app;
+// tzchatapp/android/app/src/main/java/com/tazocode/tzchat/MainActivity.java
+package com.tazocode.tzchat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -32,7 +32,6 @@ public class MainActivity extends BridgeActivity {
 
     // 🐛 개발 편의: WebView 디버깅 (릴리즈 빌드에서는 자동 비활성화)
     try {
-      // BuildConfig 대신 런타임 플래그 사용
       boolean isDebuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
 
       if (isDebuggable) {
@@ -52,7 +51,7 @@ public class MainActivity extends BridgeActivity {
 
       WebView webView = (getBridge() != null) ? getBridge().getWebView() : null;
       if (webView != null) {
-        // Android 5.0+ 에서만 적용되는 서드파티 쿠키 허용
+        // Android 5.0+ 서드파티 쿠키 허용
         cm.setAcceptThirdPartyCookies(webView, true);
 
         // ⚙️ WebView 설정 강화
@@ -62,7 +61,6 @@ public class MainActivity extends BridgeActivity {
           ws.setDatabaseEnabled(true);     // Web SQL/Indexed DB (단말 정책에 따라 무시될 수 있음)
 
           // (선택) 혼합콘텐츠 허용: 개발/원격-로컬 혼용 시 임시 허용
-          //  - 운영에서는 가능하면 끄는 것을 권장(MIXED_CONTENT_NEVER_ALLOW)
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
           }

@@ -8,7 +8,7 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
 const path = require('path');          // 파일 경로 관련 내장 모듈
-const fs = require('fs');              // ✅ public 존재 검사
+const fs = require('fs');              // ✅ public/폴더 존재 검사
 
 app.disable('x-powered-by'); // 소소한 보안 헤더
 
@@ -69,11 +69,22 @@ if (!fs.existsSync(publicDir)) {
 app.use(express.static(publicDir));
 console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
 
-// 프로필 이미지
-app.use('/uploads/profile', express.static(path.join(__dirname, 'uploads/profile')));
+/**
+ * ✅ /uploads 정적 서빙(루트) — 같은 오리진 경로 보장
+ * - 프론트는 항상 https://도메인/uploads/... 로 요청 (Nginx가 2000으로 프록시)
+ * - 하위 폴더(profile, chat 등)를 포함한 전체 서빙
+ */
+const uploadsRoot = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsRoot)) {
+  fs.mkdirSync(uploadsRoot, { recursive: true });
+  console.warn('ℹ️  uploads 폴더가 없어서 생성했습니다:', uploadsRoot);
+}
+app.use('/uploads', express.static(uploadsRoot));
+console.log('🖼️  /uploads 정적 서빙 활성화:', uploadsRoot);
 
-// 채팅 이미지
-app.use('/uploads/chat', express.static(path.join(__dirname, 'uploads/chat')));
+// 하위 호환(개별 경로 유지)
+app.use('/uploads/profile', express.static(path.join(uploadsRoot, 'profile')));
+app.use('/uploads/chat', express.static(path.join(uploadsRoot, 'chat')));
 
 // ✅ 요청 로그 및 Private-Network 헤더
 app.use((req, res, next) => {
@@ -121,17 +132,14 @@ app.use((req, res, next) => {
 });
 
 // 🔧 앱(WebView)에서 file:// 또는 일부 환경은 Origin 헤더가 'null'로 옵니다.
-// credentials 요청에서는 명시적으로 'null'을 ACAO로 돌려줘야 합니다.
 const ALLOW_NULL_ORIGIN = true;
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // 내부 호출(서버-서버) 등 Origin이 없으면 허용
     if (!origin) {
       console.log('[CORS-CHECK] (no-origin) => ALLOW');
       return cb(null, true);
     }
-    // 'null' 오리진 허용(옵션)
     if (origin === 'null' && ALLOW_NULL_ORIGIN) {
       console.log('[CORS-CHECK] null => ALLOW(explicit)');
       return cb(null, true);
@@ -147,23 +155,20 @@ const corsOptions = {
     console.log('[CORS-CHECK]', origin, '=> BLOCK');
     return cb(new Error('Not allowed by CORS'));
   },
-  credentials: true, // ⭐ withCredentials 쿠키 허용(세션 호환), JWT는 Authorization 헤더 사용
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  // ✅ JWT 헤더 허용
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  maxAge: 600, // 프리플라이트 캐시
+  maxAge: 600,
   optionsSuccessStatus: 204,
 };
 
 app.use((req, res, next) => {
-  // 오리진별 캐시 안전
   res.setHeader('Vary', 'Origin');
   next();
 });
 
 app.use(cors(corsOptions));
 
-// Express v5: 정규식으로 OPTIONS 허용 + 로그
 app.options(/.*/, (req, res, next) => {
   console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
   next();
@@ -176,11 +181,7 @@ console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOr
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
 
 // =======================================
-/**
- * 운영/개발 모드 판단 (쿠키/보안 설정에 사용)
- * - dev:remote(로컬 FE → HTTPS BE)에서도 쿠키는 Secure+None 이어야 하므로
- *   "원격 HTTPS 백엔드"에 맞춰 secure 모드로 취급
- */
+// 실행 모드
 // =======================================
 const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TLS === '1';
 const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_MOBILE_SESSION === '1';
@@ -195,10 +196,8 @@ mongoose
   .then(() => console.log('✅ MongoDB 연결 성공:', MONGO_URI))
   .catch((err) => console.error('❌ MongoDB 연결 실패:', err));
 
-// ✅ 프록시 신뢰 (HTTPS 리버스 프록시 뒤에서 Secure 쿠키 인식)
 app.set('trust proxy', 1); // ★ 반드시 세션 미들웨어 이전
 
-// ✅ 세션 설정 (connect-mongo) — 기존 세션 의존 라우터 호환용
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
@@ -211,8 +210,8 @@ const sessionStore = MongoStore.create({
 const cookieForProd = {
   httpOnly: true,
   maxAge: 1000 * 60 * 60 * 24,
-  sameSite: 'none', // ★ 크로스사이트 쿠키
-  secure: true,     // ★ HTTPS 필수
+  sameSite: 'none',
+  secure: true,
   path: '/',
 };
 const cookieForDevWeb = {
@@ -223,9 +222,7 @@ const cookieForDevWeb = {
   path: '/',
 };
 
-// dev:remote(프론트 localhost:8081 → 백 https://tzchat.tazocode.com) 시
-// 백엔드는 HTTPS이므로 secure 쿠키가 필요함 → isSecureMode = true 취급
-const FORCE_SECURE_COOKIE = true; // ← dev-remote에서도 무조건 Secure+None
+const FORCE_SECURE_COOKIE = true; // dev-remote에서도 Secure+None
 const isSecureMode = FORCE_SECURE_COOKIE || isProd || isCapAppMode;
 const cookieConfig = isSecureMode ? cookieForProd : cookieForDevWeb;
 
@@ -242,7 +239,6 @@ const sessionMiddleware = session({
   cookie: cookieConfig,
 });
 
-// 요청 단위 쿠키정책 로그 + 프록시 프로토콜 점검
 app.use((req, res, next) => {
   const origin = req.headers.origin || '(no-origin)';
   const xfProto = req.headers['x-forwarded-proto'] || '(none)';
@@ -259,24 +255,15 @@ console.log('🔐 세션 설정 완료:', cookieConfig);
 
 // ---------------------------------------
 // ✅ JWT 파서/검증 미들웨어 (신규, 비파괴)
-// - Authorization: Bearer <token> 또는 ?token=, X-Auth-Token 지원
-// - 유효하면 req.user 설정(세션보다 우선 사용 가능)
-// - 라우터들은 점진적 전환: req.user || req.session.user
 // ---------------------------------------
 const jwt = require('jsonwebtoken');
 
 function extractToken(req) {
-  // Authorization 헤더
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-
-  // 대안 헤더
   const xToken = req.headers['x-auth-token'];
   if (xToken) return String(xToken).trim();
-
-  // 쿼리 토큰(소켓 핸드셰이크 재활용)
   if (req.query && req.query.token) return String(req.query.token).trim();
-
   return null;
 }
 
@@ -288,20 +275,16 @@ app.use((req, res, next) => {
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    // 민감 정보 마스킹하여 로그
     console.log('[AUTH][JWT][OK]', { sub: payload.sub || payload._id || '(none)', path: req.path });
-    // 표준화된 형태로 저장
     req.user = {
       _id: payload._id || payload.sub || null,
       username: payload.username || null,
       nickname: payload.nickname || null,
       roles: payload.roles || [],
-      // 필요 시 추가 클레임
     };
     req.auth = { type: 'jwt', tokenMasked: token.slice(0, 8) + '***' };
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'jwt.verify', code: err.name, message: err.message });
-    // JWT 실패해도 세션 경로로 계속 진행(호환)
   }
   next();
 });
@@ -326,7 +309,7 @@ app.get('/debug/session', (req, res) => {
   });
 });
 
-// 🧪 쿠키 저장 테스트용: 앱(WebView)에서 Set-Cookie 수신/저장 확인
+// 🧪 쿠키 저장 테스트용
 app.get('/debug/set-cookie', (req, res) => {
   const value = Date.now().toString(36);
   res.cookie('tzchat_test', value, {
@@ -343,8 +326,8 @@ app.get('/debug/set-cookie', (req, res) => {
 // 2) 라우터 등록 (safeMountRouter)
 // =======================================
 
-// ✅ 비로그인 공개 라우터 (신규)
-safeMountRouter('/', './routes/publicRouter');
+// ✅ 비로그인 공개 라우터
+
 
 safeMountRouter('/api/admin', './routes/adminRouter');
 safeMountRouter('/api', './routes/authRouter');
@@ -359,7 +342,6 @@ safeMountRouter('/api', './routes/userRouter');
 
 // =======================================
 // 3) Socket.IO 설정 (+온라인유저/방현황 트래킹)
-//    ✅ JWT 인증 병행: handshake.auth.token / headers.authorization
 // =======================================
 const { Server } = require('socket.io');
 const io = new Server(server, {
@@ -377,13 +359,12 @@ const io = new Server(server, {
 });
 console.log('🔌 Socket.IO 경로(/socket.io) 및 CORS 적용');
 
-// ✅ 세션 공유(유지) — 기존 세션 방식과 병행
+// ✅ 세션 공유(유지)
 io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
 });
 
 // ✅ JWT 인증(신규)
-// - 우선 JWT 검사 → 실패해도 세션이 있으면 세션으로 진행
 io.use((socket, next) => {
   try {
     const h = socket.handshake || {};
@@ -397,11 +378,10 @@ io.use((socket, next) => {
 
     if (!token) {
       console.log('[SOCKET][AUTH][JWT][MISS]', { sid: socket.id });
-      return next(); // 세션으로 계속
+      return next();
     }
 
     const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
-    // socket.user: 라우팅/방조인 로직에서 사용 가능
     socket.user = {
       _id: payload._id || payload.sub || null,
       username: payload.username || null,
@@ -412,7 +392,6 @@ io.use((socket, next) => {
     return next();
   } catch (err) {
     console.log('[SOCKET][AUTH][ERR]', { step: 'jwt.verify', code: err.name, message: err.message });
-    // JWT 실패 시 세션만으로도 입장 가능(호환)
     return next();
   }
 });
@@ -519,7 +498,6 @@ app.set('emit', {
 
 io.on('connection', (socket) => {
   try {
-    // ✅ JWT 우선 → 없으면 세션
     const jwtUserId = socket.user?._id ? String(socket.user._id) : null;
     const session = socket.request.session;
     const sessUserId = session?.user?._id ? String(session.user._id) : null;
@@ -567,7 +545,6 @@ io.on('connection', (socket) => {
       }
     });
 
-    // ⚠️ 프론트에서 POST로 메시지 저장 후 emit
     socket.on('chatMessage', async ({ roomId, message }) => {
       try {
         console.log(`[SOCKET][MSG] chatMessage`, { roomId, from: userId || '(anon)', type: message?.imageUrl ? 'image' : 'text' });
@@ -584,7 +561,6 @@ io.on('connection', (socket) => {
       }
     });
 
-    // ✅ 읽음 처리 브로드캐스트
     socket.on('messagesRead', async (payload = {}) => {
       try {
         const { roomId, readerId, messageIds } = payload;
@@ -626,8 +602,9 @@ server.listen(PORT, HOST, () => {
   const addr = server.address();
   console.log(`🚀 서버 실행 중: http://${addr.address}:${addr.port}`);
   console.log(`🔭 휴대폰 테스트 예시: http://192.168.0.7:${PORT}`);
+  const modeMsg = '🔒 SameSite=None + Secure 쿠키 사용중(세션 호환) + JWT 병행 → HTTPS(프록시) 권장.';
   if (isSecureMode) {
-    console.log('🔒 SameSite=None + Secure 쿠키 사용중(세션 호환) + JWT 병행 → HTTPS(프록시) 권장.');
+    console.log(modeMsg);
     console.log('   Nginx 설정에 proxy_set_header X-Forwarded-Proto $scheme; 가 필요합니다.');
   } else {
     console.log('🧪 DEV 모드: sameSite=lax, secure=false 쿠키 / 로컬 개발 오리진 허용');

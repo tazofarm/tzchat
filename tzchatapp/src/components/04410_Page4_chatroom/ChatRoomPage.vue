@@ -2,51 +2,87 @@
   <div class="chatroom-container">
     <!-- 상단바 -->
     <div class="chatroom-header">
-      <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">←</ion-button>
-      <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }}</span>
+      <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화</span>
+      <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">←뒤로</ion-button>
     </div>
 
     <!-- 메시지 리스트 -->
     <div class="chat-messages" ref="chatScroll" @scroll.passive="scheduleMarkAsRead(250)">
       <div
-        v-for="msg in messages"
-        :key="msg._id"
+        v-for="item in displayItems"
+        :key="item._id"
         class="message-row"
-        :class="{ mine: isMine(msg) }"
+        :class="{ mine: item.type==='message' && isMine(item) }"
       >
-        <!-- 내가 보낸 메시지 -->
-        <template v-if="isMine(msg)">
-          <div class="my-message">
-            <span class="time">{{ formatTime(msg.createdAt) }}</span>
-            <div class="bubble my-bubble">
-              <template v-if="msg.imageUrl">
-                <img :src="getImageUrl(msg.imageUrl)" class="chat-image" @click="openImage(getImageUrl(msg.imageUrl))" />
-              </template>
-              <template v-else>
-                {{ msg.content }}
-              </template>
-            </div>
-            <!-- ✅ '상대가 아직 안읽음' 표시 -->
-            <span
-              v-if="!isReadByPartner(msg)"
-              class="read-flag"
-              aria-label="상대가 아직 읽지 않음"
-            >안읽음</span>
+        <!-- 날짜 구분선 (⬅ 왼쪽 정렬) -->
+        <template v-if="item.type === 'divider'">
+          <div class="date-divider" role="separator" :aria-label="`타임라인 ${item.label}`">
+            <span class="date-chip">{{ item.label }}</span>
           </div>
         </template>
 
-        <!-- 상대방 메시지 -->
+        <!-- ░ 내 메시지 (오른쪽 정렬, 그룹 마지막만 시간/안읽음) ░ -->
+        <template v-else-if="isMine(item)">
+          <div class="my-message">
+            <div class="bubble-row mine-row">
+                            
+              <span
+                v-if="item._meta?.showTime && !isReadByPartner(item)"
+                class="read-flag"
+                aria-label="상대가 아직 읽지 않음"
+              >안읽음</span>
+ 
+              <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
+              
+              <div class="bubble my-bubble">
+                <template v-if="item.imageUrl">
+                  <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                </template>             
+                <template v-else>
+                  {{ item.content }}
+                </template>
+              </div>
+
+            </div>
+          </div>
+        </template>
+
+        <!-- ░ 상대 메시지 (아바타/닉네임은 그룹 첫 메시지만, 시간은 마지막만) ░ -->
         <template v-else>
           <div class="other-message">
-            <div class="bubble other-bubble">
-              <template v-if="msg.imageUrl">
-                <img :src="getImageUrl(msg.imageUrl)" class="chat-image" @click="openImage(getImageUrl(msg.imageUrl))" />
-              </template>
-              <template v-else>
-                {{ msg.content }}
-              </template>
+            <div
+              v-if="item._meta?.showAvatarName"
+              class="avatar-col"
+              @click="goToPartnerProfile"
+              role="button"
+              aria-label="상대 프로필 보기"
+            >
+              <ProfilePhotoViewer
+                v-if="partnerId"
+                :userId="partnerId"
+                :gender="partnerGender"
+                :size="AVATAR_SIZE"
+              />
+              <div v-else class="avatar-fallback">{{ partnerNickname.charAt(0) || '상' }}</div>
             </div>
-            <span class="time">{{ formatTime(msg.createdAt) }}</span>
+            <div v-else class="avatar-spacer" />
+
+            <div class="content-col">
+              <div class="name-line" v-if="item._meta?.showAvatarName">
+                <span class="name" @click="goToPartnerProfile">{{ partnerNickname }}</span>
+              </div>
+              <div class="bubble-row">
+                <div class="bubble other-bubble">
+                  <template v-if="item.imageUrl">
+                    <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                  </template>
+                  <template v-else>
+                    {{ item.content }}
+                  </template>
+                </div>
+                <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -54,9 +90,7 @@
 
     <!-- 입력창 -->
     <div class="chat-input-wrapper">
-      <!-- 이모지 픽커 (웹컴포넌트) -->
       <div v-if="showEmoji" class="emoji-picker-wrapper">
-        <!-- ⚠️ <emoji-picker>는 vite.config.ts 의 isCustomElement 설정 + main.ts 전역 import 필요 -->
         <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
       </div>
 
@@ -77,7 +111,7 @@
       </div>
     </div>
 
-    <!-- ✅ 이미지 확대 팝업 -->
+    <!-- 이미지 확대 팝업 -->
     <transition name="fade">
       <div v-if="enlargedImage" class="image-modal" role="dialog" aria-modal="true" aria-label="이미지 보기">
         <div class="image-wrapper">
@@ -90,32 +124,25 @@
 </template>
 
 <script setup>
-// ------------------------------------------------------------------
-// ChatRoomPage.vue (Black+Gold / Compact)
-// - 텍스트/이미지 전송, 이모지, 이미지 확대
-// - Socket.IO 실시간 수신
-// - ✅ 읽음 처리 디바운스 + 소켓 동기화
-// - ✅ 메시지 중복 방지, 이미지 붙여넣기, 업로드 가드, 하단 고정 로직
-// ------------------------------------------------------------------
-import { ref, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
-import { connectSocket, getSocket } from '@/lib/socket' // ✅ 공용 소켓
+import { connectSocket, getSocket } from '@/lib/socket'
+import ProfilePhotoViewer from '@/components/02010_minipage/ProfilePhotoViewer.vue'
 
 const route = useRoute()
 const router = useRouter()
 
 const roomId = String(route.params.id || '')
-
-// ✅ 공용 소켓 인스턴스: 페이지 라이프사이클 동안 참조만
 let socket = null
-
-console.log('[ChatRoom] socket module ready, roomId:', roomId)
 
 const myId = ref('')
 const partnerId = ref('')
 const partnerNickname = ref('상대방')
+const partnerGender = ref('')
+
+const AVATAR_SIZE = 40
 
 const messages = ref([])
 const newMessage = ref('')
@@ -123,457 +150,247 @@ const chatScroll = ref(null)
 const textareaRef = ref(null)
 const showEmoji = ref(false)
 const fileInput = ref(null)
-
 const enlargedImage = ref('')
 
-// ===== 이미지 모달 열기/닫기 (+ ESC 닫기)
-const openImage = (url) => { 
-  enlargedImage.value = url 
-  console.log('[ChatRoom] openImage:', url)
-}
-const onEscClose = (e) => {
-  if (e.key === 'Escape' && enlargedImage.value) {
-    closeImageModal()
-  }
-}
-const closeImageModal = () => {
-  enlargedImage.value = ''
-}
+/* ===== 그룹 키 유틸 ===== */
+const pad2 = (n)=> String(n).padStart(2,'0')
+const minuteKey = (d) => { const t=new Date(d); return `${t.getFullYear()}-${pad2(t.getMonth()+1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}` }
+const toLocalYMD = (d) => { const t=new Date(d); return `${t.getFullYear()}-${pad2(t.getMonth()+1)}-${pad2(t.getDate())}` }
+const formatKDate = (d) => new Date(d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', weekday: 'long' })
+const formatTime=(iso)=> new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
 
-// ✅ 이미지 URL 보정: http 접두 제거 → 동일 오리진(https)로 강제
-const getImageUrl = (path) => {
-  if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const base = window.location.origin.replace(/\/+$/, '')
-  const p = String(path).startsWith('/') ? path : `/${path}`
+/* 판별 */
+const isMine = (msg)=> !!(msg?.sender && (msg.sender._id===myId.value || msg.sender===myId.value))
+const isReadByPartner = (msg)=> partnerId.value && (msg?.readBy||[]).some(id=>String(id)===String(partnerId.value))
+
+/* ===== 렌더 배열(날짜 + 그룹 메타) ===== */
+const displayItems = computed(() => {
+  const out = []
+  let lastYmd = null
+  const list = messages.value
+
+  const sameMinute = (a,b)=> a && b && (minuteKey(a.createdAt||a._id)===minuteKey(b.createdAt||b._id))
+
+  for (let i=0; i<list.length; i++){
+    const m = list[i]
+    const created = m.createdAt || m._id
+    const ymd = toLocalYMD(created)
+
+    if (ymd !== lastYmd) {
+      out.push({_id:`divider-${ymd}`, type:'divider', label:formatKDate(created)})
+      lastYmd = ymd
+    }
+
+    const prev = list[i-1]
+    const next = list[i+1]
+    const meta = {}
+
+    if (isMine(m)) {
+      const nextMine = next && isMine(next)
+      const groupWithNext = nextMine && sameMinute(m,next)
+      meta.showTime = !groupWithNext           // 내 메시지: 마지막만 시간/안읽음
+    } else {
+      const prevOther = prev && !isMine(prev)
+      const nextOther = next && !isMine(next)
+      const groupWithPrev = prevOther && sameMinute(prev,m)
+      const groupWithNext = nextOther && sameMinute(m,next)
+      meta.showAvatarName = !groupWithPrev     // 상대: 첫 메시지에만 아바타/닉네임
+      meta.showTime = !groupWithNext           // 마지막만 시간
+    }
+
+    out.push({ ...m, type:'message', _meta: meta })
+  }
+  return out
+})
+
+/* 이미지/모달 */
+const openImage = (url)=>{ enlargedImage.value=url }
+const closeImageModal = ()=>{ enlargedImage.value='' }
+const getImageUrl = (path)=>{
+  if(!path) return ''
+  if(/^https?:\/\//.test(path)) return path
+  const base=window.location.origin.replace(/\/+$/,'')
+  const p=String(path).startsWith('/')?path:`/${path}`
   return `${base}${p}`
 }
 
-// 내가 보낸 메시지 여부
-const isMine = (msg) => !!(msg?.sender && (msg.sender._id === myId.value || msg.sender === myId.value))
-
-// 이 메시지가 '상대'에 의해 읽혔는지
-const isReadByPartner = (msg) => {
-  if (!partnerId.value) return false
-  const arr = msg?.readBy || []
-  return arr.some((id) => String(id) === String(partnerId.value))
+/* 데이터 로딩 */
+const loadMessages = async ()=>{
+  const res = await axios.get(`/api/chatrooms/${roomId}`)
+  messages.value = res.data.messages || []
+  myId.value = res.data.myId
+  const partner = res.data.participants?.find?.(p=>String(p._id)!==String(myId.value))
+  partnerNickname.value = partner?.nickname || '상대방'
+  partnerId.value = partner?._id || ''
+  partnerGender.value = partner?.gender || ''
+  await nextTick(); scrollToBottom(); scheduleMarkAsRead()
 }
 
-// 메시지 불러오기
-const loadMessages = async () => {
-  try {
-    console.log('[ChatRoom] loadMessages start:', roomId)
-    const res = await axios.get(`/api/chatrooms/${roomId}`)
-    messages.value = res.data.messages || []
-    myId.value = res.data.myId
-
-    const partner = res.data.participants?.find?.(p => String(p._id) !== String(myId.value))
-    partnerNickname.value = partner?.nickname || '상대방'
-    partnerId.value = partner?._id || ''
-
-    console.log('[ChatRoom] loadMessages OK:', {
-      count: messages.value.length, myId: myId.value, partnerId: partnerId.value
-    })
-    scrollToBottom()
-    scheduleMarkAsRead()
-  } catch (err) {
-    console.error('❌ 메시지 불러오기 실패:', err)
-  }
-}
-
-// 텍스트 메시지 전송
-const sendMessage = async () => {
-  const content = newMessage.value.trim()
-  if (!content) return
-  try {
-    console.log('[ChatRoom] sendMessage:', content)
-    const res = await axios.post(`/api/chatrooms/${roomId}/message`, { content, type: 'text' })
-    newMessage.value = ''
-    // ✅ 공용 소켓 통해 브로드캐스트
-    getSocket()?.emit('chatMessage', { roomId, message: res.data })
-    console.log('[ChatRoom] emit chatMessage:', { roomId, id: res.data?._id })
-    // 로컬에서도 즉시 표시(중복 방지 로직이 있으므로 안전)
-    pushMessageSafe({ ...res.data, createdAt: res.data.createdAt || new Date().toISOString() })
-    scrollToBottom()
-  } catch (err) {
-    console.error('❌ 텍스트 메시지 전송 실패:', err)
-  }
-}
-
-// ===== 이미지 업로드 가드 =====
-const MAX_SIZE = 10 * 1024 * 1024 // 10MB
-const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
-const validateImage = (file) => {
-  if (!ACCEPTED.includes(file.type)) {
-    console.warn('지원하지 않는 타입:', file.type)
-    return false
-  }
-  if (file.size > MAX_SIZE) {
-    console.warn('파일 용량 초과:', file.size)
-    return false
-  }
-  return true
-}
-
-// 이미지 업로드 + 전송
-const uploadImage = async (e) => {
-  const file = e.target.files?.[0]
-  if (!file) return
-  if (!validateImage(file)) { e.target.value = ''; return }
-
-  const formData = new FormData()
-  formData.append('image', file)
-  try {
-    console.log('[ChatRoom] uploadImage start:', file.name, file.type, file.size)
-    const uploadRes = await axios.post('/api/chatrooms/upload-image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      withCredentials: true
-    })
-    const imageUrl = uploadRes.data.imageUrl
-    console.log('[ChatRoom] uploadImage OK, url:', imageUrl)
-
-    const messageRes = await axios.post(`/api/chatrooms/${roomId}/message`, {
-      content: imageUrl, type: 'image'
-    }, { withCredentials: true })
-
-    getSocket()?.emit('chatMessage', { roomId, message: messageRes.data })
-    console.log('[ChatRoom] emit chatMessage(image):', { roomId, id: messageRes.data?._id })
-    // 로컬 표시
-    pushMessageSafe({ ...messageRes.data, createdAt: messageRes.data.createdAt || new Date().toISOString() })
-    scrollToBottom()
-  } catch (err) {
-    console.error('❌ 이미지 업로드 실패:', err)
-  } finally {
-    e.target.value = '' // 같은 파일 재선택 가능하도록 초기화
-  }
-}
-
-// 붙여넣기 이미지 지원
-const onPaste = async (e) => {
-  const items = e.clipboardData?.items || []
-  for (const it of items) {
-    if (it.kind === 'file') {
-      const file = it.getAsFile()
-      if (file && validateImage(file)) {
-        const formData = new FormData()
-        formData.append('image', file)
-        try {
-          console.log('[ChatRoom] paste upload start:', file.type, file.size)
-          const uploadRes = await axios.post('/api/chatrooms/upload-image', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            withCredentials: true
-          })
-          const imageUrl = uploadRes.data.imageUrl
-          const messageRes = await axios.post(`/api/chatrooms/${roomId}/message`, {
-            content: imageUrl, type: 'image'
-          }, { withCredentials: true })
-
-          getSocket()?.emit('chatMessage', { roomId, message: messageRes.data })
-          pushMessageSafe({ ...messageRes.data, createdAt: messageRes.data.createdAt || new Date().toISOString() })
-          scrollToBottom()
-        } catch (err) {
-          console.error('붙여넣기 업로드 실패:', err)
-        }
-        e.preventDefault()
-        break
-      }
-    }
-  }
-}
-
-// Enter 전송(Shift+Enter 줄바꿈)
-const handleKeydown = (e) => {
-  if (e.key === 'Enter') {
-    if (e.shiftKey) return
-    e.preventDefault()
-    sendMessage()
-  }
-}
-
-// 파일선택 트리거
-const triggerFileInput = () => {
-  console.log('[ChatRoom] triggerFileInput')
-  fileInput.value?.click()
-}
-
-// 이모지 삽입
-const insertEmoji = (event) => {
-  const emoji = event?.detail?.unicode || ''
-  if (emoji) {
-    newMessage.value += emoji
-    console.log('[ChatRoom] insertEmoji:', emoji)
-    // 입력창 포커스 복귀
-    requestAnimationFrame(() => textareaRef.value?.focus())
-  } else {
-    console.warn('[ChatRoom] insertEmoji: no unicode in event', event)
-  }
-}
-
-// 이모지 토글 (닫을 때 입력창 포커스 복귀)
-const toggleEmoji = () => {
-  showEmoji.value = !showEmoji.value
-  console.log('[ChatRoom] toggleEmoji:', showEmoji.value)
-  if (!showEmoji.value) {
-    requestAnimationFrame(() => textareaRef.value?.focus())
-  }
-}
-
-// 시간 포맷
-const formatTime = (isoString) =>
-  new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-
-// 스크롤 최하단 고정
-const scrollToBottom = async () => {
-  try {
-    await nextTick()
-    const el = chatScroll.value
-    if (el) el.scrollTop = el.scrollHeight
-  } catch (e) {
-    console.warn('[ChatRoom] scrollToBottom error:', e)
-  }
-}
-
-/* ───────── 읽음 처리 (디바운스) ───────── */
-let readTimer = null
-const scheduleMarkAsRead = (delay = 200) => {
-  if (readTimer) clearTimeout(readTimer)
-  readTimer = setTimeout(markAsReadNow, delay)
-}
-const markAsReadNow = async () => {
-  try {
-    if (!roomId || !myId.value) return
-    const res = await axios.put(`/api/chatrooms/${roomId}/read`)
-    const updatedIds = res?.data?.updatedMessageIds || []
-    if (!updatedIds.length) return
-
-    // 낙관적 갱신
-    for (const msg of messages.value) {
-      if (updatedIds.includes(msg._id)) {
-        const arr = msg.readBy || []
-        if (!arr.includes(myId.value)) msg.readBy = [...arr, myId.value]
-      }
-    }
-    // 소켓 브로드캐스트
-    getSocket()?.emit('messagesRead', { roomId, readerId: myId.value, messageIds: updatedIds })
-  } catch (err) {
-    console.error('❌ markAsReadNow error:', err)
-  }
-}
-
-/* ───────── 메시지 중복 방지 + 하단 자동고정 보강 ───────── */
-const seenMsgIds = new Set()
-const pushMessageSafe = (m) => {
-  const id = m?._id
-  if (!id) return
-  if (seenMsgIds.has(id)) return
-  seenMsgIds.add(id)
-  messages.value.push(m)
-  // 메모리 보호: 최근 1000개까지만 추적
-  if (seenMsgIds.size > 1000) {
-    const firstId = messages.value[0]?._id
-    if (firstId) seenMsgIds.delete(firstId)
-  }
-}
-
-// 컨테이너 resize에 따른 자동 하단 고정(이미지 로딩 포함)
-let resizeObs = null
-const attachAutoScroll = () => {
-  const el = chatScroll.value
-  if (!el || resizeObs) return
-  resizeObs = new ResizeObserver(() => {
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    if (nearBottom) el.scrollTop = el.scrollHeight
-  })
-  resizeObs.observe(el)
-}
-
-/* ───────── 라이프사이클 ───────── */
-onMounted(async () => {
-  console.log('[ChatRoom] onMounted, roomId:', roomId)
-
-  // ✅ 공용 소켓 연결 확보
-  socket = connectSocket()
-
-  // 연결 상태 로그
-  socket.on('connect', () => {
-    console.log('[ChatRoom] socket connected:', socket.id)
-  })
-  socket.on('connect_error', (err) => {
-    console.error('[ChatRoom] socket connect_error:', err?.message || err)
-  })
-  socket.on('disconnect', (reason) => {
-    console.warn('[ChatRoom] socket disconnected:', reason)
-  })
-
-  // 전역 핫키/붙여넣기
-  window.addEventListener('keydown', onEscClose)
-  window.addEventListener('paste', onPaste)
-
-  await loadMessages()
-  attachAutoScroll()
-
-  socket.emit('joinRoom', roomId)
-  console.log('[ChatRoom] joinRoom emitted')
-
-  // 새 메시지 수신
-  socket.on('chatMessage', (msg) => {
-    const message = msg?.message || msg
-    const inSameRoom =
-      msg?.roomId === roomId ||
-      msg?.chatRoom === roomId ||
-      msg?.chatRoom?._id === roomId ||
-      message?.chatRoom === roomId ||
-      message?.chatRoom?._id === roomId
-    if (!inSameRoom) return
-
-    // createdAt 폴백
-    if (!message.createdAt) message.createdAt = new Date().toISOString()
-    pushMessageSafe(message)
-    scrollToBottom()
-
-    const mine = isMine(message)
-    if (!mine) scheduleMarkAsRead(250)
-
-    console.log('[ChatRoom] recv chatMessage:', {
-      id: message?._id,
-      type: message?.imageUrl ? 'image' : 'text',
-      from: message?.sender?._id || message?.sender,
-      mine, inSameRoom,
-    })
-  })
-
-  // 읽음 브로드캐스트 수신
-  socket.on('messagesRead', ({ roomId: rid, readerId, messageIds } = {}) => {
-    try {
-      if (String(rid) !== String(roomId)) return
-      if (!readerId || !Array.isArray(messageIds) || !messageIds.length) return
-      for (const msg of messages.value) {
-        if (!isMine(msg)) continue
-        if (!messageIds.includes(msg._id)) continue
-        const arr = msg.readBy || []
-        if (!arr.includes(readerId)) msg.readBy = [...arr, readerId]
-      }
-      console.log('[ChatRoom] recv messagesRead:', { readerId, count: messageIds.length })
-    } catch (e) {
-      console.warn('[ChatRoom] messagesRead handler error:', e)
-    }
-  })
-})
-
-watch(messages, () => {
+/* 전송 */
+const sendMessage = async ()=>{
+  const content=newMessage.value.trim()
+  if(!content) return
+  const res = await axios.post(`/api/chatrooms/${roomId}/message`,{content,type:'text'})
+  newMessage.value=''
+  getSocket()?.emit('chatMessage',{roomId,message:res.data})
+  pushMessageSafe({...res.data,createdAt:res.data.createdAt||new Date().toISOString()})
   scrollToBottom()
-  scheduleMarkAsRead(250)
-}, { deep: true })
-
-onBeforeUnmount(() => {
-  try {
-    if (readTimer) clearTimeout(readTimer)
-    if (resizeObs) { resizeObs.disconnect(); resizeObs = null }
-    window.removeEventListener('keydown', onEscClose)
-    window.removeEventListener('paste', onPaste)
-
-    // ✅ 방만 떠난다(소켓 연결 유지 → 다른 페이지에서도 재사용)
-    getSocket()?.emit('leaveRoom', roomId)
-    getSocket()?.off('chatMessage')
-    getSocket()?.off('messagesRead')
-
-    console.log('[ChatRoom] onBeforeUnmount: leaveRoom/off done')
-  } catch (e) {
-    console.warn('[ChatRoom] onBeforeUnmount error:', e)
-  }
-})
-
-// 네비게이션
-const goBack = () => router.push('/home/4page')
-const goToPartnerProfile = () => {
-  if (partnerId.value) router.push(`/home/user/${partnerId.value}`)
 }
+
+/* 업로드 */
+const MAX_SIZE=10*1024*1024
+const ACCEPTED=['image/png','image/jpeg','image/webp','image/gif']
+const validateImage=(f)=>ACCEPTED.includes(f.type)&&f.size<=MAX_SIZE
+const uploadImage=async(e)=>{
+  const file=e.target.files?.[0]; if(!file) return
+  if(!validateImage(file)){ e.target.value=''; return }
+  const formData=new FormData(); formData.append('image',file)
+  const up=await axios.post(`/api/chatrooms/${roomId}/upload-image`,formData,{headers:{'Content-Type':'multipart/form-data'},withCredentials:true})
+  const relativePath=up.data?.relativePath||up.data?.imageUrl
+  const msg=await axios.post(`/api/chatrooms/${roomId}/message`,{content:relativePath,type:'image'},{withCredentials:true})
+  getSocket()?.emit('chatMessage',{roomId,message:msg.data})
+  pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
+  scrollToBottom(); e.target.value=''
+}
+
+/* 붙여넣기 */
+const onPaste=async(e)=>{
+  const items=e.clipboardData?.items||[]
+  for(const it of items){
+    if(it.kind==='file'){
+      const f=it.getAsFile()
+      if(f && validateImage(f)){
+        const form=new FormData(); form.append('image',f)
+        const up=await axios.post(`/api/chatrooms/${roomId}/upload-image`,form,{headers:{'Content-Type':'multipart/form-data'},withCredentials:true})
+        const relativePath=up.data?.relativePath||up.data?.imageUrl
+        const msg=await axios.post(`/api/chatrooms/${roomId}/message`,{content:relativePath,type:'image'},{withCredentials:true})
+        getSocket()?.emit('chatMessage',{roomId,message:msg.data})
+        pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
+        scrollToBottom(); e.preventDefault(); break
+      }
+    }
+  }
+}
+
+const handleKeydown=(e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage() } }
+const triggerFileInput=()=>fileInput.value?.click()
+const insertEmoji=(ev)=>{ const emoji=ev?.detail?.unicode||''; if(emoji){ newMessage.value+=emoji; requestAnimationFrame(()=>textareaRef.value?.focus()) } }
+const toggleEmoji=()=>{ showEmoji.value=!showEmoji.value; if(!showEmoji.value) requestAnimationFrame(()=>textareaRef.value?.focus()) }
+const scrollToBottom=async()=>{ await nextTick(); const el=chatScroll.value; if(el) el.scrollTop=el.scrollHeight }
+
+/* 읽음 처리 */
+let readTimer=null
+const scheduleMarkAsRead=(delay=200)=>{ if(readTimer) clearTimeout(readTimer); readTimer=setTimeout(markAsReadNow,delay) }
+const markAsReadNow=async()=>{ try{ if(!roomId||!myId.value) return; const r=await axios.put(`/api/chatrooms/${roomId}/read`); const ids=r?.data?.updatedMessageIds||[]; if(!ids.length) return; for(const m of messages.value){ if(ids.includes(m._id)){ const arr=m.readBy||[]; if(!arr.includes(myId.value)) m.readBy=[...arr,myId.value] } } getSocket()?.emit('messagesRead',{roomId,readerId:myId.value,messageIds:ids}) }catch(e){} }
+
+/* 중복 방지 */
+const seenMsgIds=new Set()
+const pushMessageSafe=(m)=>{ const id=m?._id; if(!id||seenMsgIds.has(id)) return; seenMsgIds.add(id); messages.value.push(m); if(seenMsgIds.size>1000){ const fid=messages.value[0]?._id; if(fid) seenMsgIds.delete(fid) } }
+
+/* 라이프사이클 */
+onMounted(async()=>{
+  socket=connectSocket()
+  window.addEventListener('paste', onPaste)
+  await loadMessages()
+
+  socket.emit('joinRoom',roomId)
+  socket.on('chatMessage',(msg)=>{
+    const message=msg?.message||msg
+    const inSameRoom = msg?.roomId===roomId || msg?.chatRoom===roomId || msg?.chatRoom?._id===roomId || message?.chatRoom===roomId || message?.chatRoom?._id===roomId
+    if(!inSameRoom) return
+    if(!message.createdAt) message.createdAt=new Date().toISOString()
+    pushMessageSafe(message); scrollToBottom()
+    if(!isMine(message)) scheduleMarkAsRead(250)
+  })
+  socket.on('messagesRead',({roomId:rid,readerId,messageIds}={})=>{
+    if(String(rid)!==String(roomId)) return
+    if(!readerId || !Array.isArray(messageIds) || !messageIds.length) return
+    for(const m of messages.value){
+      if(!isMine(m)) continue
+      if(!messageIds.includes(m._id)) continue
+      const arr=m.readBy||[]; if(!arr.includes(readerId)) m.readBy=[...arr,readerId]
+    }
+  })
+})
+watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
+
+/* 네비게이션 */
+const goBack=()=>router.push('/home/4page')
+const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${partnerId.value}`) }
 </script>
 
 <style scoped>
-/* ─────────────────────────────────────────────────────────────
- * Black + Gold Theme (배경은 진짜 블랙, 내용은 가독성 유지)
- * - 페이지 배경: 블랙
- * - 말풍선/입력창: 밝은 바탕 + 검정 글씨
- * - 크기 전반 "컴팩트" (이전보다 커지지 않도록 고정)
- * ───────────────────────────────────────────────────────────── */
-
+/* ───────── Theme & avatar variables ───────── */
 .chatroom-container{
   display:flex; flex-direction:column; height:100%; min-height:0; width:100%;
-
-  /* === 테마 컬러 === */
-  --gold-500:#d4af37;
-  --gold-400:#e0be53;
-  --black-900:#0b0b0b;
-
-  /* 본문 가독성(검정 텍스트 유지) */
-  --color-text:#000;
-  --color-muted:#9aa0a6;
-
-  /* 페이지/섹션 배경은 블랙 */
-  --page-bg:#0b0b0b;
-  --section-bg:#0b0b0b;
-
-  /* 말풍선(밝은 바탕) */
-  --bubble-other:#f1f3f4; /* 밝은 회색 */
-  --bubble-me:#ffefb3;     /* 연한 골드 */
-
-  /* 크기/간격 (컴팩트) */
+  --gold-500:#d4af37; --gold-400:#e0be53; --black-900:#0b0b0b;
+  --color-text:#000; --color-muted:#9aa0a6;
+  --page-bg:#0b0b0b; --section-bg:#0b0b0b;
+  --bubble-other:#f1f3f4; --bubble-me:#ffefb3;
   --radius:10px; --radius-lg:14px;
   --gap-xxs:4px; --gap-xs:6px; --gap-sm:8px; --gap-md:10px;
+  --fz-base:13px; --fz-time:11px; --fz-title:14px;
+  background:var(--page-bg); color:var(--color-text); overscroll-behavior:contain;
 
-  /* 폰트 크기 (작게 고정) */
-  --fz-base:13px;          /* 본문 */
-  --fz-time:11px;          /* 시각 */
-  --fz-title:14px;         /* 헤더 타이틀 */
-
-  background:var(--page-bg);
-  color:var(--color-text);
-  overscroll-behavior:contain;
+  --avatar-size: 40px;
+  --avatar-radius: 50%;
+  --avatar-offset-y: 8px;
 }
 
-/* ── 상단바 (블랙 + 골드) ─────────── */
-.chatroom-header{
-  display:grid; grid-template-columns:auto 1fr; align-items:center; gap:var(--gap-sm);
-  height:44px; padding:0 var(--gap-md);
-  background:#0b0b0b; border-bottom:1px solid rgba(255,255,255,.06);
-  box-sizing:border-box;
-}
-.chatroom-header ion-button{
-  --padding-start:6px; --padding-end:6px; --border-radius:8px;
-  --color:var(--gold-500);
-  --background:transparent; --border-color:transparent;
-  min-height:30px; font-size:13px;
-}
-.chat-title{
-  font-weight:800; letter-spacing:.2px; color:var(--gold-500);
-  font-size:var(--fz-title); line-height:2.15; justify-self:start;
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-  overflow:hidden; text-overflow:ellipsis; white-space:normal; cursor:pointer;
-}
+/* 상단바 */
+.chatroom-header{ display:flex; grid-template-columns:auto 1fr;
+   align-items:center; gap:var(--gap-sm); height:44px; padding:0 var(--gap-md);
+    background:#0b0b0b; border-bottom:1px solid rgba(255,255,255,.06); box-sizing:border-box; }
+.chatroom-header ion-button{ --padding-start:86px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500); --background:transparent; --border-color:transparent;
+   min-height:30px; font-size:13px;   margin-right: 6px;}
+.chat-title{ font-weight:800; letter-spacing:.2px; color:var(--gold-500); font-size:var(--fz-title); line-height:2.15; cursor:pointer;  margin-left: 8px; /* 왼쪽에서 조금 더 떨어짐 */}
 
-/* ── 메시지 리스트 (섹션 배경도 블랙) ─────────── */
-.chat-messages{
-  flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:var(--gap-md); background:var(--section-bg);
-  scrollbar-gutter:stable;
-}
+/* 메시지 리스트 */
+.chat-messages{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:var(--gap-md); background:var(--section-bg); scrollbar-gutter:stable; }
 .chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
 .chat-messages::-webkit-scrollbar-thumb{ background:#333; border-radius:8px; }
-.chat-messages::-webkit-scrollbar-track{ background:transparent; }
-
 .message-row{ margin-bottom:var(--gap-xs); }
-.other-message,.my-message{ display:flex; align-items:flex-end; gap:var(--gap-xxs); }
-.other-message{ justify-content:flex-start; }
-.my-message{ justify-content:flex-end; }
 
-/* ── 말풍선 (밝은 바탕 + 검정 텍스트 / 크기 컴팩트) ─────────── */
+/* 공통 행 */
+.other-message,.my-message{ display:flex; gap:var(--gap-xxs); }
+.my-message{
+  width:100%;                 /* ⬅ 전체 너비 차지 → 우측 정렬이 확실 */
+  justify-content:flex-end;
+  align-items:flex-end;
+}
+
+/* 상대방 */
+.other-message{ justify-content:flex-start; align-items:flex-start; }
+.avatar-col,
+.avatar-spacer{
+  width:var(--avatar-size);
+  min-width:var(--avatar-size);
+  height:var(--avatar-size);
+  margin-right:6px;
+  margin-top:var(--avatar-offset-y);
+}
+.avatar-col{
+  display:flex; align-items:center; justify-content:center;
+  border-radius:var(--avatar-radius); overflow:hidden;
+  border:1px solid rgba(255,255,255,0.12); background:rgba(212,175,55,0.10);
+  cursor:pointer;
+}
+.avatar-fallback{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#222; color:#eee; font-weight:800; font-size:12px; }
+.avatar-col :deep(.viewer-host){ width:100%; height:100%; }
+.avatar-col :deep(.avatar){ width:100%!important; height:100%!important; object-fit:cover; border-radius:0!important; box-shadow:none!important; pointer-events:none; }
+.content-col{ display:flex; flex-direction:column; max-width:min(78%,560px); }
+.name-line{ margin:0 0 2px 4px; }
+.name{ font-size:11px; color:#cfcfcf; letter-spacing:.2px; user-select:none; }
+.name:hover{ text-decoration:underline; cursor:pointer; }
+
+/* 말풍선 + 시간 */
+.bubble-row{ display:flex; align-items:flex-end; gap:6px; }
+.bubble-row.mine-row{ justify-content:flex-end; } /* 내 메시지 우측 정렬 */
 .bubble{
-  max-width:min(72%,560px);
+  max-width:100%;
   padding:6px 10px;
   border-radius:var(--radius);
-  background-color:#fff;
-  color:var(--color-text);
+  background-color:#fff; color:var(--color-text);
   word-break:break-word; white-space:pre-wrap;
   font-size:var(--fz-base); line-height:1.4;
   box-shadow:0 1px 0 rgba(0,0,0,0.04); border:1px solid rgba(0,0,0,0.06);
@@ -581,107 +398,43 @@ const goToPartnerProfile = () => {
 .other-bubble{ background:var(--bubble-other); }
 .my-bubble{ background:var(--bubble-me); border-color:#f6e6ad; }
 
-/* 이미지 메시지 — ⬇️ 작게 고정 */
-.chat-image{
-  max-width:150px; max-height:150px;
-  border-radius:10px; cursor:pointer; display:block;
-  box-shadow:0 1px 0 rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06);
-}
+/* 이미지 메시지 */
+.chat-image{ max-width:150px; max-height:150px; border-radius:10px; cursor:pointer; display:block; box-shadow:0 1px 0 rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06); }
 
-/* 시간/읽음표시 — 작게 */
-.time{ font-size:var(--fz-time); color:var(--color-muted); white-space:nowrap; margin:0 3px; user-select:none; }
+/* 시간/읽음 */
+.time{ font-size:var(--fz-time); color:var(--color-muted); white-space:nowrap; user-select:none; }
+.right-time{ align-self:flex-end; margin:0 0 2px 2px; }
 .read-flag{
   font-size:var(--fz-time); color:#1f1f1f; background:#fff3f3; border:1px solid #ffc9c9;
   border-radius:999px; padding:2px 6px; margin-left:4px; line-height:1.3; user-select:none;
 }
 
-/* ── 입력 영역 (바탕 블랙, 컨트롤은 밝게) ─────────── */
-.chat-input-wrapper{
-  position:relative; background:var(--page-bg);
-  padding-bottom:env(safe-area-inset-bottom,0px);
-  border-top:1px solid rgba(255,255,255,.06);
+/* 날짜 구분선 — ⬅ 왼쪽 정렬 */
+.date-divider{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;   /* ⬅ 왼쪽 */
+  gap:60px;
+  margin:10px 0;
 }
-.chat-input{
-  display:grid; grid-template-columns:auto auto 1fr auto; /* 📎 | 😊 | 입력 | 전송 */
-  align-items:end; gap:var(--gap-sm);
-  padding:var(--gap-sm) var(--gap-md);
-  background:var(--page-bg);
-  box-sizing:border-box;
-}
-
-/* ▶ 아이콘 전용 작은 버튼 (가로폭 축소) */
-.chat-input ion-button.icon-btn {
-  --padding-start: 4px;
-  --padding-end: 4px;
-  width: 34px;
-  min-width: 34px;
-  font-size: 16px;
-  --border-color: var(--gold-500);
-  --background: transparent;
-  --background-hover: #1a1a1a;
+.date-divider::before{ content:""; flex:0 0 36px; } /* 아바타 폭만큼 여백 */
+.date-chip{
+  font-size:12px; color:#e6c766; background:rgba(230,199,102,0.08);
+  border:1px solid rgba(230,199,102,0.35); border-radius:999px; padding:4px 10px; line-height:1.2;
 }
 
-/* 아이콘 중앙 정렬 보정 */
-.chat-input ion-button.icon-btn ::slotted(*) {
-  margin: 0 auto;
-}
+/* 입력 영역 */
+.chat-input-wrapper{ position:relative; background:var(--page-bg); padding-bottom:env(safe-area-inset-bottom,0px); border-top:1px solid rgba(255,255,255,.06); }
+.chat-input{ display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm); padding:var(--gap-sm) var(--gap-md); background:var(--page-bg); box-sizing:border-box; }
+.chat-input ion-button.icon-btn{ --padding-start:4px; --padding-end:4px; width:34px; min-width:34px; font-size:16px; --border-color:var(--gold-500); --background:transparent; --background-hover:#1a1a1a; }
+.chat-input ion-button[fill="outline"]{ --border-color:var(--gold-500); --color:#fff; --background:transparent; --background-hover:#1a1a1a; --border-radius:9px; min-height:26px; font-size:13px; border:1px solid var(--gold-500); }
+.chat-input ion-button[color="primary"]{ --background:var(--gold-500); --color:#111; --border-radius:10px; min-height:26px; font-size:13px; }
 
-/* 버튼: 골드 악센트 (크기 작게) */
-.chat-input ion-button[fill="outline"]{
-  --border-color:var(--gold-500); --color:#fff;
-  --background:transparent; --background-hover:#1a1a1a;
-  --border-radius: 9px;
-  min-height:26px; font-size:13px;
-  border:1px solid var(--gold-500);
-}
-.chat-input ion-button[color="primary"]{
-  --background:var(--gold-500); --color:#111; --border-radius:10px;
-  min-height:26px; font-size:13px;
-}
-
-/* textarea — 밝은 바탕 + 검정 글씨 (가독성 유지) */
-.chat-input textarea{
-  flex:1 1 auto; padding:6px 8px;
-  border:1.5px solid #333; border-radius:9px; margin:0;
-  font-size:var(--fz-base); background:#ffffff; color:#000000;
-  resize:none; line-height:1.4; min-height:32px; max-height:110px;
-  box-shadow:0 0 0 2px rgba(212,175,55,0.08);
-}
+/* textarea */
+.chat-input textarea{ flex:1 1 auto; padding:6px 8px; border:1.5px solid #333; border-radius:9px; margin:0; font-size:var(--fz-base); background:#ffffff; color:#000000; resize:none; line-height:1.4; min-height:32px; max-height:110px; box-shadow:0 0 0 2px rgba(212,175,55,0.08); }
 .chat-input textarea::placeholder{ color:#7a7a7a; }
-.chat-input textarea:focus{
-  outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500);
-}
+.chat-input textarea:focus{ outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500); }
 
-/* 이모지 피커 (경계만 골드) */
-.emoji-picker-wrapper{
-  position:absolute; left:var(--gap-md);
-  bottom:calc(46px + env(safe-area-inset-bottom,0px));
-  z-index:999; background:#111; border:1px solid var(--gold-500);
-  border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5);
-}
-emoji-picker{ width:260px; max-height:360px; }
-
-/* 이미지 모달 */
-.image-modal{
-  position:fixed; inset:0; background:rgba(0,0,0,.85);
-  display:flex; align-items:center; justify-content:center; z-index:9999; padding:12px;
-}
-.image-wrapper{ position:relative; max-width:92vw; max-height:92vh; }
-.modal-image{ max-width:100%; max-height:100%; border-radius:var(--radius-lg); box-shadow:0 10px 24px rgba(0,0,0,.28); }
-.close-button{
-  position:absolute; top:-9px; right:-9px; background:var(--gold-500); color:#111;
-  border:none; border-radius:50%; width:30px; height:30px; line-height:26px; font-size:18px; font-weight:900; cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.25);
-}
-
-/* 페이드 */
-.fade-enter-active,.fade-leave-active{ transition:opacity .2s ease; }
-.fade-enter-from,.fade-leave-to{ opacity:0; }
-
-/* 초소형 화면 보정 */
-@media (max-width:360px){
-  .chatroom-header{ padding:0 8px; gap:var(--gap-xxs); }
-  .chat-messages{ padding:8px; }
-  .emoji-picker-wrapper{ left:6px; }
-}
+/* 이모지/모달 */
+.emoji-picker-wrapper{ position:absolute; left:var(--gap-md); bottom:calc(46px + env(safe-area-inset-bottom,0px)); z-index:999; background:#111; border:1px solid var(--gold-500); border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5); }
 </style>

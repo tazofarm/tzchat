@@ -82,7 +82,7 @@
         <h3 class="section-title">
           <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
           받은 친구 신청
-          <span class="count">({{ receivedRequests.length }} / 50)</span>
+          <span class="count">({{ receivedRequests.length }} / 30)</span>
           <span v-if="anyNewReceived && receivedRequests.length" class="badge-new" aria-label="새 항목 있음">ⓝ</span>
         </h3>
       </div>

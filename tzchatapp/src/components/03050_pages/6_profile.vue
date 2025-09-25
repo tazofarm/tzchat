@@ -2,7 +2,6 @@
   <div class="page-wrapper">
     <div class="container">
       <!-- ✅ 내 프로필 카드 -->
-      <!-- ★ 변경지점: 공통코드 충돌을 막기 위한 스코프 클래스 pf-scope 추가 -->
       <div v-if="user" class="card pf-scope">
         <h3 class="card-title">
           <IonIcon :icon="icons.personCircleOutline" class="title-icon" />
@@ -31,7 +30,6 @@
         </button>
 
         <table class="info-table">
-          <!-- ★ 변경지점: 열 너비 클래스도 네임스페이스로 교체 -->
           <colgroup>
             <col class="pf-col-th" />
             <col class="pf-col-td" />
@@ -58,7 +56,7 @@
                 <IonIcon :icon="icons.calendarOutline" class="row-icon" />
                 <strong class="label">출생년도</strong>
               </td>
-              <td class="pf-td readonly">{{ user.birthyear || '미입력' }}</td>
+              <td class="pf-td readonly editable-text">{{ user.birthyear || '미입력' }}</td>
             </tr>
 
             <!-- 성별 -->
@@ -67,12 +65,12 @@
                 <IonIcon :icon="icons.maleFemaleOutline" class="row-icon" />
                 <strong class="label">성별</strong>
               </td>
-              <td class="pf-td readonly">
+              <td class="pf-td readonly editable-text">
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
               </td>
             </tr>
 
-            <!-- 비밀번호 변경 -->
+            <!-- 비밀번호 변경 
             <tr
               class="editable-row"
               @click="openPasswordModal"
@@ -85,7 +83,7 @@
               </td>
               <td class="pf-td editable-text">변경하기</td>
             </tr>
-
+-->
             <!-- 닉네임 -->
             <tr
               @click="openPopup(4, user.nickname)"
@@ -192,7 +190,74 @@
               </td>
             </tr>
 
+            <!-- ★★ 칸 나누기 없이 한 줄 전체 사용하는 '추가 사항' -->
+            <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleExtraOption">
+              <td class="pf-td2 pf-fullcell" colspan="2">
+                <div class="pf-fullrow">
+                  <IonIcon :icon="icons.optionsOutline" class="row-icon" />
+                  <strong class="label pf-fullrow__label">
+                    휴대폰 내 번호 연결 끊기
+                  </strong>
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="extraOption"
+                    :class="{ 'is-on': extraOption }"
+                    @click.stop="toggleExtraOption"
+                  >
+                    <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
+                    <span class="pf-switch__knob" />
+                    <span class="pf-switch__label">{{ extraOption ? 'ON' : 'OFF' }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+
+            <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleExtraOption">
+              <td class="pf-td2 pf-fullcell" colspan="2">
+                <div class="pf-fullrow">
+                  <IonIcon :icon="icons.optionsOutline" class="row-icon" />
+                  <strong class="label pf-fullrow__label">
+                    알림 받기
+                  </strong>
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="extraOption"
+                    :class="{ 'is-on': extraOption }"
+                    @click.stop="toggleExtraOption"
+                  >
+                    <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
+                    <span class="pf-switch__knob" />
+                    <span class="pf-switch__label">{{ extraOption ? 'ON' : 'OFF' }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <br />
+
+      <!-- ✅ 프리미엄 설정 카드 -->
+      <div v-if="user" class="card pf-scope">
+        <h3 class="card-title">
+          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
+          프리미엄 설정
+        </h3>
+
+        <table class="info-table">
+          <colgroup>
+            <col class="pf-col-th" />
+            <col class="pf-col-td" />
+          </colgroup>
+          <tbody>
+
             <!-- 검색특징 -->
+
             <tr
               class="editable-row"
               @click="openSearchPreferenceModal"
@@ -205,85 +270,74 @@
               </td>
               <td class="pf-td editable-text">{{ user.search_preference }}</td>
             </tr>
-          </tbody>
-        </table>
-      </div>
 
-      <br />
 
-      <!-- ✅ 노출제한 설정 카드 -->
-      <div v-if="user" class="card pf-scope">
-        <h3 class="card-title">
-          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
-          설정 제한
-        </h3>
+            <!-- 검색지역 -->
+            <tr
+              class="editable-row"
+              @click="openSearchRegionModal"
+              tabindex="0"
+              @keydown.enter="openSearchRegionModal"
+            >
+              <td class="pf-th">
+                <IonIcon :icon="icons.locationOutline" class="row-icon" />
+                <strong class="label">검색지역 2</strong>
+              </td>
+              <td class="pf-td editable-text">
+                {{ searchRegionDisplay }}
+              </td>
+            </tr>
 
-        <table class="info-table">
-          <colgroup>
-            <col class="pf-col-th" />
-            <col class="pf-col-td" />
-          </colgroup>
-          <tbody>
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">휴대폰에 포함된</strong>
+
+            <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleExtraOption">
+              <td class="pf-td2 pf-fullcell" colspan="2">
+                <div class="pf-fullrow">
+                  <IonIcon :icon="icons.optionsOutline" class="row-icon" />
+                  <strong class="label pf-fullrow__label">
+                    사진 없는 사람 연결 끊기
+                  </strong>
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="extraOption"
+                    :class="{ 'is-on': extraOption }"
+                    @click.stop="toggleExtraOption"
+                  >
+                    <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
+                    <span class="pf-switch__knob" />
+                    <span class="pf-switch__label">{{ extraOption ? 'ON' : 'OFF' }}</span>
+                  </button>
+                </div>                
               </td>
-              <td class="pf-td editable-text">사람 검색 제외하기</td>
             </tr>
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">휴대폰에 포함된</strong>
+
+            <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleExtraOption">
+              <td class="pf-td2 pf-fullcell" colspan="2">
+                <div class="pf-fullrow">
+                  <IonIcon :icon="icons.optionsOutline" class="row-icon" />
+                  <strong class="label pf-fullrow__label">
+                    Premium 만 연결하기
+                  </strong>
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="extraOption"
+                    :class="{ 'is-on': extraOption }"
+                    @click.stop="toggleExtraOption"
+                  >
+                    <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
+                    <span class="pf-switch__knob" />
+                    <span class="pf-switch__label">{{ extraOption ? 'ON' : 'OFF' }}</span>
+                  </button>
+                </div>                
               </td>
-              <td class="pf-td editable-text">사람에게 노출 되지 않기</td>
             </tr>
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">사진이 없는</strong>
-              </td>
-              <td class="pf-td editable-text">사람 검색 제외하기</td>
-            </tr>
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">사진이 없는</strong>
-              </td>
-              <td class="pf-td editable-text">사람에게 노출 되지 않기</td>
-            </tr>
-            <tr
-              class="editable-row"
-              @click="openSearchPreferenceModal"
-              tabindex="0"
-              @keydown.enter="openSearchPreferenceModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">알림설정</strong>
-              </td>
-              <td class="pf-td editable-text">온 / off</td>
-            </tr>
+
+
+
+
           </tbody>
         </table>
       </div>
@@ -291,32 +345,15 @@
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
 
-    <!-- ✅ 모달들 -->
-    <PopupModal_1
-      v-if="showModal1"
-      :message="popupMessage"
-      @close="showModal1 = false"
-      @updated="handleRegionUpdate"
-    />
-    <PopupModal_2
-      v-if="showModal2"
-      :message="popupMessage"
-      @close="showModal2 = false"
-      @updated="handlePreferenceUpdate"
-    />
-    <PopupModal_3
-      v-if="showModal3"
-      :message="popupMessage"
-      @close="showModal3 = false"
-      @updated="handleIntroUpdate"
-    />
-    <PopupModal_4
-      v-if="showModal4"
-      :message="popupMessage"
-      @close="showModal4 = false"
-      @updated="handleNicknameUpdate"
-    />
+    <!-- ✅ 내 프로필 모달들 -->
+    <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" @updated="handleRegionUpdate" />
+    <PopupModal_2 v-if="showModal2" :message="popupMessage" @close="showModal2 = false" @updated="handlePreferenceUpdate" />
+    <PopupModal_3 v-if="showModal3" :message="popupMessage" @close="showModal3 = false" @updated="handleIntroUpdate" />
+    <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" @updated="handleNicknameUpdate" />
 
+
+
+   <!-- ✅ 검색 모달들 -->
     <Search_Year_Modal
       v-if="showSearchYear"
       :initial-from="user?.search_birthyear1 ?? ''"
@@ -326,56 +363,35 @@
       @close="showSearchYear = false"
       @updated="onSearchYearUpdated"
     />
-    <Search_Region_Modal
-      v-if="showSearchRegion"
-      :regions="regionsForModal"
-      @close="showSearchRegion = false"
-      @updated="onSearchRegionUpdated"
-    />
-    <Search_Preference_Modal
-      v-if="showSearchPreference"
-      :message="user?.search_preference ?? ''"
-      @close="showSearchPreference = false"
-      @updated="onSearchPreferenceUpdated"
-    />
-
-    <PasswordChangeModal
-      :is-open="showPasswordModal"
-      @close="showPasswordModal = false"
-      @updated="onPasswordUpdated"
-    />
+    <Search_Region_Modal v-if="showSearchRegion" :regions="regionsForModal" @close="showSearchRegion = false" @updated="onSearchRegionUpdated" />
+    <Search_Preference_Modal v-if="showSearchPreference" :message="user?.search_preference ?? ''" @close="showSearchPreference = false" @updated="onSearchPreferenceUpdated" />
+    <PasswordChangeModal :is-open="showPasswordModal" @close="showPasswordModal = false" @updated="onPasswordUpdated" />
   </div>
 </template>
 
 <script setup>
 /* ===========================================================
    6_profile.vue
-   - 우측 상단 '설정' 버튼 추가 (절대배치)
-   - 프로필 사진 컴포넌트 삽입
    =========================================================== */
 import { ref, computed, onMounted } from 'vue'
 import { toastController, IonIcon } from '@ionic/vue'
 import axios from '@/lib/api'
 import { useRouter } from 'vue-router'
 
-/* (유지) 프로필 편집 모달 4종 */
+/* 모달들 */
 import PopupModal_1 from '@/components/04610_Page6_profile/Modal_region.vue'
 import PopupModal_2 from '@/components/04610_Page6_profile/Modal_preference.vue'
 import PopupModal_3 from '@/components/04610_Page6_profile/Modal_mention.vue'
 import PopupModal_4 from '@/components/04610_Page6_profile/Modal_nickname.vue'
-
-/* (유지) 검색 설정 모달 3종 */
 import Search_Year_Modal from '@/components/04610_Page6_profile/Search_Year_Modal.vue'
 import Search_Region_Modal from '@/components/04610_Page6_profile/Search_Region_Modal.vue'
 import Search_Preference_Modal from '@/components/04610_Page6_profile/Search_Preference_Modal.vue'
-
-/* 비밀번호 변경 모달 */
 import PasswordChangeModal from '@/components/04610_Page6_profile/Modal_password_chagne.vue'
 
-/* ✅ 프로필 사진 컴포넌트 */
+/* 프로필 사진 */
 import ProfilePhotoManager from '@/components/04610_Page6_profile/ProfilePhotoManager.vue'
 
-/* Ionicons 아이콘들 */
+/* 아이콘 */
 import {
   personCircleOutline,
   lockClosedOutline,
@@ -391,8 +407,6 @@ import {
   settingsOutline,
   ribbonOutline,
 } from 'ionicons/icons'
-
-/* 템플릿에서 사용하기 쉽게 묶어서 노출 */
 const icons = {
   personCircleOutline,
   lockClosedOutline,
@@ -413,14 +427,14 @@ const router = useRouter()
 const nickname = ref('')
 const user = ref(null)
 
-/* (유지) 프로필 모달 on/off */
-const showModal1 = ref(false) // 지역
-const showModal2 = ref(false) // 성향
-const showModal3 = ref(false) // 소개
-const showModal4 = ref(false) // 닉네임
+/* 모달 on/off */
+const showModal1 = ref(false)
+const showModal2 = ref(false)
+const showModal3 = ref(false)
+const showModal4 = ref(false)
 const popupMessage = ref('')
 
-/* (유지) 검색 모달 on/off */
+/* 검색 모달 */
 const showSearchYear = ref(false)
 const showSearchRegion = ref(false)
 const showSearchPreference = ref(false)
@@ -429,43 +443,28 @@ const showSearchPreference = ref(false)
 const showPasswordModal = ref(false)
 function openPasswordModal() { showPasswordModal.value = true }
 async function onPasswordUpdated() {
-  const t = await toastController.create({
-    message: '비밀번호가 변경되었습니다.',
-    duration: 1400,
-    color: 'success'
-  })
+  const t = await toastController.create({ message: '비밀번호가 변경되었습니다.', duration: 1400, color: 'success' })
   t.present()
 }
 
-/* ✅ 설정 버튼 핸들러 */
-function goSetting() {
-  router.push('/home/7page')
-}
+/* 설정 버튼 */
+function goSetting() { router.push('/home/7page') }
 
-/* [추가] 사진 컴포넌트 이벤트 핸들러 */
-function onProfilePhotoUpdated() {
-  // 필요 시 유저 정보/목록 재조회 로직 추가
-  console.log('[profile] photos updated')
-}
+/* 사진 변경 핸들러 */
+function onProfilePhotoUpdated() { console.log('[profile] photos updated') }
 async function onProfileMainChanged(imageId) {
   console.log('[profile] main changed:', imageId)
-  const t = await toastController.create({
-    message: '대표 사진이 변경되었습니다.',
-    duration: 1200,
-    color: 'success'
-  })
+  const t = await toastController.create({ message: '대표 사진이 변경되었습니다.', duration: 1200, color: 'success' })
   t.present()
 }
 
-// [함수 추가: 구독 페이지로 이동]
-function goMembership() {
-  router.push('/home/setting/0001') // 필요 시 실제 라우트로 변경
-}
+/* 구독 페이지 */
+function goMembership() { router.push('/home/setting/0001') }
 
-/* null, '', undefined → '전체' */
+/* 유틸 */
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
 
-/* ----- (유지) 프로필 모달 오픈 ----- */
+/* 프로필 모달 오픈 */
 const openPopup = (modalNum, value) => {
   popupMessage.value = value
   showModal1.value = modalNum === 1
@@ -474,14 +473,12 @@ const openPopup = (modalNum, value) => {
   showModal4.value = modalNum === 4
 }
 
-/* ----- 5_find 모달 오픈 ----- */
+/* 검색 모달 오픈 */
 const openSearchYearModal = () => { showSearchYear.value = true }
 const openSearchRegionModal = () => { showSearchRegion.value = true }
 const openSearchPreferenceModal = () => { showSearchPreference.value = true }
 
-/* ===========================================================
-   ✅ 화면/모달 복원용 regions 계산 (검색조건)
-   =========================================================== */
+/* regions 계산 */
 const regionsForModal = computed(() => {
   if (!user.value) return []
   const fromSnake = Array.isArray(user.value.search_regions) ? user.value.search_regions : []
@@ -498,9 +495,7 @@ const regionsForModal = computed(() => {
   return [{ region1: r1, region2: r2 }]
 })
 
-/* ===========================================================
-   ✅ “표시에 사용할” 지역 배열(검색조건)
-   =========================================================== */
+/* 표시용 지역 배열 */
 const searchRegionsBuffer = ref([])
 const effectiveRegions = computed(() => {
   if (searchRegionsBuffer.value?.length) return searchRegionsBuffer.value
@@ -513,9 +508,7 @@ const effectiveRegions = computed(() => {
   return r1 || r2 ? [{ region1: r1, region2: r2 }] : []
 })
 
-/* ===========================================================
-   ✅ 카드 표시용 요약 문자열(검색조건)
-   =========================================================== */
+/* 요약 문자열 */
 function labelOf(item) {
   const r1 = (item?.region1 || '').trim()
   const r2 = (item?.region2 || '').trim()
@@ -532,26 +525,17 @@ const searchRegionDisplay = computed(() => {
   return list.length === 1 ? firstLabel : `${firstLabel} 외 ${list.length - 1}`
 })
 
-/* ===========================================================
-   ✅ 검색나이 저장 (기존 그대로)
-   =========================================================== */
+/* 검색나이 저장 */
 async function onSearchYearUpdated(payload) {
   let from = '', to = ''
   if (typeof payload === 'string') {
-    const [f = '', t = ''] = payload.split('~').map((s) => s.trim())
-    from = f; to = t
+    const [f = '', t = ''] = payload.split('~').map((s) => s.trim()); from = f; to = t
   } else if (Array.isArray(payload)) {
     from = payload[0] ?? ''; to = payload[1] ?? ''
   } else if (payload && typeof payload === 'object') {
-    from = payload.from ?? payload.year1 ?? ''
-    to = payload.to ?? payload.year2 ?? ''
+    from = payload.from ?? payload.year1 ?? ''; to = payload.to ?? payload.year2 ?? ''
   }
-
-  if (user.value) {
-    user.value.search_birthyear1 = from
-    user.value.search_birthyear2 = to
-  }
-
+  if (user.value) { user.value.search_birthyear1 = from; user.value.search_birthyear2 = to }
   try {
     const { data } = await axios.patch('/api/search/year', { year1: from, year2: to }, { withCredentials: true })
     console.log('saved /search/year:', data)
@@ -560,14 +544,10 @@ async function onSearchYearUpdated(payload) {
   } catch (err) {
     const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
-  } finally {
-    showSearchYear.value = false
-  }
+  } finally { showSearchYear.value = false }
 }
 
-/* ===========================================================
-   ✅ 검색지역 저장 (기존 그대로)
-   =========================================================== */
+/* 검색지역 저장 */
 function normalizeRegionsPayload(payload) {
   let arr = []
   if (Array.isArray(payload)) {
@@ -603,14 +583,10 @@ async function onSearchRegionUpdated(payload) {
   } catch (err) {
     const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
-  } finally {
-    showSearchRegion.value = false
-  }
+  } finally { showSearchRegion.value = false }
 }
 
-/* ===========================================================
-   ✅ 검색특징 저장 (기존 그대로)
-   =========================================================== */
+/* 검색특징 저장 */
 async function onSearchPreferenceUpdated(payload) {
   const preference = typeof payload === 'string' ? payload : payload?.preference ?? ''
   if (user.value) user.value.search_preference = preference
@@ -622,14 +598,10 @@ async function onSearchPreferenceUpdated(payload) {
   } catch (err) {
     const t = await toastController.create({ message: '저장 실패: ' + (err?.response?.data?.error || err.message), duration: 2000, color: 'danger' })
     await t.present()
-  } finally {
-    showSearchPreference.value = false
-  }
+  } finally { showSearchPreference.value = false }
 }
 
-/* ===========================================================
-   ⭐ 프로필 편집 반영용 핸들러 4종 (즉시 반영)
-   =========================================================== */
+/* 즉시 반영 핸들러 */
 async function handleNicknameUpdate(payload) {
   const newNickname = typeof payload === 'string' ? payload : payload?.nickname ?? ''
   if (user.value && newNickname) user.value.nickname = newNickname
@@ -664,9 +636,15 @@ async function handleIntroUpdate(payload) {
   showModal3.value = false
 }
 
-/* ===========================================================
-   (유지) 초기 로딩
-   =========================================================== */
+/* 추가 사항 스위치 상태 */
+const extraOption = ref(false)
+function toggleExtraOption() {
+  extraOption.value = !extraOption.value
+  if (user.value) user.value.extra_option = extraOption.value
+  // 서버 저장 필요 시 axios.patch 연결
+}
+
+/* 초기 로딩 */
 onMounted(async () => {
   try {
     const res = await axios.get('/api/me', { withCredentials: true })
@@ -677,12 +655,14 @@ onMounted(async () => {
     const fromCamel = Array.isArray(user.value?.searchRegions) ? user.value.searchRegions : []
     const list = fromSnake.length ? fromSnake : fromCamel
     if (list.length) searchRegionsBuffer.value = list
+
+    extraOption.value = !!user.value?.extra_option
   } catch (err) {
     console.error('유저 정보 로딩 실패:', err)
   }
 })
 
-/* (유지) 유틸 */
+/* 기타 */
 const formatDate = (dateStr) => (!dateStr ? '없음' : new Date(dateStr).toLocaleString())
 const logout = async () => {
   try { await axios.post('/api/logout', {}, { withCredentials: true }); router.push('/login') }
@@ -690,9 +670,10 @@ const logout = async () => {
 }
 </script>
 
+
 <style scoped>
 /* ===========================================================
-   블랙+골드 토큰 (변경 없음)
+   블랙+골드 테마
    =========================================================== */
 :root {
   --bg: #0b0b0e;
@@ -727,13 +708,14 @@ const logout = async () => {
   color: var(--text);
   box-shadow: 0 8px 24px var(--shadow);
   backdrop-filter: blur(2px);
-  position: relative; /* ✅ 우측 상단 버튼 절대배치용 */
+  position: relative;
 }
 
 /* 타이틀 */
 .card-title {
   display: flex; align-items: center; gap: 8px;
-  margin: 0 0 5px;     /* 사진 윗부분 간격 조정 */
+  margin: 0 0 5px;
+  margin-bottom: 15px;
   font-size: clamp(15px, 4.2vw, 18px);
   font-weight: 800; color: var(--text);
   position: relative;
@@ -745,164 +727,111 @@ const logout = async () => {
 }
 .title-icon { font-size: 18px; color: var(--gold); }
 
-/* ✅ 프로필 사진 컨테이너- 사진 사이즈 */
-.pf-photo {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0 12px;
-}
+/* 사진 */
+.pf-photo { display: flex; justify-content: center; padding: 4px 0 12px; }
+.pf-photo :deep(.avatar) { max-width: 120px; }
 
-/* 프로필 사진 썸네일 크기 오버라이드 (컴포넌트 수정 없이) */
-.pf-photo :deep(.avatar) {
-  /* 기존 컴포넌트 기본이 180px일 텐데, 150px로 축소 예시 */
-  max-width: 120px;
-  /* 필요 시 더 작게: 140px, 128px 등으로만 조절 */
-}
-
-
-/* ✅ 우측 상단 '설정' 버튼 */
+/* 설정 버튼 */
 .title-action-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 10px;
+  position: absolute; top: 10px; right: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 10px;
   border: 1px solid var(--divider);
   background: rgba(0,0,0,0.25);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
-  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+  color: #ffffff; font-weight: 700; font-size: 13px;
+  cursor: pointer; transition: transform .08s ease, background .2s ease, border-color .2s ease;
 }
-.title-action-btn:hover,
-.title-action-btn:focus {
-  background: rgba(212,175,55,0.12);
-  border-color: var(--gold);
-  outline: none;
-}
+.title-action-btn:hover, .title-action-btn:focus { background: rgba(212,175,55,0.12); border-color: var(--gold); outline: none; }
 .title-action-btn:active { transform: translateY(1px); }
 .action-icon { font-size: 16px; color: var(--gold); }
 .action-text { line-height: 1; }
 
-/* 표(테이블) 공통 */
+/* 표 */
 .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: clamp(12px, 3.6vw, 14px); }
-.info-table tr { border-bottom: 1px dashed var(--divider); }
+.info-table tr { border-bottom: 1px dashed var(--divider); padding: 6px 0; }
 .info-table tr:last-child { border-bottom: 0; }
 
-/* ★ 변경지점: colgroup 네임스페이스(합 100%) */
+/* colgroup */
 .pf-col-th { width: 42%; }
 .pf-col-td { width: 58%; }
 
-/* ★ 교체 후 (안전: 테이블 셀 유지) */
+/* 셀 */
 .pf-scope .pf-th {
-  padding: 8px 8px;
-  vertical-align: middle;
+  padding: 8px 8px; vertical-align: middle;
   color: var(--text) !important;
   font-size: clamp(12.5px, 3.6vw, 14px) !important;
-  line-height: 1.28;
-  background: transparent !important;
+  line-height: 1.28; background: transparent !important;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.pf-scope .pf-th .row-icon { font-size: 14px !important; color: var(--gold) !important; margin-right: 6px; vertical-align: middle; }
+.pf-scope .pf-th .label { display: inline-block; max-width: calc(100% - 26px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text) !important; font-weight: 700; }
+.pf-scope .pf-td { padding: 8px 0px; padding-right: 12px; text-align: right; color: var(--text); background: transparent !important; }
+.pf-scope .row-icon { font-size: 14px !important; color: var(--gold) !important; opacity: .95; }
 
-/* 아이콘/라벨 간격은 margin으로 처리 */
-.pf-scope .pf-th .row-icon {
-  font-size: 14px !important;
-  color: var(--gold) !important;
-  margin-right: 6px;
-  vertical-align: middle;
-}
-
-/* 라벨은 한 줄 말줄임 */
-.pf-scope .pf-th .label {
-  display: inline-block;
-  max-width: calc(100% - 26px);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  color: var(--text) !important;
-  font-weight: 700;
-}
-.pf-scope .pf-td {
-  padding: 8px 8px;
-  text-align: left;
-  color: var(--text);
-  background: transparent !important;
-}
-
-/* 아이콘 */
-.pf-scope .row-icon {
-  font-size: 14px !important;
-  color: var(--gold) !important;
-  opacity: .95;
-}
-
-/* ★ 변경지점: 라벨 가시성 강제(전역 규칙을 모두 덮음) */
+/* 라벨 가시성 강제 */
 .pf-scope .label {
-  display: block;
-  min-width: 0;
-  color: var(--text) !important;
-  -webkit-text-fill-color: var(--text) !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  font-weight: 700;
-  font-size: inherit !important;
-  text-indent: 0 !important;
-  filter: none !important;
-  mix-blend-mode: normal !important;
+  display: block; min-width: 0; color: var(--text) !important; -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important; visibility: visible !important; font-weight: 700; font-size: inherit !important; text-indent: 0 !important; filter: none !important; mix-blend-mode: normal !important;
 }
 
-/* 말줄임 */
-.pf-scope .label,
-.pf-scope .pf-td {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
-/* 상태 텍스트 */
+/* 공통 줄임/읽기전용 */
+.pf-scope .label, .pf-scope .pf-td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-scope .readonly { color: var(--text-dim) !important; }
 
-/* 행 hover/focus 배경을 "행 전체"에 동일 적용 */
+/* 행 상태 */
 .pf-scope .editable-row { cursor: pointer; border-left: 2px solid transparent; }
-/* 편집 가능 행: 항상 강조된 흰색 */
-.pf-scope .editable-row .pf-th,
-.pf-scope .editable-row .pf-td {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-/* 읽기 전용 행: 항상 흐린 회색 */
-.pf-scope .readonly-row .pf-th,
-.pf-scope .readonly-row .pf-td {
-  color: var(--ink-weak);
-  font-weight: 400;
-}
-
+.pf-scope .editable-row .pf-th, .pf-scope .editable-row .pf-td { color: #ffffff; font-weight: 600; }
+.pf-scope .readonly-row .pf-th, .pf-scope .readonly-row .pf-td { color: var(--ink-weak); font-weight: 400; }
 .pf-scope .editable-row:hover .pf-td,
 .pf-scope .editable-row:focus .pf-th,
 .pf-scope .editable-row:focus .pf-td,
 .pf-scope .editable-row:focus-within .pf-th,
-.pf-scope .editable-row:focus-within .pf-td {
-  background-color: var(--panel-2) !important;
-}
+.pf-scope .editable-row:focus-within .pf-td { background-color: var(--panel-2) !important; }
 .pf-scope .editable-row:hover { border-left-color: var(--gold-2); }
-.pf-scope .editable-row:focus,
-.pf-scope .editable-row:focus-within { border-left-color: var(--gold); }
+.pf-scope .editable-row:focus, .pf-scope .editable-row:focus-within { border-left-color: var(--gold); }
 
-/* 로딩 */
+/* 로딩/CTA */
 .loading-text { color: var(--text-muted); text-align: center; font-size: 14px; margin: 14px 0; }
+.pf-scope .inline-cta { margin-left: 8px; padding: 4px 8px; border: 1px solid var(--gold); border-radius: 8px; color: var(--gold); font-weight: 700; }
+.pf-scope .editable-row:hover .inline-cta { background: rgba(212, 175, 55, 0.12); }
 
-/* 회원 등급 행의 '구독하기' 뱃지형 CTA */
-.pf-scope .inline-cta {
-  margin-left: 8px;
-  padding: 4px 8px;
-  border: 1px solid var(--gold);
-  border-radius: 8px;
-  color: var(--gold);
-  font-weight: 700;
+/* === 스위치 === */
+.pf-switch {
+  position: relative; display: inline-flex; align-items: center; gap: 8px;
+  width: 54px; /* 64 → 74: 왼쪽 ON 텍스트 자리 */
+  height: 20px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid var(--divider); background: rgba(0,0,0,0.35);
+  color: var(--text); font-weight: 800; cursor: pointer;
+  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
-.pf-scope .editable-row:hover .inline-cta {
-  background: rgba(212, 175, 55, 0.12);
+.pf-switch.is-on { background: rgba(212,175,55,0.18); border-color: var(--gold); box-shadow: 0 0 0 2px rgba(212,175,55,0.12) inset; }
+.pf-switch__knob {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px var(--shadow); transition: transform .18s ease;
+}
+.pf-switch.is-on .pf-switch__knob { transform: translateX(32px); }
+.pf-switch__label { margin-left: auto; font-size: 11px; opacity: .9; user-select: none; }
+/* ON일 때 오른쪽 라벨을 숨기고 싶지 않다면 아래 규칙을 삭제하세요. */
+.pf-switch.is-on .pf-switch__label { opacity: 0; }
+
+/* ✅ 왼쪽 “ON” 텍스트 */
+.pf-switch__text--left {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; font-weight: 800; letter-spacing: .2px;
+  color: var(--gold);
+  opacity: 0; transition: opacity .18s ease;
+  pointer-events: none; user-select: none;
+}
+.pf-switch.is-on .pf-switch__text--left { opacity: .95; }
+
+/* === 칸 나누기 없이 한 줄 전체를 쓰는 셀 === */
+.pf-fullcell { padding: 8px 8px !important; }
+.pf-fullrow { display: flex; align-items: center; gap: 8px; width: 100%; }
+.pf-fullrow__label {
+  flex: 1 1 auto;
+  white-space: normal !important;  /* 줄바꿈 허용 */
+  overflow: visible !important;
+  text-overflow: unset !important;
 }
 
 /* 초소형 화면 */
@@ -910,7 +839,7 @@ const logout = async () => {
   .container { padding: 10px; }
   .card { border-radius: 10px; padding: 10px; }
   .info-table { font-size: 12px; }
-  .pf-col-th { width: 46%; }
+  .pf-col-th { width: 46%;  padding-top: 12px;  padding-bottom: 12px; }
   .pf-col-td { width: 54%; }
   .pf-scope .pf-th, .pf-scope .pf-td { padding: 6px 6px; }
   .pf-scope .row-icon { font-size: 13px !important; }

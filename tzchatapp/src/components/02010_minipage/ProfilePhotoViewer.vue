@@ -8,6 +8,7 @@
       alt="상대방 프로필 대표 이미지"
       loading="lazy"
       @click="openViewerAt(0)"
+      @error="onMainError"
     />
 
     <!-- 풀스크린 라이트박스 -->
@@ -32,7 +33,7 @@
       >
         <div class="track" :style="trackStyle">
           <div class="slide" v-for="(u, i) in viewerImages" :key="i">
-            <img class="slide-img" :src="u" :alt="`확대 이미지 ${i+1}`" />
+            <img class="slide-img" :src="u" :alt="`확대 이미지 ${i+1}`" @error="onViewerError(i)" />
           </div>
         </div>
       </div>
@@ -52,45 +53,57 @@ const props = defineProps<{
   size?: number               // 썸네일 한 변(px)
 }>()
 
+/* ========= 환경/기본값 ========= */
 const size = computed(() => props.size ?? 170)
+/** 기본 이미지(퍼블릭 /img 아래에 배치되어 있어야 함) */
 const DEFAULT_MAN = '/img/man.jpg'
 const DEFAULT_WOMAN = '/img/woman.jpg'
 const isFemale = (g?: string) => (g || '').toLowerCase().includes('여') || /(woman|female|^f$)/i.test(g || '')
+
+/** API 베이스: 상대경로를 절대경로로 보정할 때 사용 */
+const API_BASE = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '')
+  .toString()
+  .replace(/\/$/, '')
+
+/** 상대경로 → 절대경로 보정 유틸 */
+function toAbsolute(u?: string): string {
+  if (!u) return ''
+  if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('data:') || u.startsWith('blob:')) return u
+  // '/uploads/..' 등 서버 상대경로라면 API_BASE를 접두
+  if (u.startsWith('/')) return API_BASE ? `${API_BASE}${u}` : u
+  // 'uploads/..' 처럼 앞에 슬래시가 없는 상대경로도 방어
+  return API_BASE ? `${API_BASE}/${u}` : `/${u}`
+}
 
 type ImgItem = { id?: string; thumb?: string; medium?: string; full?: string }
 const list = ref<ImgItem[]>([])
 const mainId = ref<string>('')
 
 function normalizeList(data: any): { items: ImgItem[]; main?: string } {
+  const mapObj = (i: any): ImgItem => ({
+    id: i?.id || i?._id,
+    thumb: toAbsolute(i?.urls?.thumb || i?.thumb || i?.url),
+    medium: toAbsolute(i?.urls?.medium || i?.medium || i?.url),
+    full: toAbsolute(i?.urls?.full || i?.full || i?.url),
+  })
+
   const A = data?.profileImages
   if (Array.isArray(A) && A.length) {
     return {
-      items: A.map((i: any) => ({
-        id: i.id || i._id,
-        thumb: i.urls?.thumb || i.thumb || i.url,
-        medium: i.urls?.medium || i.medium || i.url,
-        full: i.urls?.full || i.full || i.url
-      })),
+      items: A.map(mapObj),
       main: data?.profileMain
     }
   }
   const B = data?.images
   if (Array.isArray(B) && B.length && typeof B[0] === 'string') {
-    return { items: B.map((u: string) => ({ full: u, medium: u, thumb: u })) }
+    return { items: B.map((u: string) => ({ full: toAbsolute(u), medium: toAbsolute(u), thumb: toAbsolute(u) })) }
   }
   if (Array.isArray(data) && data.length) {
     if (typeof data[0] === 'string') {
-      return { items: data.map((u: string) => ({ full: u, medium: u, thumb: u })) }
+      return { items: data.map((u: string) => ({ full: toAbsolute(u), medium: toAbsolute(u), thumb: toAbsolute(u) })) }
     }
     if (typeof data[0] === 'object') {
-      return {
-        items: data.map((i: any) => ({
-          id: i.id || i._id,
-          thumb: i.urls?.thumb || i.thumb || i.url,
-          medium: i.urls?.medium || i.medium || i.url,
-          full: i.urls?.full || i.full || i.url
-        }))
-      }
+      return { items: data.map(mapObj) }
     }
   }
   return { items: [] }
@@ -125,7 +138,7 @@ async function loadImagesOfUser(uid: string) {
     }
   }
 
-  // 이 경우는 서버에 상대방용 엔드포인트가 아직 없는 상태
+  // 서버에 상대방용 엔드포인트가 아직 없거나 비어있는 경우
   console.warn('[ProfilePhotoViewer] 상대방 이미지 엔드포인트에서 데이터를 받지 못했습니다. 기본이미지로 대체.')
   list.value = []
   mainId.value = ''
@@ -147,12 +160,25 @@ const mainDisplayUrl = computed(() => {
   return isFemale(props.gender) ? DEFAULT_WOMAN : DEFAULT_MAN
 })
 
+function onMainError(e: Event) {
+  const el = e.target as HTMLImageElement
+  // 한 번만 기본이미지로 치환
+  const fallback = isFemale(props.gender) ? DEFAULT_WOMAN : DEFAULT_MAN
+  if (el && el.src !== fallback) el.src = fallback
+}
+
 /* ====== 라이트박스(보기 전용) ====== */
 const viewerOpen = ref(false)
 const viewerIndex = ref(0)
 const viewerImages = computed(() =>
-  list.value.map(i => i.full || i.medium || i.thumb!).filter(Boolean)
+  list.value.map(i => i.full || i.medium || i.thumb!).map(toAbsolute).filter(Boolean)
 )
+
+function onViewerError(i: number) {
+  // 보기용 이미지가 깨지면 해당 슬라이드를 제거(선택)
+  viewerImages.value.splice(i, 1)
+  if (viewerIndex.value >= viewerImages.value.length) viewerIndex.value = Math.max(0, viewerImages.value.length - 1)
+}
 
 function openViewerAt(idx = 0) {
   if (!viewerImages.value.length) return

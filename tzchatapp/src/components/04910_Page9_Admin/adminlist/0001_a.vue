@@ -16,10 +16,10 @@
 
     <!-- ✅ 결과 출력 -->
     <div v-if="lastResult" class="body">
-      <div><b>ok:</b> {{ lastResult.ok }}</div>
-      <div><b>message:</b> {{ lastResult.message }}</div>
-      <div><b>serverTime:</b> {{ lastResult.serverTime }}</div>
-      <div><b>latency(ms):</b> {{ lastLatency }}</div>
+      <div>ok: {{ lastResult.ok }}</div>
+      <div>message: {{ lastResult.message }}</div>
+      <div>serverTime: {{ lastResult.serverTime }}</div>
+      <div>latency(ms): {{ lastLatency }}</div>
     </div>
   </div>
 </template>

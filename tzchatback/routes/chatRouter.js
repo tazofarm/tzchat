@@ -111,10 +111,35 @@ function toAbsoluteMediaUrl(u, req) {
   return `${base}${rel}`;
 }
 
+/** 사용자 객체(참가자)의 사진 관련 필드들을 절대 URL로 정규화 */
+function normalizeUserPhotos(user, req) {
+  if (!user || typeof user !== 'object') return user;
+  const out = { ...user };
+
+  // profile.mainUrl
+  if (out.profile && typeof out.profile === 'object') {
+    if (out.profile.mainUrl) out.profile.mainUrl = toAbsoluteMediaUrl(out.profile.mainUrl, req);
+  }
+
+  // profilePhotoUrl, photoUrl
+  if (out.profilePhotoUrl) out.profilePhotoUrl = toAbsoluteMediaUrl(out.profilePhotoUrl, req);
+  if (out.photoUrl) out.photoUrl = toAbsoluteMediaUrl(out.photoUrl, req);
+
+  // photos[].url
+  if (Array.isArray(out.photos)) {
+    out.photos = out.photos.map(p => {
+      if (!p || typeof p !== 'object') return p;
+      const np = { ...p };
+      if (np.url) np.url = toAbsoluteMediaUrl(np.url, req);
+      if (np.src) np.src = toAbsoluteMediaUrl(np.src, req);
+      return np;
+    });
+  }
+  return out;
+}
+
 /* ===========================================
  * Multer 설정 (이미지 업로드)
- *  - destination: 날짜/방 기준 동적 경로
- *  - filename: uuid 기반
  * =========================================== */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -145,6 +170,8 @@ const upload = multer({
 
 /* ===========================================
  * [1] 채팅방 목록 조회
+ *  - participants를 항상 populate하여 객체로 보장
+ *  - 필요한 최소 필드: _id, nickname, gender (+ 선택적으로 사진 필드)
  * =========================================== */
 router.get('/chatrooms', requireLogin, async (req, res) => {
   console.time('[GET]/chatrooms');
@@ -163,7 +190,8 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
 
     const rooms = await ChatRoom.find({ participants: myObjId })
       .select('_id participants lastMessage updatedAt createdAt')
-      .populate('participants', 'username nickname')
+      // ⬇️ populate 필드 보강 (닉/성별은 필수, 사진 관련은 선택)
+      .populate('participants', 'nickname gender profilePhotoUrl photoUrl profile.mainUrl photos.url photos.isMain')
       .sort({ updatedAt: -1 })
       .lean();
 
@@ -208,11 +236,16 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
     const result = rooms.map(r => {
       const extra = byRoomId.get(String(r._id));
       const lastDoc = extra?.last;
+
+      // participants 사진 필드 절대경로 정규화
+      const normalizedParticipants = Array.isArray(r.participants)
+        ? r.participants.map(p => normalizeUserPhotos(p, req))
+        : r.participants;
+
       const lastMessage = lastDoc
         ? {
             _id: lastDoc._id,
             content: lastDoc.content || '',
-            // ✅ 응답 시 절대 URL로 정규화
             imageUrl: toAbsoluteMediaUrl(lastDoc.imageUrl || '', req),
             sender: lastDoc.sender,
             createdAt: lastDoc.createdAt
@@ -226,7 +259,7 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
 
       return {
         _id: r._id,
-        participants: r.participants,
+        participants: normalizedParticipants,
         lastMessage,
         unreadCount: extra?.unreadCount || 0,
         updatedAt: r.updatedAt,
@@ -279,6 +312,7 @@ router.get('/chatrooms/unread-total', requireLogin, async (req, res) => {
 
 /* ===========================================
  * [2] 채팅방 메시지 조회
+ *  - participants를 동일 기준으로 populate + 사진 URL 정규화
  * =========================================== */
 router.get('/chatrooms/:id', requireLogin, async (req, res) => {
   console.log('[API][REQ]', { path: '/api/chatrooms/:id', method: 'GET', params: req.params, userId: getMyId(req) });
@@ -291,13 +325,18 @@ router.get('/chatrooms/:id', requireLogin, async (req, res) => {
 
     console.log('[DB][QRY]', { model: 'ChatRoom', op: 'findById', criteria: id });
     const chatRoom = await ChatRoom.findById(id)
-      .populate('participants', 'username nickname')
+      .populate('participants', 'nickname gender profilePhotoUrl photoUrl profile.mainUrl photos.url photos.isMain')
       .lean();
 
     const isMember = chatRoom?.participants?.some(p => String(p._id || p) === String(myId));
     if (!chatRoom || !isMember) {
       return res.status(403).json({ message: '접근 권한 없음' });
     }
+
+    // participants 사진 필드 절대경로 정규화
+    const normalizedParticipants = Array.isArray(chatRoom.participants)
+      ? chatRoom.participants.map(p => normalizeUserPhotos(p, req))
+      : chatRoom.participants;
 
     console.log('[DB][QRY]', { model: 'Message', op: 'find', criteria: { chatRoom: id }, sort: { createdAt: 1 } });
     let messages = await Message.find({ chatRoom: id })
@@ -313,7 +352,7 @@ router.get('/chatrooms/:id', requireLogin, async (req, res) => {
 
     return res.json({
       myId: String(myObjId),
-      participants: chatRoom.participants,
+      participants: normalizedParticipants,
       messages
     });
   } catch (err) {
@@ -558,10 +597,6 @@ router.post('/chatrooms', requireLogin, async (req, res) => {
 
 /* ===========================================
  * [5] 이미지 업로드 (압축 + 확장자/타입 정합성 보장)
- *  - PNG/JPEG/WEBP: 리사이즈 + 포맷 유지
- *  - GIF(애니메이션 보존): 리사이즈/변환 없이 통과(용량 주의)
- *  - 저장 경로: /uploads/chat/YYYY/MM/DD/<roomId>/<uuid>.<ext>
- *  - ✅ 응답: 절대 URL로 반환 + 상대경로 함께 반환
  * =========================================== */
 router.post('/chatrooms/:id/upload-image', requireLogin, upload.single('image'), async (req, res) => {
   console.log('[API][REQ]', { path: '/api/chatrooms/:id/upload-image', method: 'POST', file: req?.file?.originalname || null, roomId: req.params?.id, userId: getMyId(req) });

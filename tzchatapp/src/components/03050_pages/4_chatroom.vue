@@ -1,6 +1,18 @@
 <template>
   <!-- 🔹 채팅방 리스트 -->
   <div class="container">
+    <!-- ✅ 상단 고정 탭: 채팅리스트 / 친구리스트 -->
+    <div class="top-tabs" role="tablist" aria-label="목록 전환">
+      <ion-segment :value="currentTab" @ionChange="onTabChange">
+        <ion-segment-button value="chat">
+          <ion-label>채팅리스트</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="friends">
+          <ion-label>친구리스트</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+    </div>
+
     <ion-list v-if="chatRooms.length">
       <ion-item
         v-for="room in chatRooms"
@@ -8,17 +20,22 @@
         button
         @click="goToChat(room._id)"
       >
-        <!-- 🔹 왼쪽 아이콘: 말풍선 -->
-        <ion-icon
-          :icon="icons.chatbubbleEllipsesOutline"
-          slot="start"
-          class="list-icon"
-        />
+        <!-- ⬇️ 좌측: 상대방 대표사진 (ProfilePhotoViewer 재사용) -->
+        <div class="list-avatar lead-start" slot="start">
+          <ProfilePhotoViewer
+            v-if="getPartner(room.participants)?._id"
+            :userId="getPartner(room.participants)._id"
+            :gender="getPartner(room.participants).gender || ''"
+            :size="64"
+          />
+          <!-- 파트너 식별 실패 시의 안전 영역 -->
+          <div v-else class="fallback-avatar" aria-hidden="true"></div>
+        </div>
 
         <ion-label class="black-text">
           <!-- 닉네임 + 새 메시지 ⓝ 표시 -->
-          <h3>
-            {{ getPartnerNickname(room.participants) }}
+          <h3 class="title">
+            <span class="nickname">{{ getPartnerNickname(room.participants) }}</span>
             <span
               v-if="room.unreadCount > 0"
               class="badge-new"
@@ -27,8 +44,26 @@
           </h3>
 
           <!-- 최근 메시지 프리뷰: 텍스트 or [사진] or 기본 문구 -->
-          <p>{{ getPreview(room) }}</p>
+          <p class="meta">{{ getPreview(room) }}</p>
         </ion-label>
+
+
+
+        <!-- ✅ 오른쪽 끝: 최근 메시지 시각 -->
+        <ion-note slot="end" class="date-note" :aria-label="`최근 날짜 ${formatLastDate(room)}`">
+          {{ formatLastDate(room) }}
+        </ion-note>
+
+
+
+       <!-- ✅ 오른쪽 끝: 최근 메시지 시각
+        <ion-note slot="end" class="date-note" :aria-label="`최근 시각 ${formatLastTime(room)}`">
+          {{ formatLastTime(room) }}
+        </ion-note>
+
+ -->
+
+
       </ion-item>
     </ion-list>
 
@@ -41,32 +76,73 @@
 <script setup>
 // ------------------------------------------------------
 // 채팅방 리스트 (4_chatroom.vue)
-// - 응답 정규화 & 정렬(최신 메시지 DESC)
-// - 소켓 갱신(badge/updated/chatMessage) 시 재조회
-// - 로그/주석 강화, 구조/로직 최대 유지
+// - 상단 탭(채팅리스트/친구리스트) 추가
+// - 정렬: 최신 메시지 시각 DESC
+// - 우측 끝에 최근 시각 표시(오늘: HH:mm, 올해: MM.DD, 과거: YY.MM.DD)
+// - 소켓 갱신 시 재조회
 // ------------------------------------------------------
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { api } from '@/lib/api' // ✅ 공용 axios 인스턴스(/api 포함 baseURL, withCredentials=true)
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { api } from '@/lib/api'
 import {
   IonList,
   IonItem,
   IonLabel,
   IonText,
-  IonIcon,
+  IonSegment,
+  IonSegmentButton,
+  IonNote,
 } from '@ionic/vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 
-// ✅ Ionicons
-import { chatbubbleEllipsesOutline } from 'ionicons/icons'
-const icons = { chatbubbleEllipsesOutline }
+// ✅ 회원목록에서 쓰던 검증된 컴포넌트 재사용
+import ProfilePhotoViewer from '@/components/02010_minipage/ProfilePhotoViewer.vue'
+
+// ✅ 공용 소켓 모듈(JWT/쿠키 하이브리드 핸드셰이크)
+import { connectSocket, getSocket } from '@/lib/socket'
 
 const router = useRouter()
+const route = useRoute()
 
 const myId = ref('')
 const chatRooms = ref([])
 
-// ✅ 공용 소켓 모듈(JWT/쿠키 하이브리드 핸드셰이크)
-import { connectSocket, getSocket } from '@/lib/socket'
+// ─────────────────────────────────────
+// 상단 탭 상태 (경로와 동기화)
+// ─────────────────────────────────────
+const currentTab = ref('chat') // 'chat' | 'friends'
+
+// 경로에 따라 탭 활성화 상태 반영
+const syncTabWithRoute = () => {
+  const path = route.path || ''
+  currentTab.value = path.includes('3page') || path.includes('friends') ? 'friends' : 'chat'
+}
+syncTabWithRoute()
+watch(() => route.path, syncTabWithRoute)
+
+// 탭 전환 시 라우팅
+const onTabChange = (ev) => {
+  const val = ev.detail?.value
+  if (val === 'friends') {
+    router.push('/home/3page')   // ✅ 친구리스트
+  } else {
+    router.push('/home/4page')   // ✅ 채팅리스트
+  }
+}
+
+// -------------------------------------------
+// 날짜 포맷: 항상 YYYY-MM-DD
+// -------------------------------------------
+const formatLastDate = (room) => {
+  const t = getRoomTime(room)
+  if (!t) return ''
+  const d = new Date(t)
+  // const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  //return `${yyyy}-${mm}-${dd}`
+  return `${mm}-${dd}`
+}
+
 
 // -------------------------------------------
 // 유틸: 응답 정규화 + 정렬
@@ -79,12 +155,48 @@ const normalizeRooms = (data) => {
   return []
 }
 
+const getRoomTime = (r) => r?.lastMessage?.createdAt || r?.updatedAt || null
+
 const sortRoomsDesc = (rooms) => {
+  // 최신 시각 내림차순(최근이 위)
   return rooms.sort((a, b) => {
-    const at = a?.lastMessage?.createdAt || a?.updatedAt || 0
-    const bt = b?.lastMessage?.createdAt || b?.updatedAt || 0
-    return new Date(bt) - new Date(at)
+    const at = getRoomTime(a)
+    const bt = getRoomTime(b)
+    return new Date(bt || 0) - new Date(at || 0)
   })
+}
+
+// -------------------------------------------
+// 날짜/시간 포맷: 오늘은 HH:mm, 올해는 MM.DD, 그 외 YY.MM.DD
+// -------------------------------------------
+const formatLastTime = (room) => {
+  const t = getRoomTime(room)
+  if (!t) return ''
+  const d = new Date(t)
+  const now = new Date()
+
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+
+  if (sameDay) {
+    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+
+  const sameYear = d.getFullYear() === now.getFullYear()
+  if (sameYear) {
+    // MM.DD 형식
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${mm}.${dd}`
+  }
+
+  // YY.MM.DD 형식
+  const yy = String(d.getFullYear()).slice(-2)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yy}.${mm}.${dd}`
 }
 
 // -------------------------------------------
@@ -108,7 +220,6 @@ const loadChatRooms = async () => {
   console.time('[LOAD] /chatrooms')
   try {
     const roomRes = await api.get('/api/chatrooms')
-
     const raw = normalizeRooms(roomRes.data)
     const mapped = raw.map(r => ({
       ...r,
@@ -129,9 +240,8 @@ const loadChatRooms = async () => {
 // 소켓 초기화
 // -------------------------------------------
 const initSocket = () => {
-  // ✅ 현재 오리진 기준 + path=/socket.io + withCredentials (공용 모듈)
   const socket = connectSocket()
-  console.log('🔌 [Socket] connectSocket 호출 완료 (origin-relative)')
+  console.log('🔌 [Socket] connectSocket 호출 완료')
 
   socket.on('connect', () => {
     console.log('🔌 Socket.IO 연결됨:', socket.id)
@@ -143,18 +253,13 @@ const initSocket = () => {
     }
   })
 
-  // ✅ 목록/배지 갱신 신호
-  socket.on('chatrooms:badge', async (payload) => {
-    console.log('🔔 [socket] chatrooms:badge 수신:', payload)
+  socket.on('chatrooms:badge', async () => {
     await loadChatRooms()
   })
-  socket.on('chatrooms:updated', async (payload) => {
-    console.log('🔔 [socket] chatrooms:updated 수신:', payload)
+  socket.on('chatrooms:updated', async () => {
     await loadChatRooms()
   })
-  // (호환) 메시지 전파 시 재조회
   socket.on('chatMessage', async () => {
-    console.log('📩 [socket] chatMessage 수신(호환): 목록 재조회')
     await loadChatRooms()
   })
 
@@ -169,8 +274,18 @@ const initSocket = () => {
 // -------------------------------------------
 // 화면 표시 유틸
 // -------------------------------------------
+const getPartner = (participants = []) => {
+  const my = String(myId.value || '')
+  const other =
+    participants.find(p => typeof p === 'object' && p && String(p._id) !== my) ||
+    (Array.isArray(participants) && participants.length === 2
+      ? (typeof participants[0] === 'object' ? participants.find(p => String(p._id) !== my) : null)
+      : null)
+  return (other && typeof other === 'object') ? other : null
+}
+
 const getPartnerNickname = (participants = []) => {
-  const other = participants.find(p => String(p._id) !== String(myId.value))
+  const other = getPartner(participants)
   return other?.nickname || '(알 수 없음)'
 }
 
@@ -204,7 +319,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  // ✅ 공용 모듈에서 소켓을 가져와 안전하게 정리
   const socket = getSocket()
   if (socket) {
     try {
@@ -230,6 +344,27 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+/* ✅ 상단 고정 탭 */
+.top-tabs {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: var(--bg, #000); /* 테마 변수 없을 때 안전값 */
+  padding: 6px 0 10px;
+  margin-bottom: 6px;
+  backdrop-filter: saturate(1.2) blur(2px);
+  border-bottom: 1px solid var(--panel-border, rgba(212,175,55,0.25));
+}
+.top-tabs :deep(ion-segment) {
+  --background: var(--panel, #111);
+  --indicator-color: var(--gold, #d4af37);
+  --color: var(--text, #eee);
+  --color-checked: var(--text, #fff);
+  border: 1px solid var(--panel-border, rgba(212,175,55,0.25));
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 /* 리스트 컨테이너: 패널 톤 + 보더 */
 ion-list {
   background: var(--panel);
@@ -242,9 +377,9 @@ ion-list {
 ion-item {
   --background: var(--panel);
   --color: var(--text);
-  --padding-start: 12px;
-  --inner-padding-end: 12px;
-  --min-height: 60px;
+  --padding-start: 18px;         /* 회원목록과 동일 패딩 */
+  --inner-padding-end: 10px;
+  --min-height: 64px;
   --inner-border-width: 0 0 1px 0;
   --inner-border-color: var(--panel-border);
   color: var(--text);
@@ -253,38 +388,76 @@ ion-item:last-of-type {
   --inner-border-width: 0;
 }
 
-/* 아이콘 */
-.list-icon {
-  font-size: 22px;
-  color: var(--text-dim);
-  margin-right: 4px;
+/* 오른쪽 날짜 메모 */
+.date-note {
+  font-size: 12px;
+  color: var(--text-dim, #a9a9a9);
+  margin-left: 8px;
+  min-width: 48px;
+  text-align: right;
 }
 
-/* 제목 + 새 메시지 뱃지 */
-ion-label h3 {
-  margin: 0;
-  font-size: clamp(15px, 2.6vw, 16px);
-  font-weight: 700;
-  color: var(--text); /* ✅ 가독성: 밝은 텍스트 */
-  line-height: 1.3;
+/* ⬇️ 회원목록과 동일한 아바타 스타일 재사용 */
+.list-avatar {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  margin-right: 14px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  border-radius: 10%;
+  overflow: hidden;
+  border: 1px solid rgba(212,175,55,0.18);
+  background: rgba(212,175,55,0.08);
 }
-.badge-new {
-  font-size: 13px;
-  color: var(--danger); /* ✅ 경고색 변수 */
-  font-weight: bold;
+.fallback-avatar {
+  width: 100%;
+  height: 100%;
+  opacity: 0.3;
+  background: linear-gradient(135deg, #333, #222);
+  border-radius: 0;
 }
 
-/* 미리보기 문구 */
-ion-label p {
-  margin: 2px 0 0;
+/* ProfilePhotoViewer 내부 이미지 모양을 리스트용으로 보정 */
+.list-avatar :deep(.viewer-host) {
+  width: 100%;
+  height: 100%;
+}
+.list-avatar :deep(.avatar) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  pointer-events: none; /* 리스트에서는 클릭(라이트박스) 비활성화 */
+}
+
+/* 텍스트 */
+.black-text { color: var(--text); }
+.title {
+  color: var(--text);
+  font-size: clamp(15px, 2.6vw, 16px);
+  font-weight: 700;
+  margin: 0 0 4px;
+  line-height: 1.28;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nickname { font-weight: 800; letter-spacing: 0.2px; }
+
+.meta {
+  color: var(--text-dim);
   font-size: clamp(14px, 2.4vw, 15px);
-  color: var(--text-dim); /* ✅ 보조 텍스트 */
+  margin: 2px 0 0;
   line-height: 1.35;
 }
 
-/* 빈 상태 텍스트는 <ion-text color="medium">로 톤 자동 적용됨 */
-.black-text { color: var(--text); }
+/* 새 메시지 뱃지 */
+.badge-new {
+  font-size: 13px;
+  color: var(--danger);
+  font-weight: bold;
+}
 </style>
