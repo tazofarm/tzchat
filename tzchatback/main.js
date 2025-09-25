@@ -1,26 +1,20 @@
 // main.js
 // 🌐 Express 기반 tzchat 서버 초기화 (Socket.IO 포함 + ✅ JWT 병행 지원)
-// - 기존 세션(session) 기반은 그대로 유지(호환성)
-// - 추가: JWT(Bearer) 파싱/검증 미들웨어 + Socket.IO 토큰 인증
-// - 웹/앱(웹뷰/네이티브) 공용 사용 목적
 const express = require('express');
 const app = express();
 const http = require('http');
-const server = http.createServer(app); // ✅ socket.io를 위한 서버 래핑
-const path = require('path');          // 파일 경로 관련 내장 모듈
-const fs = require('fs');              // ✅ public/폴더 존재 검사
+const server = http.createServer(app);
+const path = require('path');
+const fs = require('fs');
 
-app.disable('x-powered-by'); // 소소한 보안 헤더
+app.disable('x-powered-by');
 
-// ✅ 환경변수(포트/DB/시크릿) — 없으면 기존 기본값 유지
 const PORT = Number(process.env.PORT || 2000);
 const HOST = process.env.HOST || '0.0.0.0';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/tzchat';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'tzchatsecret';
-// 🔐 JWT 비밀키(신규) — 세션과 병행 사용
 const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
 
-// ⚠️ (신규) 라우터 로딩 에러를 잡아 친절하게 안내하는 헬퍼
 function safeMountRouter(mountPath, modulePath, exact = true) {
   try {
     if (exact && !mountPath.startsWith('/')) {
@@ -50,29 +44,25 @@ const ChatRoom = require('./models/ChatRoom');
 // =======================================
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
-
-// ✅ JSON 파서 등록 (imageUrl 전달용)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
 /**
- * ✅ /public 정적 파일 서빙 — 단일 경로 강제
- * - privacy.html 등 정적 페이지 직접 서빙.
- * - public 폴더가 없으면 즉시 실패하여 배포 사고 조기 발견
+ * ✅ /public 정적 파일 서빙
+ * - public 폴더가 없으면 종료하지 않고 경고 후 건너뜁니다.
+ * - 루트(/)에 직접 물지 않고 /public 경로에만 매핑해 SPA와 충돌 방지.
  */
 const publicDir = path.join(__dirname, 'public');
-if (!fs.existsSync(publicDir)) {
-  console.error('❌ "public" 폴더가 없습니다. public/ 디렉토리를 생성하거나 경로를 확인하세요.');
-  process.exit(1);
+if (fs.existsSync(publicDir)) {
+  app.use('/public', express.static(publicDir));
+  console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
+} else {
+  console.warn('ℹ️  "public" 폴더가 없어 정적 서빙을 건너뜁니다. (운영에서 정상일 수 있음)');
 }
-app.use(express.static(publicDir));
-console.log('🗂️  /public 정적 서빙 활성화:', publicDir);
 
 /**
- * ✅ /uploads 정적 서빙(루트) — 같은 오리진 경로 보장
- * - 프론트는 항상 https://도메인/uploads/... 로 요청 (Nginx가 2000으로 프록시)
- * - 하위 폴더(profile, chat 등)를 포함한 전체 서빙
+ * ✅ /uploads 정적 서빙(루트)
  */
 const uploadsRoot = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsRoot)) {
@@ -82,7 +72,7 @@ if (!fs.existsSync(uploadsRoot)) {
 app.use('/uploads', express.static(uploadsRoot));
 console.log('🖼️  /uploads 정적 서빙 활성화:', uploadsRoot);
 
-// 하위 호환(개별 경로 유지)
+// 하위 호환
 app.use('/uploads/profile', express.static(path.join(uploadsRoot, 'profile')));
 app.use('/uploads/chat', express.static(path.join(uploadsRoot, 'chat')));
 
@@ -94,13 +84,11 @@ app.use((req, res, next) => {
 });
 
 // =======================================
-// CORS (라우터/세션 이전에 설정)
+// CORS
 // =======================================
 const cors = require('cors');
-
-// ★ 운영/원격-dev 허용 오리진
 const allowedOriginsList = [
-  'https://tzchat.tazocode.com', // 배포/원격-dev 공용
+  'https://tzchat.tazocode.com',
   'http://localhost',
   'http://localhost:8081',
   'http://127.0.0.1:8081',
@@ -111,12 +99,9 @@ const allowedOriginsList = [
   'http://192.168.0.7:8081',
   'capacitor://localhost',
   'ionic://localhost',
-  // ✅ Capacitor https-scheme & 로컬 https 테스트 허용
   'https://localhost',
   'https://127.0.0.1',
 ];
-
-// 사설망 오리진 정규식 허용 (http/https 모두)
 const dynamicOriginAllow = [
   /^https?:\/\/localhost(:\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
@@ -125,34 +110,18 @@ const dynamicOriginAllow = [
   /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
 ];
 
-// 디버그: 요청마다 오리진/경로 출력
 app.use((req, res, next) => {
   console.log('[CORS-DBG] Origin=', req.headers.origin, '| Path=', req.method, req.path);
   next();
 });
-
-// 🔧 앱(WebView)에서 file:// 또는 일부 환경은 Origin 헤더가 'null'로 옵니다.
 const ALLOW_NULL_ORIGIN = true;
 
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) {
-      console.log('[CORS-CHECK] (no-origin) => ALLOW');
-      return cb(null, true);
-    }
-    if (origin === 'null' && ALLOW_NULL_ORIGIN) {
-      console.log('[CORS-CHECK] null => ALLOW(explicit)');
-      return cb(null, true);
-    }
-    if (allowedOriginsList.includes(origin)) {
-      console.log('[CORS-CHECK]', origin, '=> ALLOW(list)');
-      return cb(null, true);
-    }
-    if (dynamicOriginAllow.some((re) => re.test(origin))) {
-      console.log('[CORS-CHECK]', origin, '=> ALLOW(regex)');
-      return cb(null, true);
-    }
-    console.log('[CORS-CHECK]', origin, '=> BLOCK');
+    if (!origin) return cb(null, true);
+    if (origin === 'null' && ALLOW_NULL_ORIGIN) return cb(null, true);
+    if (allowedOriginsList.includes(origin)) return cb(null, true);
+    if (dynamicOriginAllow.some((re) => re.test(origin))) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -161,18 +130,9 @@ const corsOptions = {
   maxAge: 600,
   optionsSuccessStatus: 204,
 };
-
-app.use((req, res, next) => {
-  res.setHeader('Vary', 'Origin');
-  next();
-});
-
+app.use((req, res, next) => { res.setHeader('Vary', 'Origin'); next(); });
 app.use(cors(corsOptions));
-
-app.options(/.*/, (req, res, next) => {
-  console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
-  next();
-}, cors(corsOptions), (req, res) => {
+app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path); next(); }, cors(corsOptions), (req, res) => {
   res.sendStatus(204);
 });
 
@@ -188,7 +148,7 @@ const isCapAppMode = process.env.APP_MODE === 'capacitor' || process.env.FORCE_M
 console.log('🧭 실행 모드:', isProd ? 'PROD(HTTPS 프록시 뒤)' : 'DEV', '| 앱세션강제:', isCapAppMode);
 
 // =======================================
-// 1) DB, 세션 설정 (유지) + ✅ JWT 파서(신규)
+// 1) DB, 세션 설정 (유지) + ✅ JWT 파서
 // =======================================
 const mongoose = require('mongoose');
 mongoose
@@ -196,17 +156,16 @@ mongoose
   .then(() => console.log('✅ MongoDB 연결 성공:', MONGO_URI))
   .catch((err) => console.error('❌ MongoDB 연결 실패:', err));
 
-app.set('trust proxy', 1); // ★ 반드시 세션 미들웨어 이전
+app.set('trust proxy', 1);
 
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
 const sessionStore = MongoStore.create({
   mongoUrl: MONGO_URI,
-  ttl: 60 * 60 * 24, // 1일
+  ttl: 60 * 60 * 24,
 });
 
-// 🍪 쿠키 정책
 const cookieForProd = {
   httpOnly: true,
   maxAge: 1000 * 60 * 60 * 24,
@@ -222,7 +181,7 @@ const cookieForDevWeb = {
   path: '/',
 };
 
-const FORCE_SECURE_COOKIE = true; // dev-remote에서도 Secure+None
+const FORCE_SECURE_COOKIE = true;
 const isSecureMode = FORCE_SECURE_COOKIE || isProd || isCapAppMode;
 const cookieConfig = isSecureMode ? cookieForProd : cookieForDevWeb;
 
@@ -254,10 +213,9 @@ app.set('sessionStore', sessionStore);
 console.log('🔐 세션 설정 완료:', cookieConfig);
 
 // ---------------------------------------
-// ✅ JWT 파서/검증 미들웨어 (신규, 비파괴)
+// ✅ JWT 파서/검증 미들웨어
 // ---------------------------------------
 const jwt = require('jsonwebtoken');
-
 function extractToken(req) {
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
@@ -266,7 +224,6 @@ function extractToken(req) {
   if (req.query && req.query.token) return String(req.query.token).trim();
   return null;
 }
-
 app.use((req, res, next) => {
   const token = extractToken(req);
   if (!token) {
@@ -292,24 +249,12 @@ app.use((req, res, next) => {
 // 디버그 라우트
 app.get('/debug/echo', (req, res) => {
   console.log('🔎 /debug/echo cookies =', req.headers.cookie || '(none)');
-  res.json({
-    ok: true,
-    gotCookieHeader: !!req.headers.cookie,
-    cookieHeader: req.headers.cookie || null
-  });
+  res.json({ ok: true, gotCookieHeader: !!req.headers.cookie, cookieHeader: req.headers.cookie || null });
 });
-
 app.get('/debug/session', (req, res) => {
   console.log('🔎 /debug/session sessionID =', req.sessionID, ' user =', req.session?.user || null, ' jwtUser =', req.user || null);
-  res.json({
-    ok: true,
-    sessionID: req.sessionID,
-    sessionUser: req.session?.user || null,
-    jwtUser: req.user || null
-  });
+  res.json({ ok: true, sessionID: req.sessionID, sessionUser: req.session?.user || null, jwtUser: req.user || null });
 });
-
-// 🧪 쿠키 저장 테스트용
 app.get('/debug/set-cookie', (req, res) => {
   const value = Date.now().toString(36);
   res.cookie('tzchat_test', value, {
@@ -322,26 +267,32 @@ app.get('/debug/set-cookie', (req, res) => {
   res.json({ ok: true, set: true, value });
 });
 
+// ✅ 헬스 체크 (신규)
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    uptime: process.uptime(),
+    pid: process.pid,
+    ts: new Date().toISOString(),
+  });
+});
+
 // =======================================
-// 2) 라우터 등록 (safeMountRouter)
+// 2) 라우터 등록
 // =======================================
-
-// ✅ 비로그인 공개 라우터
-
-
 safeMountRouter('/api/admin', './routes/adminRouter');
 safeMountRouter('/api', './routes/authRouter');
 safeMountRouter('/api', './routes/chatRouter');
 safeMountRouter('/api', './routes/emergencyRouter');
 safeMountRouter('/api', './routes/friendRouter');
 safeMountRouter('/api', './routes/profileImageRouter');
-safeMountRouter('/api/push', './routes/pushRouter'); // 별도 prefix
-safeMountRouter('/api', './routes/supportRouter');   // 공개 라우터
+safeMountRouter('/api/push', './routes/pushRouter');
+safeMountRouter('/api', './routes/supportRouter');
 safeMountRouter('/api', './routes/targetRouter');
 safeMountRouter('/api', './routes/userRouter');
 
 // =======================================
-// 3) Socket.IO 설정 (+온라인유저/방현황 트래킹)
+// 3) Socket.IO 설정
 // =======================================
 const { Server } = require('socket.io');
 const io = new Server(server, {
@@ -359,28 +310,21 @@ const io = new Server(server, {
 });
 console.log('🔌 Socket.IO 경로(/socket.io) 및 CORS 적용');
 
-// ✅ 세션 공유(유지)
-io.use((socket, next) => {
-  sessionMiddleware(socket.request, {}, next);
-});
+io.use((socket, next) => { sessionMiddleware(socket.request, {}, next); });
 
-// ✅ JWT 인증(신규)
 io.use((socket, next) => {
   try {
     const h = socket.handshake || {};
     const headers = h.headers || {};
     const auth = headers['authorization'] || '';
     let token = null;
-
     if (h.auth && h.auth.token) token = String(h.auth.token);
     else if (auth.startsWith('Bearer ')) token = auth.slice(7).trim();
     else if (h.query && h.query.token) token = String(h.query.token);
-
     if (!token) {
       console.log('[SOCKET][AUTH][JWT][MISS]', { sid: socket.id });
       return next();
     }
-
     const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
     socket.user = {
       _id: payload._id || payload.sub || null,
@@ -396,7 +340,6 @@ io.use((socket, next) => {
   }
 });
 
-// ✅ 온라인 유저/방 현황
 const onlineUsers = new Set();
 const roomMembers = new Map();
 const userRoom = (userId) => `user:${userId}`;
@@ -405,7 +348,6 @@ app.set('io', io);
 app.set('onlineUsers', onlineUsers);
 app.set('roomMembers', roomMembers);
 
-// ✅ 채팅 리스트/TopMenu 갱신 헬퍼
 async function notifyRoomParticipantsForList(roomId, lastMessagePayload) {
   try {
     const room = await ChatRoom.findById(roomId).select('participants').lean();
@@ -435,7 +377,6 @@ async function notifyRoomParticipantsBadgeOnly(roomId) {
   }
 }
 
-// ✅ 라우터에서 편하게 쏘도록 헬퍼 제공
 app.set('emit', {
   toUser(userId, event, payload) {
     if (!userId) return;
@@ -505,6 +446,7 @@ io.on('connection', (socket) => {
 
     console.log('[SOCKET][CONN]', { sid: socket.id, userId: userId || '(anon)', via: jwtUserId ? 'jwt' : (sessUserId ? 'session' : 'anonymous') });
 
+    const userRoom = (uid) => `user:${uid}`;
     if (userId) {
       onlineUsers.add(userId);
       socket.join(userRoom(userId));
