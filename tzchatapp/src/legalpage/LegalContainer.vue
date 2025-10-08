@@ -38,8 +38,8 @@
         </div>
         <p v-else class="muted">본문이 비어 있습니다.</p>
 
-        <!-- (선택) 동의 버튼 -->
-        <div v-if="isConsent" class="consent-actions">
+        <!-- (선택) 동의 버튼: 로그인 상태에서만 노출 -->
+        <div v-if="isConsent && isAuthed" class="consent-actions">
           <button
             class="btn-primary"
             :disabled="isAgreed || agreeing"
@@ -96,7 +96,8 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api, { getActiveTermBySlug, getTermVersions } from '@/lib/api'
+// ✅ axios 인스턴스는 제거하고, 공개 문서 API만 유지
+import { getActiveTermBySlug, getTermVersions } from '@/lib/api'
 import { getLabel } from '@/legalpage/constants/legals'
 
 type Doc = {
@@ -128,7 +129,8 @@ const older = computed(() => {
   return (historyList.value || []).filter(d => d.version !== v0)
 })
 const isMaster = ref(false)
-const openIdx = ref<number | null>(null)   // ✅ 기본 접힘
+const isAuthed = ref(false)              // ✅ 로그인 여부 (fetch로만 판별)
+const openIdx = ref<number | null>(null) // ✅ 기본 접힘
 
 const displayTitle = computed(() => current.value?.title || getLabel(slug.value))
 
@@ -160,12 +162,6 @@ const goUpdate = () => {
   router.push({ path: `${base}/${slug.value}`, query: { title: displayTitle.value || '' } })
 }
 
-function parseMePayload(raw: any) {
-  const user =
-    raw?.user ?? raw?.data?.user ??
-    (raw && typeof raw === 'object' && ('username' in raw || '_id' in raw) ? raw : null)
-  return user || null
-}
 function extractDoc(row: any): Doc | null {
   if (!row || typeof row !== 'object') return null
   const body =
@@ -191,6 +187,46 @@ const isConsent = computed(() => !!(current.value && (current.value.kind === 'co
 const isOptional = computed(() => !!(current.value && current.value.kind === 'consent' && !current.value.defaultRequired))
 const isAgreed = computed(() => isConsent.value && agreeInfo.sameVersion && agreeInfo.optedIn === true)
 
+/* ✅ axios 인터셉터를 피하기 위해 fetch만 사용 */
+async function safeFetchJSON(url: string, init?: RequestInit) {
+  const res = await fetch(url, { credentials: 'include', ...init })
+  if (!res.ok) {
+    const err: any = new Error(`HTTP ${res.status}`)
+    ;(err.status = res.status)
+    throw err
+  }
+  return await res.json()
+}
+
+async function tryGetMe() {
+  try {
+    const data = await safeFetchJSON('/api/me')
+    const user = data?.user ?? data?.data?.user
+    isAuthed.value = !!user
+    isMaster.value = String(user?.role || '').toLowerCase() === 'master'
+  } catch (e:any) {
+    // 401 등은 공개 페이지에서 무시
+    isAuthed.value = false
+    isMaster.value = false
+  }
+}
+
+async function tryGetAgreementStatus(slug: string) {
+  if (!isAuthed.value) return
+  try {
+    const st = await safeFetchJSON('/api/terms/agreements/list')
+    const items: any[] = st?.data?.items ?? st?.items ?? []
+    const it = items.find(r => r?.slug === slug)
+    if (it) {
+      agreeInfo.hasRecord = !!it.hasRecord
+      agreeInfo.sameVersion = !!it.sameVersion
+      agreeInfo.optedIn = typeof it.optedIn === 'boolean' ? it.optedIn : null
+    }
+  } catch {
+    // 공개 페이지에서는 실패해도 무시
+  }
+}
+
 async function syncConsentCheckbox() {
   await nextTick()
   const root = document.querySelector('.doc-body') as HTMLElement | null
@@ -210,42 +246,30 @@ const load = async () => {
   agreeInfo.hasRecord = false
   agreeInfo.sameVersion = false
   agreeInfo.optedIn = null
-  openIdx.value = null // ✅ 새로 로드할 때도 접힘 상태 초기화
+  openIdx.value = null
 
   try {
-    try {
-      const meRes = await api.get('/api/me')
-      const me = parseMePayload(meRes?.data)
-      isMaster.value = String(me?.role || '').toLowerCase() === 'master'
-    } catch { isMaster.value = false }
+    // 1) 로그인/권한 확인 (fetch로만 → 인터셉터 미작동)
+    await tryGetMe()
 
-    // 최신 활성본
+    // 2) 최신 활성본 (공개 API - axios 사용 함수지만 200이면 인터셉터 개입 없음)
     const { data } = await getActiveTermBySlug(s)
     const rawActive = (data?.data ?? data) || null
     const active = extractDoc(rawActive)
     if (!active) state.error = '문서를 불러올 수 없습니다.'
     else current.value = active
 
-    // 동의 상태
-    try {
-      const st = await api.get('/api/terms/agreements/list')
-      const items: any[] = st?.data?.data?.items ?? []
-      const it = items.find(r => r?.slug === s)
-      if (it) {
-        agreeInfo.hasRecord = !!it.hasRecord
-        agreeInfo.sameVersion = !!it.sameVersion
-        agreeInfo.optedIn = typeof it.optedIn === 'boolean' ? it.optedIn : null
-      }
-    } catch {}
+    // 3) 동의 상태 (로그인 사용자에 한해)
+    await tryGetAgreementStatus(s)
   } catch (e:any) {
-    const status = e?.response?.status
+    const status = e?.status ?? e?.response?.status
     state.error = status === 404 ? '요청한 문서를 찾을 수 없습니다.' : `로드 중 오류 (HTTP ${status ?? 'ERR'})`
   } finally {
     state.loading = false
     await syncConsentCheckbox()
   }
 
-  // 전체 버전
+  // 4) 전체 버전 목록
   try {
     const res = await getTermVersions(s)
     const rows = (res?.data?.data ?? res?.data ?? []) as any[]
@@ -253,7 +277,9 @@ const load = async () => {
     const byVerDesc = [...mapped].sort((a,b)=>compareVersionDesc(a.version ?? '', b.version ?? ''))
     historyList.value = current.value && !byVerDesc.find(d=>d.version===current.value!.version)
       ? [current.value, ...byVerDesc] : byVerDesc
-  } catch {}
+  } catch {
+    // 버전 목록 실패는 치명적 아님
+  }
 }
 
 const toggleOlder = (idx: number) => {
@@ -263,27 +289,37 @@ const toggleOlder = (idx: number) => {
 const agreeing = ref(false)
 const revoking = ref(false)
 const onAgreeClick = async () => {
+  if (!isAuthed.value) { alert('로그인 후 동의할 수 있습니다.'); return }
   if (!current.value || isAgreed.value || agreeing.value) return
   try {
     agreeing.value = true
-    await api.post('/api/terms/consents', { slug: current.value.slug, version: current.value.version, optedIn: true })
+    await safeFetchJSON('/api/terms/consents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: current.value.slug, version: current.value.version, optedIn: true })
+    })
     agreeInfo.hasRecord = agreeInfo.sameVersion = true; agreeInfo.optedIn = true
     await syncConsentCheckbox()
     alert('동의가 저장되었습니다.')
   } catch (e:any) {
-    alert(`동의 저장 실패 (HTTP ${e?.response?.status ?? 'ERR'})`)
+    alert(`동의 저장 실패 (HTTP ${e?.status ?? 'ERR'})`)
   } finally { agreeing.value = false }
 }
 const onRevokeClick = async () => {
+  if (!isAuthed.value) { alert('로그인 후 취소할 수 있습니다.'); return }
   if (!current.value || !isOptional.value || revoking.value) return
   try {
     revoking.value = true
-    await api.post('/api/terms/consents', { slug: current.value.slug, version: current.value.version, optedIn: false })
+    await safeFetchJSON('/api/terms/consents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: current.value.slug, version: current.value.version, optedIn: false })
+    })
     agreeInfo.hasRecord = agreeInfo.sameVersion = true; agreeInfo.optedIn = false
     await syncConsentCheckbox()
     alert('동의가 취소되었습니다.')
   } catch (e:any) {
-    alert(`동의 취소 실패 (HTTP ${e?.response?.status ?? 'ERR'})`)
+    alert(`동의 취소 실패 (HTTP ${e?.status ?? 'ERR'})`)
   } finally { revoking.value = false }
 }
 
