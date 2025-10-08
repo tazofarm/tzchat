@@ -8,7 +8,7 @@
 defineProps({
   height: {
     type: String,
-    default: '80px'
+    default: '50px'
   }
 })
 </script>

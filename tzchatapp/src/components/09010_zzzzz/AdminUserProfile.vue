@@ -94,7 +94,7 @@ import { ref, onMounted } from 'vue'
 import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
-import FriendRequestModal from '@/components/02010_minipage/Modal_FriendRequest.vue'
+import FriendRequestModal from '@/components/02010_minipage/mini_profile/Modal_FriendRequest.vue'
 
 const route = useRoute()
 const router = useRouter()

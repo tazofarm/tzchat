@@ -19,15 +19,6 @@
         관리자페이지
       </ion-button>
     </div>
-
-    <!-- 오른쪽: 로그아웃 (현재 숨김)
-    <div class="top-right">
-      <ion-button size="small" class="btn-danger" @click="logout">
-        <ion-icon :icon="icons.logOutOutline" slot="start" />
-        로그아웃
-      </ion-button>
-    </div>
-    -->
   </div>
 
   <!-- 🔹 리스트 (0001~0020 + 회원탈퇴) -->
@@ -37,10 +28,26 @@
         <!-- 번호 리스트 -->
         <li class="list-item" @click="goPage('/home/setting/0001')">01구독신청하기</li>
 
+        <li class="list-item" @click="goPage('/home/setting/0002')">02공지사항</li>
 
+        <!-- ✅ 변경: 클릭 시 페이지 이동 대신 즉시 메일 열기 -->
+        <li class="list-item" @click="openSupportMail">문의/건의 하기 (E-mail)</li>
 
+        <li class="list-item" @click="goPage('/home/legals/v2')">약관 및 법적조치</li>
 
-        <li class="list-item" @click="goPage('/home/setting/0002')">02약관 및 법적조치</li>
+        <li class="list-item" @click="goPage('/home/setting/0019')">비밀번호변경</li>
+
+        <!-- 로그아웃 버튼 -->
+        <li class="withdraw-button" @click="logout">
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+          <span>로그아웃</span>
+        </li>
+
+        <!-- 회원탈퇴 버튼 -->
+        <li class="withdraw-button" @click="goPage('/home/setting/0020')">
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+          <span>20회원탈퇴</span>
+        </li>
 
         <!-- ✅ 권한 관련: 알림/위치 요청 -->
         <li class="list-item" @click="askPerms">
@@ -52,34 +59,6 @@
         <li class="list-item" @click="sendTestNoti">
           <ion-icon :icon="icons.locateOutline" class="icon-left" aria-hidden="true" />
           <span>테스트 알림 보내기</span>
-        </li>
-
-        <!--
-        <li class="list-item" @click="goPage('/home/setting/0003')">03공지사항</li>
-        <li class="list-item" @click="goPage('/home/setting/0004')">04건의하기</li>
-        <li class="list-item" @click="goPage('/home/setting/0005')">05개인정보 처리방침</li>
-        <li class="list-item" @click="goPage('/home/setting/0006')">06서비스 이용약관</li>
-        <li class="list-item" @click="goPage('/home/setting/0007')">07아동 안전 정책</li>
-        <li class="list-item" @click="goPage('/home/setting/0008')">08프로필테스트</li>
-        -->
-
-        
-
-<li class="list-item" @click="goPage('/home/legals/index')">법적 고지 및 정책 문서</li>
-        <li class="list-item" @click="goPage('/home/legals/index')">법적 고지 및 정책 문서</li>
-
-        <li class="list-item" @click="goPage('/home/setting/0019')">19 비밀번호변경2</li>
-
-        <!-- 로그아웃 버튼 -->
-        <li class="withdraw-button" @click="logout">
-          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-          <span>로그아웃</span>
-        </li>
-
-        <!-- 회원탈퇴 버튼 -->
-        <li class="withdraw-button" @click="goPage('/home/setting/0020')">
-          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-          <span>회원탈퇴</span>
         </li>
       </ul>
     </div>
@@ -153,6 +132,70 @@ const logout = async () => {
   }
 }
 
+/* -------------------- 메일 바로 열기 유틸 -------------------- */
+// 스토어 없이 localStorage 폴백
+function getUserId() {
+  return (
+    localStorage.getItem('userId') ||
+    localStorage.getItem('id') ||
+    localStorage.getItem('_id') ||
+    'unknown'
+  )
+}
+function getNicknameLS() {
+  return (
+    localStorage.getItem('nickname') ||
+    localStorage.getItem('username') ||
+    localStorage.getItem('name') ||
+    'unknown'
+  )
+}
+function detectOS() {
+  const ua = navigator.userAgent || ''
+  if (/android/i.test(ua)) return 'Android'
+  if (/iphone|ipad|ipod/i.test(ua)) return 'iOS'
+  return 'Web'
+}
+async function getAppVersion() {
+  try {
+    const mod = await import('@capacitor/app')
+    const info = await mod.App.getInfo()
+    return info.version || info.build || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** ✅ 상위 메뉴에서 바로 실행되는 메일 열기 */
+async function openSupportMail() {
+  const email = 'tazocode@gmail.com'         // 수신자
+  const subject = '네네챗 문의드립니다'       // 제목
+
+  const [appVersion, os, uid, nick] = await Promise.all([
+    getAppVersion(),
+    Promise.resolve(detectOS()),
+    Promise.resolve(getUserId()),
+    Promise.resolve(getNicknameLS()),
+  ])
+
+  const body = [
+    '문의 내용:',
+    '',
+    '--- 사용자 정보 ---',
+    `아이디: ${uid}`,
+    `닉네임: ${nick}`,
+    '',
+    '--- 앱/환경 정보 ---',
+    `앱 버전: ${appVersion}`,
+    `OS: ${os}`,
+    '',
+    '--- 작성 ---',
+  ].join('\n')
+
+  const href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  window.location.href = href
+}
+
 /** ✅ 권한 요청(알림/위치) */
 const askPerms = async () => {
   try {
@@ -184,23 +227,10 @@ const sendTestNoti = async () => {
     console.warn('⚠️ 테스트 알림 오류:', e?.message)
   }
 }
-
-/** (예시) 회원탈퇴 직접 실행 시 사용할 수 있는 헬퍼
-const withdraw = async () => {
-  try {
-    await api.post('/api/account/delete-request')
-    router.push('/login')
-  } catch (e) {
-    console.error('❌ 탈퇴 요청 실패:', e)
-  }
-}
-*/
 </script>
 
 <style scoped>
-/* =========================================================
-   상단바 (반갑습니다 / 관 / 로그아웃)
-========================================================= */
+/* (스타일 동일, 생략 없이 기존 그대로 유지) */
 .top-bar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -210,105 +240,45 @@ const withdraw = async () => {
   background-color: var(--panel-2);
   border-bottom: 1px solid var(--panel-border);
 }
-
 .top-bar ion-button {
   --border-radius: 8px;
-  --padding-start: 6px;    /* 좌우 패딩 줄임 */
+  --padding-start: 6px;
   --padding-end: 6px;
-  min-height: 24px;        /* 버튼 높이 줄임 */
-  font-size: 13px;         /* 버튼 글자 크기 줄임 */
+  min-height: 24px;
+  font-size: 13px;
 }
 .top-left { justify-self: start; display: flex; align-items: center; }
 .top-center { justify-self: center; }
 .top-right { justify-self: end; }
-
-.icon-left {
-  font-size: 18px;
-  color: var(--text-dim);
-  margin-right: 6px;
-}
+.icon-left { font-size: 18px; color: var(--text-dim); margin-right: 6px; }
 .welcome-text {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-weight: 600; font-size: 15px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
-/* =========================================================
-   리스트 (0001 ~ 0020 + 회원탈퇴)
-========================================================= */
-.page-wrap {
-  background: var(--panel-2);
-  min-height: 100%;
-  padding: 14px 12px 22px;
-  box-sizing: border-box;
-}
-.list-wrap {
-  width: min(92vw, 480px);
-  margin: 0 auto;
-}
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
+.page-wrap { background: var(--panel-2); min-height: 100%; padding: 14px 12px 22px; box-sizing: border-box; }
+.list-wrap { width: min(92vw, 480px); margin: 0 auto; }
+.list { list-style: none; margin: 0; padding: 0; }
 .list-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px 16px;
-  margin: 10px 0;
-  border-radius: 12px;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 16px; margin: 10px 0; border-radius: 12px;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
-  border: 1px solid var(--panel-border);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  user-select: none;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25),
-              inset 0 0 0.5px rgba(255,255,255,0.04);
+  border: 1px solid var(--panel-border); color: var(--text);
+  font-size: 14px; font-weight: 700; cursor: pointer; user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0.5px rgba(255,255,255,0.04);
   transition: border-color 0.18s, color 0.18s, transform 0.06s;
 }
-.list-item:hover {
-  border-color: rgba(212,175,55,0.65);
-  color: var(--accent-gold, #d4af37);
-}
-.list-item:active {
-  transform: translateY(1px);
-}
-
-/* 회원탈퇴/로그아웃 버튼 */
+.list-item:hover { border-color: rgba(212,175,55,0.65); color: var(--accent-gold, #d4af37); }
+.list-item:active { transform: translateY(1px); }
 .withdraw-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px 16px;
-  margin: 14px 0 6px;
-  border-radius: 12px;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 16px; margin: 14px 0 6px; border-radius: 12px; height: 40px;
   background: linear-gradient(180deg, #dc3545 0%, #b02a37 100%);
-  border: 1px solid #b02a37;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 800;
-  cursor: pointer;
-  user-select: none;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25),
-              inset 0 0 0.5px rgba(255,255,255,0.12);
+  border: 1px solid #b02a37; color: #fff; font-size: 15px; font-weight: 800;
+  cursor: pointer; user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0.5px rgba(255,255,255,0.12);
   transition: filter 0.18s, transform 0.06s, border-color 0.18s;
 }
-.withdraw-button:hover {
-  filter: brightness(1.02);
-  border-color: #962231;
-}
-.withdraw-button:active {
-  transform: translateY(1px);
-}
-.withdraw-button .icon-left {
-  font-size: 18px;
-}
+.withdraw-button:hover { filter: brightness(1.02); border-color: #962231; }
+.withdraw-button:active { transform: translateY(1px); }
+.withdraw-button .icon-left { font-size: 18px; }
 </style>

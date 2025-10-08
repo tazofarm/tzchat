@@ -43,18 +43,14 @@ export function clearAuthToken() { setAuthToken(null) }
 function computeBaseURL(): string {
   const raw = String(VITE_API_BASE_URL || '').trim()
   if (raw) {
-    // 절대경로면 그대로, 상대경로면 브라우저 오리진 기준으로 붙여 사용
     if (isHttpAbs(raw)) return stripTrailingSlashes(raw)
     try {
       const origin = `${window.location.protocol}//${window.location.host}`
       return stripTrailingSlashes(joinUrl(origin, raw))
     } catch {
-      // 브라우저 컨텍스트가 아닐 때를 대비한 폴백
       return stripTrailingSlashes(raw)
     }
   }
-
-  // dev-remote에서 env 주입이 실패하면 여기로 내려옵니다.
   let origin = ''
   try { origin = `${window.location.protocol}//${window.location.host}` } catch {}
   const fallback = origin || 'http://localhost:2000'
@@ -79,6 +75,19 @@ console.log('%c[HTTP][CFG]', 'color:#0a0;font-weight:bold', {
   withCredentials: USE_COOKIES,
 })
 
+// [추가] 안전 리다이렉트 유틸 (router 순환참조 방지)
+function safeRedirect(path: string) {
+  try {
+    import('@/router').then(({ default: router }) => {
+      if (router.currentRoute.value.fullPath !== path) router.replace(path)
+    }).catch(() => {
+      if (window.location.pathname !== path) window.location.href = path
+    })
+  } catch {
+    if (window.location.pathname !== path) window.location.href = path
+  }
+}
+
 // 요청 인터셉터: 토큰 부착
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAuthToken()
@@ -89,12 +98,33 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config
 })
 
-// 응답 인터셉터: 에러 로깅
+// 응답 인터셉터: 401/423 처리 + 로깅
 api.interceptors.response.use(
   (res: AxiosResponse) => res,
   (err: AxiosError) => {
     const status = err.response?.status
-    const url = (err.config as any)?.url
+    const data: any = err.response?.data
+    const code = data?.code || data?.errorCode
+    const url = (err.config as any)?.url || ''
+
+    // 🔹 공개 API 예외 처리
+    const isPublic =
+      url.startsWith('/api/terms/') ||
+      url.startsWith('/api/login') ||
+      url.startsWith('/api/health')
+
+    // 401: 인증 만료/부재 → 로그인으로
+    if (status === 401 && !isPublic) {
+      const current = window.location.pathname + window.location.search
+      safeRedirect(`/login?redirect=${encodeURIComponent(current)}`)
+    }
+
+    // 423: 탈퇴신청 상태 → 전용 페이지로
+    if (status === 423 || code === 'PENDING_DELETION') {
+      safeRedirect('/account/deletion-pending')
+    }
+
+    // (공통) 에러 로깅
     console.warn('[HTTP][ERR]', {
       status,
       url,
@@ -107,13 +137,12 @@ api.interceptors.response.use(
 )
 
 // ------------------ 경로 정규화 래퍼 ----------------
-// ✅ 더 이상 '/api'를 제거하지 않습니다. 호출부에서 항상 '/api/...' 를 넘기세요.
 type HttpResponse<T = any> = Promise<AxiosResponse<T>>
 function norm(p: string) { return ensureLeadingSlash(p || '/') }
 
 export const http = {
   get<T = any>(url: string, config?: AxiosRequestConfig): HttpResponse<T> {
-    const path = norm(url) // e.g. '/api/users'
+    const path = norm(url)
     console.log('[HTTP][REQ]', { method: 'GET', url: joinUrl(ENV_BASE, path), params: config?.params, withCredentials: USE_COOKIES })
     return api.get<T>(path, config)
   },
@@ -140,7 +169,6 @@ export const http = {
 }
 
 // ------------------ 인증 편의 함수 ----------------
-// ✅ 모든 엔드포인트는 명시적으로 '/api/...' 사용
 export const auth = {
   async login(body: { username: string; password: string }) {
     const res = await api.post('/api/login', body)
@@ -153,6 +181,114 @@ export const auth = {
     try { await api.post('/api/logout') } finally { clearAuthToken() }
   },
 }
+
+// ------------------ 약관/동의/관리자 API ----------------
+// ✅ 서버(routes/legal/termsPublicRouter.js) 스펙에 맞춤.
+// 문서 조회(terms)와 동의 저장(consents)을 /api/terms 하위로 통일.
+
+// 활성 문서 (조회)
+export const getActiveTerms = () => http.get('/api/terms/active')
+export const getActiveTermBySlug = (slug: string) => {
+  const s = encodeURIComponent(String(slug || ''))
+  return http.get(`/api/terms/${s}/active`)
+}
+// 버전 목록 (조회)
+export const getTermVersions = (slug: string) => {
+  const s = encodeURIComponent(String(slug || ''))
+  return http.get(`/api/terms/${s}/versions`)
+}
+
+// ===== 타입 정의 (추가) =====
+export type PendingConsentItem = { slug: string; title?: string; isRequired?: boolean }
+export type AgreementStatusResponse = { data: { pending: PendingConsentItem[] } }
+
+/**
+ * AgreementPage용 상태 조회
+ * ✅ 1순위: /api/terms/agreements/status (정확한 pending만 제공)
+ * 🔁 폴백1: /agreements/list 에서 pending === true 인 항목만 사용
+ * 🔁 폴백2: 구버전(/require-consent + /active) 조합
+ * 반환 형식(고정): { data: { pending: PendingConsentItem[] } }
+ */
+export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => {
+  // 1) 최신 엔드포인트: 정확한 pending
+  try {
+    const { data } = await http.get('/api/terms/agreements/status')
+    const pending: PendingConsentItem[] = data?.data?.pending ?? []
+    return { data: { pending } }
+  } catch (e) {
+    console.warn('[agreements] status 미가용 → list로 폴백')
+  }
+
+  // 2) 폴백1: list 사용 + pending=true 필터
+  try {
+    const { data } = await http.get('/api/terms/agreements/list')
+    const items: any[] = data?.data?.items ?? []
+    const pending: PendingConsentItem[] = items
+      .filter(i => i?.pending === true)
+      .map(i => ({
+        slug: i.slug,
+        title: i.title,
+        isRequired: !!(i.isRequired ?? i.defaultRequired),
+      }))
+    return { data: { pending } }
+  } catch (e) {
+    console.warn('[agreements] list 미가용 → require-consent로 폴백')
+  }
+
+  // 3) 폴백2: 구버전(필수만 표시됨)
+  const [reqRes, actRes] = await Promise.all([
+    http.get('/api/terms/require-consent'),
+    http.get('/api/terms/active'),
+  ])
+  const requiredSlugs: string[] = reqRes.data?.requiredSlugs ?? []
+  const actives: any[] = actRes.data?.data ?? []
+  const bySlug: Record<string, any> = {}
+  for (const a of actives) if (!bySlug[a.slug]) bySlug[a.slug] = a
+  const pending: PendingConsentItem[] = requiredSlugs.map(slug => ({
+    slug,
+    title: bySlug[slug]?.title,
+    isRequired: !!bySlug[slug]?.defaultRequired,
+  }))
+  return { data: { pending } }
+}
+
+/**
+ * 다건 동의 저장
+ * ✅ 1순위: /api/terms/agreements/accept 배치 저장
+ * 🔁 폴백: slug별 활성버전 조회 후 /api/terms/consents 개별 저장
+ */
+export const acceptAgreements = async (slugs: string[]) => {
+  try {
+    await http.post('/api/terms/agreements/accept', { slugs })
+    return { ok: true }
+  } catch (e) {
+    console.warn('[agreements] accept 배치 미가용 → consents 개별 저장으로 폴백')
+    const tasks = slugs.map(async (slug) => {
+      const s = encodeURIComponent(String(slug || ''))
+      const { data } = await http.get(`/api/terms/${s}/active`)
+      const version = data?.data?.version ?? data?.version
+      if (!version) throw new Error(`활성 버전을 찾을 수 없습니다: ${slug}`)
+      await http.post('/api/terms/consents', { slug, version, optedIn: true })
+    })
+    await Promise.all(tasks)
+    return { ok: true }
+  }
+}
+
+// ----- Admin: 약관 새 버전 발행 -----
+export const adminCreateTerms = (payload: {
+  slug: string
+  title: string
+  version: string
+  content: string
+  kind: 'page' | 'consent'
+  defaultRequired?: boolean
+  effectiveAt?: string
+}) => http.post('/api/admin/terms', payload)
+
+// 목록 조회
+export const adminListTerms = (q?: { slug?: string; active?: 'true' | 'false'; kind?: 'page' | 'consent' }) =>
+  http.get('/api/admin/terms', { params: q })
 
 export default api
 export const AuthAPI = auth

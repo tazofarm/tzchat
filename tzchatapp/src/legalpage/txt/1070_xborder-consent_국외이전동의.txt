@@ -1,0 +1,86 @@
+<section aria-label="개인정보 국외 이전 동의서">
+  <h1>개인정보 국외 이전 동의서</h1>
+
+  <p>
+    <strong>운영사</strong>: TAZOCODE<br>
+    <strong>서비스명</strong>: 네네챗<br>
+    <strong>고객센터 이메일</strong>: <a href="mailto:tazocode@gmail.com">tazocode@gmail.com</a><br>
+  </p>
+
+  <hr>
+
+  <h2 id="purpose">1. 국외 이전 목적</h2>
+  <p>
+    회사는 안정적이고 효율적인 서비스 운영을 위하여 해외 클라우드 서버(AWS, Firebase 등)를 이용하여
+    데이터를 저장·처리·백업할 수 있습니다.
+  </p>
+
+  <h2 id="recipient">2. 개인정보를 이전받는 자</h2>
+  <ul>
+    <li><strong>AWS (Amazon Web Services, Inc.)</strong><br>
+      주소: 410 Terry Ave North, Seattle, WA 98109, USA<br>
+      연락처: <a href="https://aws.amazon.com/contact-us/">https://aws.amazon.com/contact-us/</a>
+    </li>
+    <li><strong>Google LLC (Firebase)</strong><br>
+      주소: 1600 Amphitheatre Parkway, Mountain View, CA 94043, USA<br>
+      연락처: <a href="https://firebase.google.com/support">https://firebase.google.com/support</a>
+    </li>
+  </ul>
+
+  <h2 id="dest">3. 이전 국가 및 보관 장소</h2>
+  <ul>
+    <li>이전 국가: 미국(US)</li>
+    <li>보관 위치: AWS 및 Firebase의 미국 내 데이터센터</li>
+  </ul>
+
+  <h2 id="items">4. 이전되는 개인정보 항목</h2>
+  <ul>
+    <li>회원 식별 정보 (이메일, 닉네임, 사용자 ID)</li>
+    <li>로그 및 이용 기록 (접속 IP, 이용 시간, 앱 버전, 오류 로그 등)</li>
+    <li>프로필 정보 (프로필 사진, 상태메시지 등)</li>
+    <li>결제 관련 정보 (결제 ID, 결제 일시, 스토어 계정 ID 등)</li>
+  </ul>
+
+  <h2 id="method">5. 이전 시기 및 방법</h2>
+  <p>
+    서비스 이용 과정에서 네트워크를 통해 실시간으로 전송되며,  
+    클라우드 서버에 암호화된 형태로 저장됩니다.  
+    신규 회원가입 시점부터 데이터가 국외 서버에 전송·보관될 수 있습니다.
+  </p>
+
+  <h2 id="period">6. 보유 및 이용 기간</h2>
+  <p>
+    개인정보는 서비스 제공 목적 달성 시 또는 회원 탈퇴 시까지 보관하며,  
+    탈퇴 즉시 복구 불가능한 방법으로 삭제합니다.  
+    단, 법령에 의해 일정 기간 보존이 필요한 경우 해당 기간 동안 보관됩니다.
+  </p>
+
+  <h2 id="security">7. 이전 정보의 안전성 확보조치</h2>
+  <ul>
+    <li>데이터 전송 시 SSL/TLS 등 암호화 통신 적용</li>
+    <li>서버 내 저장 시 AES256 기반 암호화 처리</li>
+    <li>접근 권한 최소화 및 접근 로그 관리</li>
+    <li>정기적인 보안 점검 및 취약점 모니터링</li>
+  </ul>
+
+  <h2 id="rights">8. 동의 거부 권리 및 불이익</h2>
+  <p>
+    이용자는 개인정보 국외 이전에 동의하지 않을 권리가 있습니다.  
+    다만, 해당 동의를 거부할 경우 서비스 이용(로그인, 매칭, 채팅 등)이 제한될 수 있습니다.
+  </p>
+
+  <h2 id="law">9. 관련 법령</h2>
+  <ul>
+    <li>「개인정보보호법」 제28조의8 (개인정보의 국외 이전)</li>
+    <li>「정보통신망 이용촉진 및 정보보호 등에 관한 법률」 제63조</li>
+  </ul>
+
+  <h2 id="consent">10. 동의 여부</h2>
+  <p><strong>[필수]</strong> 위와 같은 개인정보의 국외 이전에 동의하십니까?</p>
+  <label><input type="checkbox" checked disabled> 동의합니다</label>
+
+  <h2 id="etc">부칙</h2>
+  <ol>
+    <li>본 동의서는 게시일부터 시행합니다.</li>
+  </ol>
+</section>

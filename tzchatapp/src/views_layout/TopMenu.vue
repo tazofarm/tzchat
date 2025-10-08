@@ -10,17 +10,21 @@
     >
       <span class="icon-wrap" aria-hidden="true">
         <IonIcon :icon="item.icon" class="menu-icon" />
+
+        <!-- ✅ 친구/채팅 뱃지 조건 수정 (path 문자열 직접 비교) -->
         <span
-          v-if="item.path === FRIENDS_PATH && badgeFriends"
+          v-if="item.path === '/home/3page' && badgeFriends"
           class="icon-badge"
           aria-label="새 친구 항목 있음"
         >ⓝ</span>
+
         <span
-          v-if="item.path === CHAT_PATH && badgeChat"
+          v-if="item.path === '/home/4page' && badgeChat"
           class="icon-badge"
           aria-label="안읽은 채팅 있음"
         >ⓝ</span>
       </span>
+
       <span class="menu-text">{{ item.name }}</span>
     </div>
   </div>
@@ -45,28 +49,24 @@ import {
   chatbubblesOutline,
   personCircleOutline,
   settingsOutline,
+  starOutline,
+  trophyOutline,
+  diamondOutline,
 } from 'ionicons/icons'
 
 const route = useRoute()
 const router = useRouter()
 
-const FRIENDS_PATH = '/home/3page'
-const CHAT_PATH    = '/home/4page'
-
 const menuItems = [
-{ name: 't-emer', path: '/home/91page', icon: warningOutline },
-{ name: 't-tar', path: '/home/92page', icon: warningOutline },
-{ name: 't-all', path: '/home/93page', icon: warningOutline },
-
-
-
-  //{ name: 'all', path: '/home/5page', icon: warningOutline },
-  { name: 'Premium', path: '/home/0page', icon: warningOutline },
-  { name: '타겟',    path: '/home/2page', icon: locateOutline },
-  //{ name: '친구',    path: FRIENDS_PATH,  icon: peopleOutline },
-  { name: '채팅',    path: CHAT_PATH,     icon: chatbubblesOutline },
-  { name: '프로필',  path: '/home/6page', icon: personCircleOutline },
-  { name: '설정',    path: '/home/7page', icon: settingsOutline },
+  //{ name: 't-emer', path: '/home/91page', icon: starOutline },
+  //{ name: 't-tar', path: '/home/92page', icon: starOutline },
+  { name: 't-all', path: '/home/93page', icon: warningOutline },
+  { name: 'Premium', path: '/home/0page', icon: diamondOutline },
+  { name: 'Search', path: '/home/2page', icon: locateOutline },
+  { name: 'List', path: '/home/3page', icon: peopleOutline },
+  { name: 'Chat', path: '/home/4page', icon: chatbubblesOutline },
+  { name: 'Profile', path: '/home/6page', icon: personCircleOutline },
+  //{ name: '설정', path: '/home/7page', icon: settingsOutline },
 ]
 
 const goTo = (path) => router.push(path)
@@ -74,8 +74,8 @@ const isActive = (path) => (route.path === path ? 'active' : '')
 
 /* ===== 상태 ===== */
 const badgeFriends = ref(false)
-const badgeChat    = ref(false)
-const myId         = ref(null)
+const badgeChat = ref(false)
+const myId = ref(null)
 let socket = null
 
 /* ===== 친구 탭: window 이벤트 연동(기존) ===== */
@@ -96,7 +96,7 @@ const refreshChatBadge = async (label = 'init') => {
   }
 }
 
-/* ===== 소켓 핸들러 (중복 방지용 참조) ===== */
+/* ===== 소켓 핸들러 ===== */
 const hConnect = async () => {
   console.log('[TopMenu] socket connected:', socket.id)
   if (myId.value) socket.emit('join', { userId: myId.value })
@@ -106,7 +106,7 @@ const hFriendReq = (req) => {
   const me = myId.value
   if (!me) return
   const fromId = req?.from?._id
-  const toId   = req?.to?._id
+  const toId = req?.to?._id
   if (fromId === me || toId === me) badgeFriends.value = true
 }
 const hRoomsBadge = async (payload) => {
@@ -122,10 +122,9 @@ const hChatMsg = async () => {
   await refreshChatBadge('socket-chatMessage')
 }
 
-/* ===== 소켓 바인딩 (off → on 보장) ===== */
+/* ===== 소켓 바인딩 ===== */
 function bindSocket() {
   if (!socket) return
-
   socket.off('connect', hConnect)
   socket.off('friendRequest:created', hFriendReq)
   socket.off('chatrooms:badge', hRoomsBadge)
@@ -141,7 +140,7 @@ function bindSocket() {
 
 /* ===== 라우트 변화에 반응 ===== */
 watch(() => route.path, (p) => {
-  if (p === CHAT_PATH) {
+  if (p === '/home/4page') {
     setTimeout(() => refreshChatBadge('route-enter-chat'), 250)
   }
 })
@@ -150,7 +149,6 @@ watch(() => route.path, (p) => {
 onMounted(async () => {
   try {
     const me = await api.get('/api/me')
-
     myId.value = me.data?.user?._id || null
   } catch (e) {
     console.warn('[TopMenu] /me 실패', e)
@@ -161,8 +159,9 @@ onMounted(async () => {
 
   window.addEventListener('friends:state', onFriendsState)
 
-  // 친구 탭 즉시 동기화(기존 로직 유지)
-  try { window.dispatchEvent(new CustomEvent('friends:requestState')) } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent('friends:requestState'))
+  } catch {}
 
   await refreshChatBadge('mounted')
 })

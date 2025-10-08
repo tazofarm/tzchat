@@ -1,6 +1,4 @@
-
-<!-- 회원탈퇴  -->
-
+<!-- src/components/04710_Page7_setting/setlist/0020_s.vue -->
 <template>
   <ion-page>
     <!-- ✅ 상단 헤더 -->
@@ -12,7 +10,7 @@
         </ion-buttons>
 
         <!-- 가운데 제목 -->
-        <ion-title>간단 페이지</ion-title>
+        <ion-title>회원 탈퇴 하기</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -26,7 +24,7 @@
         <strong>탈퇴하기 동작 안내</strong><br />
         - 아래 <em>탈퇴하기</em> 버튼을 누르면 서버의 <code>POST /api/account/delete-request</code> 라우터가 호출됩니다.<br />
         - 서버는 계정을 <code>pendingDeletion</code> 상태로 전환하고, 유예기간(예: 14일) 후 영구 삭제를 예약합니다.<br />
-        - 요청이 성공하면 세션이 종료(로그아웃)되며, 앱은 로그인 화면으로 이동합니다.<br />
+        - 요청이 성공하면 전용 안내 화면으로 이동합니다.<br />
         - 네트워크/서버 오류 시 에러 메시지가 표시되며, 콘솔에 상세 로그가 남습니다.
       </div>
     </ion-content>
@@ -57,12 +55,16 @@ import {
   IonButton,
   IonTitle,
   IonContent,
-  IonFooter
+  IonFooter,
+  alertController,
+  toastController
 } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 import { ref } from 'vue'
+import { http } from '@/lib/api' // ✅ 공통 HTTP 래퍼 (인터셉터 적용)
 
 const router = useRouter()
+const deleting = ref(false)
 
 /** 뒤로가기 동작 */
 const goBack = () => {
@@ -70,21 +72,40 @@ const goBack = () => {
   router.back()
 }
 
-/** 탈퇴 처리 진행 상태 */
-const deleting = ref(false)
+/** 확인 다이얼로그 */
+async function confirmDelete(): Promise<boolean> {
+  const alert = await alertController.create({
+    header: '정말 탈퇴하시겠습니까?',
+    message: '탈퇴 신청 시 계정이 비활성화되고, 유예기간(예: 14일) 후 영구 삭제됩니다.',
+    buttons: [
+      { text: '취소', role: 'cancel' },
+      { text: '확인', role: 'confirm' },
+    ],
+  })
+  await alert.present()
+  const { role } = await alert.onDidDismiss()
+  return role === 'confirm'
+}
+
+/** 토스트 메시지 */
+async function showToast(msg: string) {
+  const toast = await toastController.create({
+    message: msg,
+    duration: 2000,
+  })
+  await toast.present()
+}
 
 /**
  * ✅ 탈퇴 버튼 클릭 핸들러
  * - 1) 사용자 확인(confirm)
- * - 2) /api/account/delete-request (POST, credentials 포함) 호출
- * - 3) 성공 시 안내(alert) 후 로그인 화면으로 이동 (세션 만료 고려)
- * - 4) 실패/오류는 alert + 콘솔 로그
+ * - 2) /api/account/delete-request (POST) 호출
+ * - 3) 성공 시 안내(toast) 후 전용 안내 화면으로 이동
+ * - 4) 실패/오류는 toast + 콘솔 로그
  */
 const onClickDelete = async () => {
   console.log('[Delete] 버튼 클릭')
-  const confirmed = window.confirm(
-    '정말 탈퇴하시겠습니까?\n탈퇴 신청 시 계정이 비활성화되고, 유예기간(예: 14일) 후 영구 삭제됩니다.'
-  )
+  const confirmed = await confirmDelete()
   if (!confirmed) {
     console.log('[Delete] 사용자가 취소함')
     return
@@ -92,34 +113,18 @@ const onClickDelete = async () => {
 
   deleting.value = true
   try {
-    console.log('[Delete] 서버 요청 시작: POST /api/account/delete-request')
-    const res = await fetch('/api/account/delete-request', {
-      method: 'POST',
-      credentials: 'include', // 세션 쿠키 포함
-      headers: { 'Content-Type': 'application/json' }
-    })
+    const { data } = await http.post('/api/account/delete-request', {})
+    const msg = data?.message || data?.data?.message || '탈퇴가 신청되었습니다.'
+    await showToast(msg)
 
-    // 응답 안전 파싱
-    const raw = await res.text()
-    let data: any = null
-    try { data = JSON.parse(raw) } catch { data = { message: raw } }
-
-    if (!res.ok) {
-      console.error('[Delete] 서버 에러', res.status, data)
-      alert(`탈퇴 신청 실패 (${res.status})\n${data?.error || data?.message || '잠시 후 다시 시도해주세요.'}`)
-      return
-    }
-
-    console.log('[Delete] 성공 응답', data)
-    alert(data?.message || '탈퇴가 신청되었습니다.')
-    // 로컬 데이터 정리(선택)
-    try { localStorage.clear(); sessionStorage.clear() } catch (e) { console.warn('[Delete] storage clear 실패', e) }
-
-    // 로그인 화면으로 이동 (라우트는 프로젝트에 맞게 조정)
-    router.replace('/login').catch(() => router.replace('/'))
-  } catch (e) {
-    console.error('[Delete] 네트워크 오류', e)
-    alert('네트워크 오류로 탈퇴 신청에 실패했습니다. 인터넷 연결을 확인 후 다시 시도해주세요.')
+    // ✅ 전용 안내 화면으로 이동
+    router.replace('/account/deletion-pending')
+  } catch (e: any) {
+    console.error('[Delete] 요청 실패', e)
+    const status = e?.response?.status
+    const m = e?.response?.data?.error || e?.response?.data?.message || e?.message
+    if (status && m) await showToast(`탈퇴 신청 실패 (${status}) ${m}`)
+    else await showToast('네트워크 오류로 탈퇴 신청에 실패했습니다.')
   } finally {
     deleting.value = false
     console.log('[Delete] 처리 종료')

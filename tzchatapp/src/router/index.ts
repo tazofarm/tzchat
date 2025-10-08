@@ -1,43 +1,50 @@
 // src/router/index.ts
-// ----------------------------------------------------------
-// 라우터 설정 (Vue Router v4)
-// - 전역 가드에서 /me 호출 시 반드시 공통 axios 인스턴스 사용
-//   (상대경로 fetch 사용 금지: dev 서버(8081)로 붙어 500/401 유발)
-// ----------------------------------------------------------
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import api, { getAgreementStatus } from '@/lib/api'
 
-// ✅ 공통 Axios 인스턴스
-//   - baseURL: 서버 오리진 (⚠️ '/api' 미포함)
-//   - 호출 시 경로는 항상 '/api/...' 로 명시
-import api from '@/lib/api' // 반드시 이걸로 /me 호출
+import {
+  modalController,
+  actionSheetController,
+  alertController,
+  loadingController,
+  popoverController,
+  pickerController,
+  toastController,
+} from '@ionic/vue'
 
-// 기본 페이지
 import LoginPage from '@/views/LoginPage.vue'
+import LoginTestPage from '@/views/LoginTestPage.vue'
+import LoginMainPage from '@/views/LoginMainPage.vue'
 import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
-import Success from '@/components/03050_pages/Success.vue'
 
-
-
-// 각 페이지 컴포넌트 import
 import Page0 from '@/components/03050_pages/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
 import Page2 from '@/components/03050_pages/2_target.vue'
-import Page3 from '@/components/04410_Page4_chatroom/PageList.vue'
+import Page3 from '@/components/03050_pages/3_list.vue'
 import Page4 from '@/components/03050_pages/4_chatroom.vue'
 import Page5 from '@/components/03050_pages/5_test.vue'
 import Page6 from '@/components/03050_pages/6_profile.vue'
 import Page7 from '@/components/03050_pages/7_setting.vue'
-
 import Page91 from '@/components/03050_pages/9_test1.vue'
 import Page92 from '@/components/03050_pages/9_test2.vue'
 import Page93 from '@/components/03050_pages/9_test3.vue'
 
-// minipage
-import PageuserProfile from '@/components/02010_minipage/PageuserProfile.vue'
-import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
 
-// setting
+
+import Page31 from '@/components/04310_Page3_list/Page_Block.vue'
+import Page32 from '@/components/04310_Page3_list/Page_Friend.vue'
+import Page33 from '@/components/04310_Page3_list/Page_Receive.vue'
+import Page34 from '@/components/04310_Page3_list/Page_Send.vue'
+
+
+
+import PageuserProfile from '@/components/02010_minipage/mini_profile/PageuserProfile.vue'
+import PagepremiumProfile from '@/components/02010_minipage/mini_emergency/emergencyUserProfile.vue'
+
+import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
+import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage.vue'
+
 import setting01 from '@/components/04710_Page7_setting/setlist/0001_s.vue'
 import setting02 from '@/components/04710_Page7_setting/setlist/0002_s.vue'
 import setting03 from '@/components/04710_Page7_setting/setlist/0003_s.vue'
@@ -59,7 +66,6 @@ import setting18 from '@/components/04710_Page7_setting/setlist/0018_s.vue'
 import setting19 from '@/components/04710_Page7_setting/setlist/0019_s.vue'
 import setting20 from '@/components/04710_Page7_setting/setlist/0020_s.vue'
 
-// ✅ 관리자 대시보드(홈 아래 child 라우트로 표시)
 import AdminDashboard from '@/components/04910_Page9_Admin/adminlist/0000_AdminDashboard.vue'
 import Admin01 from '@/components/04910_Page9_Admin/adminlist/0001_a.vue'
 import Admin02 from '@/components/04910_Page9_Admin/adminlist/0002_a.vue'
@@ -82,110 +88,68 @@ import Admin18 from '@/components/04910_Page9_Admin/adminlist/0018_a.vue'
 import Admin19 from '@/components/04910_Page9_Admin/adminlist/0019_a.vue'
 import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 
+// ✅ 동의 전용 페이지
+const AgreementPage = () => import('@/legalpage/AgreementPage.vue')
 
+// (문서 목록/단일)
+const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
+const LegalContainer = () => import('@/legalpage/LegalContainer.vue')
 
+// ✅ 탈퇴신청 전용 페이지
+const DeletionPending = () => import('@/views/DeletionPending.vue')
 
-
- // 정책
-import Legalindex from '@/views_legals/legals/000_index.vue'
-import Legalprivacy from '@/views_legals/legals/010_privacy.vue'
-import Legalterms from '@/views_legals/legals/020_terms.vue'
-import Legallocation from '@/views_legals/legals/030_location.vue'
-import Legaldeleteaccount from '@/views_legals/legals/040_delete-account.vue'
-import Legalyouth from '@/views_legals/legals/050_youth.vue'
-import Legaleula from '@/views_legals/legals/060_eula.vue'
-import Legalcookies from '@/views_legals/legals/070_cookies.vue'
-import Legaldataretention from '@/views_legals/legals/080_data-retention.vue'
-import Legalmarketingconsent from '@/views_legals/legals/090_marketing-consent.vue'
-import Legalthirdparties from '@/views_legals/legals/100_third-parties.vue'
-import Legalprocessors from '@/views_legals/legals/110_processors.vue'
-import Legalopensource from '@/views_legals/legals/120_opensource.vue'
-import Legalcommunity from '@/views_legals/legals/130_community.vue'
-import Legalreportblock from '@/views_legals/legals/140_report-block.vue'
-
-
-
-
-
-
-
-
-// ----------------------------------------------------------
-// 라우트 정의
-// - /home 은 인증 필요(meta.requiresAuth: true)
-// - /home/admin 은 인증 + 마스터 권한 필요(meta.requiresMaster: true)
-// ----------------------------------------------------------
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
   { path: '/signup', component: SignupPage },
+  { path: '/loginmain', component: LoginMainPage },
+  { path: '/logintester', component: LoginTestPage },
 
-  // 정책
-  { path: '/legals/index', component: Legalindex },
-  { path: '/legals/privacy', component: Legalprivacy },
-  { path: '/legals/terms', component: Legalterms },
-  { path: '/legals/location', component: Legallocation },
-  { path: '/legals/delete-account', component: Legaldeleteaccount },
-  { path: '/legals/youth', component: Legalyouth },
-  { path: '/legals/eula', component: Legaleula },
-  { path: '/legals/cookies', component: Legalcookies },
-  { path: '/legals/data-retention', component: Legaldataretention },
-  { path: '/legals/marketing-consent', component: Legalmarketingconsent },
-  { path: '/legals/third-parties', component: Legalthirdparties },
-  { path: '/legals/processors', component: Legalprocessors },
-  { path: '/legals/opensource', component: Legalopensource },
-  { path: '/legals/community', component: Legalcommunity },
-  { path: '/legals/report-block', component: Legalreportblock },
+  // ✅ 외부 공개 라우트(로그인 불필요)
+  { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage },
+  { path: '/legals/v2', name: 'LegalDocsV2Public', component: LegalDocs },
+  { path: '/legals/v2/:slug', name: 'LegalPageV2Public', component: LegalContainer, props: true },
 
+  // ✅ 탈퇴신청 전용(로그인 필요)
+  { path: '/account/deletion-pending', name: 'AccountDeletionPending', component: DeletionPending, meta: { requiresAuth: true } },
 
   {
     path: '/home',
     component: HomePage,
-    meta: { requiresAuth: true }, // 🔐 인증 필요 (자식에게도 적용)
+    meta: { requiresAuth: true },
     children: [
-      { path: '', component: Success },
-      { path: 'login-success', component: Success },
+      { path: '', component: Page6 },
 
- 
-      // 정책
-      { path: 'legals/index', component: Legalindex },
-      { path: 'legals/privacy', component: Legalprivacy },
-      { path: 'legals/terms', component: Legalterms },
-      { path: 'legals/location', component: Legallocation },
-      { path: 'legals/delete-account', component: Legaldeleteaccount },
-      { path: 'legals/youth', component: Legalyouth },
-      { path: 'legals/eula', component: Legaleula },
-      { path: 'legals/cookies', component: Legalcookies },
-      { path: 'legals/data-retention', component: Legaldataretention },
-      { path: 'legals/marketing-consent', component: Legalmarketingconsent },
-      { path: 'legals/third-parties', component: Legalthirdparties },
-      { path: 'legals/processors', component: Legalprocessors },
-      { path: 'legals/opensource', component: Legalopensource },
-      { path: 'legals/community', component: Legalcommunity },
-      { path: 'legals/report-block', component: Legalreportblock },
-
-
-      // 0page ~ 7page
       { path: '0page', component: Page0 },
       { path: '1page', component: Page1 },
       { path: '2page', component: Page2 },
       { path: '3page', component: Page3 },
+
       { path: '4page', component: Page4 },
       { path: '5page', component: Page5 },
       { path: '6page', component: Page6 },
       { path: '7page', component: Page7 },
-
       { path: '91page', component: Page91 },
       { path: '92page', component: Page92 },
       { path: '93page', component: Page93 },
 
+      { path: '31page', component: Page31 },
+      { path: '32page', component: Page32 },
+      { path: '33page', component: Page33 },
+      { path: '34page', component: Page34 }, 
+
+
       // minipage
-      { path: 'user/:id', component: PageuserProfile },
-      { path: 'chat/:id', component: ChatRoomPage },
+      { path: 'user/:id', component: PageuserProfile, props: true },
+      { path: 'user/premium/:id', component: PagepremiumProfile, props: true },
+      { path: 'chat/:id', component: ChatRoomPage, props: true },
 
       // setting
       { path: 'setting/0001', component: setting01 },
-      { path: 'setting/0002', component: setting02 },
+      { path: 'setting/0002', component: setting02  },
+      { path: 'setting/0002/write', component: NoticeEditPage, meta: { requiresMaster: true }  },
+      { path: 'setting/0002/edit/:id', component: NoticeEditPage, meta: { requiresMaster: true }, props: true },
+
       { path: 'setting/0003', component: setting03 },
       { path: 'setting/0004', component: setting04 },
       { path: 'setting/0005', component: setting05 },
@@ -205,7 +169,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'setting/0019', component: setting19 },
       { path: 'setting/0020', component: setting20 },
 
-      // admin page (Home 아래에 표시)
+      // ✅ 관리자
       { path: 'admin', component: AdminDashboard, meta: { requiresMaster: true } },
       { path: 'admin/0001', component: Admin01, meta: { requiresMaster: true } },
       { path: 'admin/0002', component: Admin02, meta: { requiresMaster: true } },
@@ -227,105 +191,135 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0018', component: Admin18, meta: { requiresMaster: true } },
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
+
+      // ✅ 관리자 약관/정책 관리
+      {
+        path: 'admin/terms/:slug?',
+        name: 'AdminTerms',
+        component: () => import('@/legalpage/admin/TermsAdmin.vue'),
+        alias: ['/admin/terms/:slug?'],
+        meta: { requiresAuth: true, requiresMaster: true },
+      },
+
+      // ✅ 내부(로그인 후) 법적 문서 라우트 — 이름을 외부와 분리
+      { path: 'legals/v2', name: 'LegalDocsV2Internal', component: LegalDocs },
+      { path: 'legals/v2/:slug', name: 'LegalPageV2Internal', component: LegalContainer, props: true },
     ],
   },
 
-
-
-
-
   // 404
-  { path: '/:pathMatch(.*)*', name: 'NotFound', component: Success },
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: Page6 },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  // UX: 라우트 이동 시 최상단으로 스크롤
-  scrollBehavior() {
-    return { top: 0 }
-  },
+  scrollBehavior() { return { top: 0 } },
 })
 
-// ----------------------------------------------------------
-// /me 응답 정규화 헬퍼
-// - 백엔드가 다양한 형태로 응답하는 경우를 모두 수용
-//   예) {ok:true,user:{...}} | {success:true,data:{user:{...}}} | {user:{...}} | {username,...}
-// ----------------------------------------------------------
 function parseMePayload(raw: any) {
-  const user =
-    raw?.user ??
-    raw?.data?.user ??
-    // 일부 구현은 사용자 객체 자체를 최상위로 반환하기도 함
+  const user = raw?.user ?? raw?.data?.user ??
     (raw && typeof raw === 'object' && ('username' in raw || '_id' in raw) ? raw : null)
-
-  const ok =
-    raw?.ok === true ||
-    raw?.success === true ||
-    !!user
-
+  const ok = raw?.ok === true || raw?.success === true || !!user
   return { ok, user }
 }
 
-// ----------------------------------------------------------
-// 전역 네비게이션 가드
-// - meta.requiresAuth: 인증 필요
-// - meta.requiresMaster: 마스터 권한 필요
-// ----------------------------------------------------------
-router.beforeEach(async (to, _from, next) => {
-  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
-  const requiresMaster = to.matched.some((record) => record.meta.requiresMaster)
+// 약관/동의 화면 화이트리스트
+function isLegalRoute(path: string) {
+  return path.startsWith('/legal/consent') ||
+         path.startsWith('/legals/v2') ||
+         path.includes('/home/legals/v2')
+}
 
-  // 공개 라우트(로그인/회원가입/법적안내/기타) → 통과
+// ✅ 남아있는 모든 Ionic 오버레이 강제 정리
+async function dismissAllOverlays() {
+  try {
+    for (let i = 0; i < 3; i++) {
+      await Promise.allSettled([
+        modalController.dismiss(),
+        actionSheetController.dismiss(),
+        alertController.dismiss(),
+        loadingController.dismiss(),
+        popoverController.dismiss(),
+        pickerController.dismiss(),
+        toastController.dismiss(),
+      ])
+    }
+  } catch { /* no-op */ }
+}
+
+// --- 추가: 계정 상태 조회 함수
+async function fetchAccountStatus(): Promise<'active'|'pendingDeletion'|'unknown'> {
+  try {
+    const res = await api.get('/api/account/status', { withCredentials: true })
+    const status = res?.data?.status || res?.data?.data?.status
+    return status === 'pendingDeletion' ? 'pendingDeletion' : 'active'
+  } catch {
+    return 'unknown'
+  }
+}
+
+router.beforeEach(async (to, _from, next) => {
+  const requiresAuth = to.matched.some(r => r.meta.requiresAuth)
+  const requiresMaster = to.matched.some(r => r.meta.requiresMaster)
+
+  // 외부 약관/문서 경로는 로그인 없이 통과
+  if (isLegalRoute(to.fullPath) && !requiresAuth && !requiresMaster) {
+    return next()
+  }
+
   if (!requiresAuth && !requiresMaster) return next()
 
   try {
     console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
-
-    // ✅ 공통 axios 인스턴스 사용
     const res = await api.get('/api/me', { withCredentials: true })
     const { ok, user: me } = parseMePayload(res?.data)
-
     if (!ok || !me) {
-      console.warn('⛔ [가드] /me 인증 실패 → /login 리디렉션', {
-        to: to.fullPath,
-        sample: typeof res?.data === 'object' ? Object.keys(res.data) : typeof res?.data,
-      })
       return next({ path: '/login', query: { redirect: to.fullPath } })
     }
 
-    console.log('✅ [가드] 로그인 확인:', {
-      username: me?.username,
-      nickname: me?.nickname,
-      role: me?.role,
-    })
+    // 1) 마스터 권한 확인
+    const role = String(me?.role || '').toLowerCase()
+    if (requiresMaster && role !== 'master') {
+      return next('/home')
+    }
 
-    // 마스터 요구 라우트 검사
-    if (requiresMaster) {
-      if (me?.role === 'master') {
-        console.log('✅ [가드] 마스터 권한 통과')
-        return next()
-      } else {
-        console.warn('⛔ [가드] 마스터 권한 부족 → /home 리디렉션', { role: me?.role })
-        return next('/home')
+    // 2) 계정 상태 확인 (탈퇴신청이면 전용 페이지로)
+    const status = await fetchAccountStatus()
+    const isOnDeletionPage = to.name === 'AccountDeletionPending' || to.path === '/account/deletion-pending'
+    if (status === 'pendingDeletion' && !isOnDeletionPage) {
+      return next({ name: 'AccountDeletionPending', replace: true })
+    }
+
+    // 3) (탈퇴신청이 아닐 때만) 동의 미완료 시, 공개 동의 페이지로 우회
+    if (status !== 'pendingDeletion' && !isLegalRoute(to.fullPath)) {
+      try {
+        const gs = await getAgreementStatus() // { data: { pending: [...] } }
+        const pending: any[] = gs?.data?.pending ?? []
+        if (Array.isArray(pending) && pending.length > 0) {
+          return next({
+            name: 'AgreementPagePublic',
+            query: { return: to.fullPath },
+            replace: true,
+          })
+        }
+      } catch (e) {
+        console.error('⚠️ 동의 상태 조회 실패(보수적으로 통과):', e)
       }
     }
 
-    // 일반 인증만 필요한 경우
     return next()
   } catch (err: any) {
     const status = err?.response?.status
-    const url = `${err?.config?.baseURL || ''}${err?.config?.url || ''}`
-    console.error('❌ [가드] /me 확인 오류', { status, url, errMessage: err?.message })
-
     if (status === 401) {
-      console.warn('⛔ [가드] 401 Unauthorized → /login 리디렉션', { to: to.fullPath })
       return next({ path: '/login', query: { redirect: to.fullPath } })
     }
-
-    // 5xx 등 서버 오류: 정책상 로그인 보호 페이지에서는 보수적으로 로그인 페이지로 보냄
     return next({ path: '/login', query: { redirect: to.fullPath, e: status || '500' } })
   }
+})
+
+router.afterEach(async () => {
+  await dismissAllOverlays()
 })
 
 export default router

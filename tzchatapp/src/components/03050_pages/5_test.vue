@@ -90,7 +90,7 @@ import { EffectCards } from 'swiper/modules'
 import 'swiper/css'
 import 'swiper/css/effect-cards'
 
-import ProfilePhotoViewer from '@/components/02010_minipage/ProfilePhotoViewer.vue'
+import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
 
 const swiperModules = [EffectCards]
 const router = useRouter()

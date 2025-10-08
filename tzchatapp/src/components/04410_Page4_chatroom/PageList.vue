@@ -13,6 +13,60 @@
 
   <!-- 다크 배경 유지용 스코프 -->
   <div class="lists-wrapper fl-scope" role="region" aria-label="친구 신청 및 리스트">
+   
+      <!-- 📥 받은 친구 신청 -->
+    <div class="list-section">
+      <div
+        class="section-header toggleable"
+        role="button"
+        tabindex="0"
+        :aria-expanded="!collapsedReceived"
+        @click="toggleReceived()"
+        @keydown="toggleOnKeydown($event, toggleReceived)"
+      >
+        <ion-icon :icon="icons.chevronForwardOutline" v-if="collapsedReceived" class="section-toggle-icon" aria-hidden="true" />
+        <ion-icon :icon="icons.chevronDownOutline" v-else class="section-toggle-icon" aria-hidden="true" />
+        <h3 class="section-title">
+          <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
+          받은 친구 신청
+          <span class="count">({{ receivedRequests.length }} / 30)</span>
+          <span v-if="anyNewReceived && receivedRequests.length" class="badge-new" aria-label="새 항목 있음">ⓝ</span>
+        </h3>
+      </div>
+
+      <div class="list-scroll card" v-show="!collapsedReceived">
+        <ul v-if="receivedRequests.length">
+          <li
+            v-for="r in receivedRequests"
+            :key="r._id"
+            class="row"
+            role="button"
+            tabindex="0"
+            @click="handleClickAndClearNew('received', r)"
+            @keydown="rowKeydown($event, () => handleClickAndClearNew('received', r))"
+          >
+            <div class="user-row">
+              <ion-icon :icon="icons.mailOutline" class="row-icon" aria-hidden="true" />
+              <div class="user-info">
+                <div class="user-name">
+                  {{ r.from.nickname }}
+                  <span v-if="r._isNew" class="badge-new" aria-label="신규">ⓝ</span>
+                </div>
+                <div class="user-meta">출생년도: {{ r.from.birthyear }} / 성별: {{ r.from.gender === 'man' ? '남자' : '여자' }}</div>
+              </div>
+              <ion-button
+                size="small"
+                color="primary"
+                class="btn-gold-solid"
+                @click.stop="openMessageModal(r)"
+              >인사말보기</ion-button>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="empty">받은 친구 신청이 없습니다.</p>
+      </div>
+    </div>
+ 
     <!-- 📤 보낸 친구 신청 -->
     <div class="list-section">
       <div
@@ -67,58 +121,6 @@
       </div>
     </div>
 
-    <!-- 📥 받은 친구 신청 -->
-    <div class="list-section">
-      <div
-        class="section-header toggleable"
-        role="button"
-        tabindex="0"
-        :aria-expanded="!collapsedReceived"
-        @click="toggleReceived()"
-        @keydown="toggleOnKeydown($event, toggleReceived)"
-      >
-        <ion-icon :icon="icons.chevronForwardOutline" v-if="collapsedReceived" class="section-toggle-icon" aria-hidden="true" />
-        <ion-icon :icon="icons.chevronDownOutline" v-else class="section-toggle-icon" aria-hidden="true" />
-        <h3 class="section-title">
-          <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
-          받은 친구 신청
-          <span class="count">({{ receivedRequests.length }} / 30)</span>
-          <span v-if="anyNewReceived && receivedRequests.length" class="badge-new" aria-label="새 항목 있음">ⓝ</span>
-        </h3>
-      </div>
-
-      <div class="list-scroll card" v-show="!collapsedReceived">
-        <ul v-if="receivedRequests.length">
-          <li
-            v-for="r in receivedRequests"
-            :key="r._id"
-            class="row"
-            role="button"
-            tabindex="0"
-            @click="handleClickAndClearNew('received', r)"
-            @keydown="rowKeydown($event, () => handleClickAndClearNew('received', r))"
-          >
-            <div class="user-row">
-              <ion-icon :icon="icons.mailOutline" class="row-icon" aria-hidden="true" />
-              <div class="user-info">
-                <div class="user-name">
-                  {{ r.from.nickname }}
-                  <span v-if="r._isNew" class="badge-new" aria-label="신규">ⓝ</span>
-                </div>
-                <div class="user-meta">출생년도: {{ r.from.birthyear }} / 성별: {{ r.from.gender === 'man' ? '남자' : '여자' }}</div>
-              </div>
-              <ion-button
-                size="small"
-                color="primary"
-                class="btn-gold-solid"
-                @click.stop="openMessageModal(r)"
-              >인사말보기</ion-button>
-            </div>
-          </li>
-        </ul>
-        <p v-else class="empty">받은 친구 신청이 없습니다.</p>
-      </div>
-    </div>
 
     <!-- 👫 친구 리스트 -->
     <div class="list-section">

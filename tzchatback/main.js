@@ -6,12 +6,24 @@ const http = require('http');
 const server = http.createServer(app);
 const path = require('path');
 const fs = require('fs');
-
+require('module-alias/register');
 app.disable('x-powered-by');
 
 const PORT = Number(process.env.PORT || 2000);
 const HOST = process.env.HOST || '0.0.0.0';
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/tzchat';
+
+// ✅ Mongo 연결 문자열 환경변수 "통일"
+// - 우선순위: MONGODB_URI > MONGO_URI > MONGO_URL > 기본값
+const MONGO_URI =
+  process.env.MONGODB_URI ||
+  process.env.MONGO_URI ||
+  process.env.MONGO_URL ||
+  'mongodb://localhost:27017/tzchat';
+console.log(
+  '🗄️  Mongo URI env key =',
+  process.env.MONGODB_URI ? 'MONGODB_URI' : (process.env.MONGO_URI ? 'MONGO_URI' : (process.env.MONGO_URL ? 'MONGO_URL' : '(default)'))
+);
+
 const SESSION_SECRET = process.env.SESSION_SECRET || 'tzchatsecret';
 const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
 
@@ -39,7 +51,7 @@ function safeMountRouter(mountPath, modulePath, exact = true) {
 }
 
 // ⚠️ (신규) 채팅방 참여자 조회용 모델 로드
-const ChatRoom = require('./models/ChatRoom');
+const ChatRoom = require('./models/Chat/ChatRoom');
 
 // =======================================
 // 0) 파서 & 정적 경로 & 기본 로깅
@@ -157,6 +169,9 @@ mongoose
   .catch((err) => console.error('❌ MongoDB 연결 실패:', err));
 
 app.set('trust proxy', 1);
+
+// ✅ DB 연결 직후 (mongoose.connect 다음)
+require('./models');   // index.js에서 모든 모델을 로드
 
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
@@ -280,6 +295,11 @@ app.get('/api/health', (req, res) => {
 // =======================================
 // 2) 라우터 등록
 // =======================================
+
+// ✅ 라우터 일괄 등록
+require('./routes')(app);
+
+/*
 safeMountRouter('/api/admin', './routes/adminRouter');
 safeMountRouter('/api', './routes/authRouter');
 safeMountRouter('/api', './routes/chatRouter');
@@ -290,6 +310,8 @@ safeMountRouter('/api/push', './routes/pushRouter');
 safeMountRouter('/api', './routes/supportRouter');
 safeMountRouter('/api', './routes/targetRouter');
 safeMountRouter('/api', './routes/userRouter');
+*/
+
 
 // =======================================
 // 3) Socket.IO 설정
@@ -529,6 +551,17 @@ io.on('connection', (socket) => {
     console.error('❌ 소켓 connection 핸들러 오류:', err);
   }
 });
+
+
+// 5) ★ 스케줄러 로드 (앱 구동 시 1회)
+//    경로는 엔트리 파일 기준 상대경로입니다.
+//    엔트리 파일이 /server 폴더에 있다면 '../jobs/retentionWorker' 로 조정하세요.
+require('./jobs/retentionWorker');
+
+
+
+
+
 
 // =======================================
 // 5) 서버 실행 + 프로세스 레벨 에러 로그

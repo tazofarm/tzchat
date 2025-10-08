@@ -11,158 +11,54 @@
       </ion-modal>
 
       <div class="ion-padding">
-        <!-- ===== 상단 토글(한 줄) ===== -->
-        <div class="emergency-toggle" role="group" aria-label="Emergency Matching Toggle">
-          <!-- 좌측: 타이틀 -->
-          <div class="toggle-title">
-            <ion-icon :icon="icons.flameOutline" aria-hidden="true" class="title-icon" />
-            <ion-label class="black-text">Speed Matching</ion-label>
-          </div>
+        <!-- ===== 분리된 Speed Matching 헤더 사용 ===== -->
+        <EmergencySwitch
+          :emergencyOn="emergencyOn"
+          :formattedTime="formattedTime"
+          @toggle="onHeaderToggle"
+        />
 
-          <!-- 가운데: 남은 시간 -->
-          <div v-if="emergencyOn" class="inline-timer black-text" aria-live="polite">
-            <ion-icon :icon="icons.timerOutline" aria-hidden="true" class="inline-icon" />
-            <span class="timer-text"> {{ formattedTime }}</span>
-          </div>
-
-          <!-- 우측: 커스텀 캡슐 스위치 -->
-          <button
-            type="button"
-            class="pill-switch"
-            :class="{ on: emergencyOn, off: !emergencyOn }"
-            role="switch"
-            :aria-checked="emergencyOn ? 'true' : 'false'"
-            aria-label="Speed Matching On/Off"
-            @click="onPillToggleClick"
-          >
-            <span class="knob" aria-hidden="true"></span>
-            <span class="pill-text">{{ emergencyOn ? 'ON' : 'OFF' }}</span>
-          </button>
-        </div>
-
-        <!-- ===== 목록 ===== -->
-        <ion-list v-if="!isLoading && emergencyUsers.length" class="users-list">
-          <ion-item
-            v-for="user in emergencyUsers"
-            :key="user._id"
-            :button="true"
-            :detail="true"
-            class="user-item"
-            @click="goToUserProfile(user._id)"
-          >
-            <div class="list-avatar" slot="start">
-              <ProfilePhotoViewer
-                :userId="user._id"
-                :gender="user.gender"
-                :size="90"
-              />
-            </div>
-
-            <ion-label class="black-text">
-              <h3 class="title">
-                <span class="nickname">{{ user.nickname }}</span>
-              </h3>
-
-              <p class="meta">
-                <ion-icon :icon="icons.calendarOutline" class="row-icon" aria-hidden="true" />
-                출생년도 : {{ user.birthyear }}
-              </p>
-
-              <p class="meta">
-                <ion-icon
-                  :icon="user.gender === 'man' ? icons.maleOutline : icons.femaleOutline"
-                  class="row-icon"
-                  aria-hidden="true"
-                />
-                성별 : {{ user.gender === 'man' ? '남자' : '여자' }}
-              </p>
-
-              <p class="meta">
-                <ion-icon :icon="icons.locationOutline" class="row-icon" aria-hidden="true" />
-                지역 : {{ user.region1 }} / {{ user.region2 }}
-              </p>
-
-              <p class="meta">
-                <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
-                특징 : {{ user.preference }}
-              </p>
-
-              <p class="meta">
-                <ion-icon :icon="icons.timeOutline" class="row-icon" aria-hidden="true" />
-                최근 접속 : 회원전용
-              </p>
-
-              <p class="meta">
-                <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
-                멘션 : {{ user.selfintro }}
-              </p>
-            </ion-label>
-          </ion-item>
-        </ion-list>
-
-        <ion-text color="medium" v-else-if="!isLoading && !emergencyUsers.length">
-          <p class="ion-text-center">현재 긴급 사용자 없음</p>
-        </ion-text>
-
-        <ion-text color="medium" v-else>
-          <p class="ion-text-center">사용자 정보를 불러오는 중입니다...</p>
-        </ion-text>
+        <!-- ===== 공통 리스트 컴포넌트 ===== -->
+        <UserList
+          :users="emergencyUsers"
+          :isLoading="isLoading"
+          emptyText="현재 긴급 사용자 없음"
+          @select="u => goToUserProfile(u._id)"
+        />
       </div>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup>
+/* -----------------------------------------------------------
+   Emergency (= Target 공통 리스트 + EmergencySwitch 헤더)
+----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
-import {
-  IonPage, IonContent, IonModal,
-  IonText, IonList, IonItem, IonLabel, IonIcon
-} from '@ionic/vue'
-import {
-  flameOutline,
-  calendarOutline,
-  maleOutline,
-  femaleOutline,
-  locationOutline,
-  chatbubblesOutline,
-  timeOutline,
-  timerOutline,
-  shieldCheckmarkOutline
-} from 'ionicons/icons'
 import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
-import ProfilePhotoViewer from '@/components/02010_minipage/ProfilePhotoViewer.vue'
-
-import { applyTotalFilter } from '@/components/04210_Page2_target/Filter_total'
+import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
+import EmergencySwitch from '@/components/02010_minipage/mini_emergency/emergencySwitch.vue'
+//필터
+import { applyTotalFilter } from '@/components/04210_Page2_target/total/Filter_total'
 import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
 import { connectSocket as connectSharedSocket } from '@/lib/socket'
 
-const nickname = ref('')
-const emergencyOn = ref(false)
+import { IonPage, IonContent, IonModal } from '@ionic/vue'
+
+/* ===== 상태 ===== */
 const emergencyUsers = ref([])
 const isLoading = ref(true)
+const emergencyOn = ref(false)
 const remainingSeconds = ref(0)
 const currentUser = ref({})
-let countdownInterval = null
-const router = useRouter()
 const showAdvModal = ref(false)
+const router = useRouter()
 const socket = ref(null)
-
 const excludeIds = ref(new Set())
 
-const icons = {
-  flameOutline,
-  calendarOutline,
-  maleOutline,
-  femaleOutline,
-  locationOutline,
-  chatbubblesOutline,
-  timeOutline,
-  timerOutline,
-  shieldCheckmarkOutline,
-}
-
+/* ===== 타이머 포맷 ===== */
 const formattedTime = computed(() => {
   const sec = remainingSeconds.value
   const h = Math.floor(sec / 3600)
@@ -174,21 +70,21 @@ const formattedTime = computed(() => {
   return `${s}초`
 })
 
+/* ===== 내비 ===== */
 const goToUserProfile = (userId) => {
-  if (!userId) return console.warn('❗ userId 없음')
+  if (!userId) return
   router.push(`/home/user/${userId}`)
 }
 
-/* 커스텀 캡슐 클릭 핸들러 */
-const onPillToggleClick = async () => {
-  const newState = !emergencyOn.value
-  if (newState) showAdvModal.value = true
-  await updateEmergencyState(newState)
+/* ===== 헤더 토글 핸들러(자식 컴포넌트에서 emit) ===== */
+const onHeaderToggle = async (next) => {
+  if (next) showAdvModal.value = true
+  await updateEmergencyState(next)
 }
-
 const closeAdv = () => { showAdvModal.value = false }
 const onAdvDidDismiss = () => { showAdvModal.value = false }
 
+/* ===== Emergency 상태/목록 ===== */
 function isEmergencyActive(u) {
   try {
     const em = u?.emergency || {}
@@ -196,15 +92,12 @@ function isEmergencyActive(u) {
       return em.isActive === true && em.remainingSeconds > 0
     }
     if (em.isActive && em.activatedAt) {
-      const activatedAt = new Date(em.activatedAt).getTime()
-      const now = Date.now()
       const ONE_HOUR = 60 * 60 * 1000
-      return now - activatedAt < ONE_HOUR
+      return Date.now() - new Date(em.activatedAt).getTime() < ONE_HOUR
     }
     return false
   } catch { return false }
 }
-
 const INCLUDE_ME_WHEN_ON = true
 const APPLY_FILTERS_TO_ME = false
 
@@ -257,7 +150,7 @@ const updateEmergencyState = async (newState) => {
           if (pass) upsertMeToTop(me)
         }
         await nextTick()
-        setTimeout(() => startCountdown(remaining), 80)
+        startCountdown(remaining)
       } else {
         await updateEmergencyState(false)
       }
@@ -327,13 +220,45 @@ const fetchEmergencyUsers = async () => {
   }
 }
 
+/* ===== 소켓 ===== */
+function initSocket() {
+  try {
+    const s = connectSharedSocket()
+    socket.value = s
+    s.on('connect', () => { try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {} })
+    s.on('emergency:refresh', fetchEmergencyUsers)
+    s.on('emergency:userOn', fetchEmergencyUsers)
+    s.on('emergency:userOff', fetchEmergencyUsers)
+    s.on('user:lastLogin', async ({ userId, last_login }) => {
+      let found = false
+      emergencyUsers.value = emergencyUsers.value.map(u => {
+        if (u._id === userId) { found = true; return { ...u, last_login } }
+        return u
+      })
+      if (!found) await fetchEmergencyUsers()
+    })
+  } catch (e) {
+    console.error('❌ [socket] 초기화 실패:', e)
+  }
+}
+function cleanupSocket() {
+  try {
+    if (socket.value) {
+      try { socket.value.emit('unsubscribe', { room: 'emergency' }) } catch (_) {}
+      socket.value.disconnect()
+    }
+  } finally { socket.value = null }
+}
+
+/* ===== 타이머 ===== */
+let countdownInterval = null
 const startCountdown = (initial) => {
   clearCountdown()
-  let localRemaining = initial
+  let left = initial
   countdownInterval = setInterval(async () => {
-    if (localRemaining > 0) {
-      localRemaining--
-      remainingSeconds.value = localRemaining
+    if (left > 0) {
+      left--
+      remainingSeconds.value = left
     } else {
       clearCountdown()
       await updateEmergencyState(false)
@@ -346,58 +271,18 @@ const clearCountdown = () => {
   remainingSeconds.value = 0
 }
 
-function initSocket() {
-  try {
-    const s = connectSharedSocket()
-    socket.value = s
-
-    s.on('connect', () => {
-      try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {}
-    })
-
-    s.on('emergency:refresh', fetchEmergencyUsers)
-    s.on('emergency:userOn', fetchEmergencyUsers)
-    s.on('emergency:userOff', fetchEmergencyUsers)
-
-    s.on('user:lastLogin', async ({ userId, last_login }) => {
-      let found = false
-      emergencyUsers.value = emergencyUsers.value.map(u => {
-        if (u._id === userId) { found = true; return { ...u, last_login } }
-        return u
-      })
-      if (!found) await fetchEmergencyUsers()
-    })
-
-    s.on('disconnect', () => {})
-    s.on('connect_error', (err) => console.error('❌ [socket] connect_error:', err?.message))
-  } catch (e) {
-    console.error('❌ [socket] 초기화 실패:', e)
-  }
-}
-function cleanupSocket() {
-  try {
-    if (socket.value) {
-      try { socket.value.emit('unsubscribe', { room: 'emergency' }) } catch (_) {}
-      socket.value.disconnect()
-    }
-  } finally {
-    socket.value = null
-  }
-}
-
+/* ===== 라이프사이클 ===== */
 onMounted(async () => {
   try {
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
-    nickname.value = me?.nickname || ''
     emergencyOn.value = me?.emergency?.isActive === true
 
     await fetchRelations()
 
     if (emergencyOn.value && me?.emergency?.remainingSeconds > 0) {
       remainingSeconds.value = me.emergency.remainingSeconds
-      await nextTick()
-      setTimeout(() => startCountdown(remainingSeconds.value), 80)
+      startCountdown(remainingSeconds.value)
     } else if (emergencyOn.value) {
       await updateEmergencyState(false)
     }
@@ -419,7 +304,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* =========================================================
-   Black + Gold Theme (scoped)
+   Black + Gold Theme (리스트 스타일은 UserList.vue에서 관리)
 ========================================================= */
 :root,
 :host {
@@ -435,184 +320,14 @@ onBeforeUnmount(() => {
   --focus: rgba(212, 175, 55, 0.45);
 }
 
-/* 배경 */
 ion-content {
   --background: var(--bg);
   color: var(--text);
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  overscroll-behavior: contain;
 }
 
-/* ===== 상단 토글 한 줄 레이아웃 ===== */
-.emergency-toggle {
-  display: grid;
-  grid-template-columns: 1fr auto auto; /* 타이틀 | 남은시간 | 스위치 */
-  align-items: center;
-  gap: 12px;
-  padding: 6px 2px 10px;
-  border-bottom: 1px solid var(--divider);
-  color: var(--text);
-}
-.toggle-title { display: inline-flex; align-items: center; gap: 8px; }
-.title-icon { font-size: 18px; color: var(--gold); }
-.black-text { color: var(--text-strong); }
-
-/* 가운데: 남은 시간 */
-.inline-timer {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-weight: 800; font-size: 14px; color: var(--text-strong);
-  white-space: nowrap;
-}
-.inline-icon { margin-right: 0; vertical-align: -2px; color: var(--gold); }
-
-/* ========= 우측 커스텀 캡슐 스위치 ========= */
-/* 요구사항: ON(초록)일 때 노브 오른쪽 / OFF(빨강)일 때 노브 왼쪽
-   - 텍스트와 겹치지 않도록 좌우 패딩을 노브 폭만큼 확보
-   - 노브는 세로 가운데 정렬(top:50% + translateY(-50%)) */
-.pill-switch {
-  position: relative;
-  width: 86px;
-  height: 36px;
-  border-radius: 999px;
-  border: 2px solid rgba(0,0,0,0.85);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 2px 10px rgba(0,0,0,0.35);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.18s ease, border-color 0.18s ease;
-  padding: 0 36px; /* ✅ 노브(28px) + 여백(4+4) = 36px, 양쪽 확보 → 텍스트 겹침 방지 */
-  overflow: hidden;
-  line-height: 1;  /* 텍스트 수직정렬 안정화 */
-}
-
-.pill-switch .pill-text {
-  font-weight: 900;
-  letter-spacing: 0.6px;
-  z-index: 1;
-  pointer-events: none;
-  color: #fff;
-  font-size: 14px;
-  white-space: nowrap; /* ✅ 줄바꿈 방지 */
-}
-
-/* 동그라미 노브 */
-.pill-switch .knob {
-  position: absolute;
-  top: 50%;               /* ✅ 세로 가운데 */
-  left: 4px;              /* ✅ 기본(OFF) = 왼쪽 */
-  transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-  transition: left 0.18s ease, transform 0.18s ease;
-  z-index: 2;
-}
-
-/* 상태별 배경/노브 위치 */
-.pill-switch.on  { background: linear-gradient(180deg, #6ad66a, #34c759); }  /* 초록 */
-.pill-switch.off { background: linear-gradient(180deg, #ff8a8a, #f05a5a); }  /* 빨강 */
-.pill-switch.on .knob { left: calc(100% - 4px - 28px); }  /* ON = 오른쪽 */
-
-.pill-switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--focus);
-}
-
-/* ===== 리스트 규격 ===== */
-.users-list {
-  background: var(--panel);
-  margin: 10px 12px 16px;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid rgba(212, 175, 55, 0.18);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-}
-
-ion-item {
-  --inner-border-width: 0 0 1px 0;
-  --inner-border-color: var(--divider);
-  --background: transparent;
-  color: var(--text);
-  transition: background 0.18s ease, transform 0.06s ease;
-}
-ion-item:last-of-type { --inner-border-width: 0; }
-ion-item:hover { background: var(--panel-2); }
-ion-item:active { transform: translateY(1px); }
-
-/* 좌우 패딩 */
-.user-item{
-  --padding-start: 12px;
-  --inner-padding-start: 12px;
-  --padding-end: 10px;
-  --inner-padding-end: 10px;
-  --min-height: 60px;
-}
-.user-item::part(native){
-  padding-left: 15px !important;
-  padding-right: 10px !important;
-}
-
-/* start 슬롯 기본 여백 제거 */
-.user-item [slot="start"]{
-  margin-inline-start: 0 !important;
-}
-
-/* 아바타 */
-.list-avatar{
-  width: 90px; height: 90px; min-width: 90px;
-  margin-right: 10px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 10%;
-  overflow: hidden;
-  border: 1px solid rgba(212,175,55,0.18);
-  background: rgba(212,175,55,0.08);
-}
-.list-avatar :deep(.viewer-host){ width:100%; height:100%; }
-.list-avatar :deep(.avatar){
-  width:100% !important; height:100% !important;
-  object-fit: cover; border-radius:0 !important;
-  box-shadow:none !important; pointer-events:none;
-}
-
-/* 본문 텍스트/타이틀 */
-.title {
-  color: var(--text-strong);
-  font-size: clamp(15px, 2.6vw, 16px);
-  font-weight: 800;
-  margin: 0 0 4px;
-  line-height: 1.28;
-}
-.nickname { font-weight: 800; letter-spacing: 0.2px; text-shadow: 0 0 10px rgba(212,175,55,0.08); }
-
-.meta {
-  display: flex; align-items: center; gap: 6px;
-  color: var(--text); font-size: clamp(13px, 2.4vw, 14px);
-  margin: 2px 0 0;
-  line-height: 1.32; opacity: 0.94;
-}
-.row-icon { font-size: 15px; color: var(--gold); }
-
-/* 안내문 */
-ion-text p.ion-text-center {
-  margin: 16px 0;
-  font-size: clamp(14px, 2.6vw, 15px);
-  color: var(--text-dim);
-}
-
-/* 작은 화면 보정 */
-@media (max-width: 360px) {
-  .emergency-toggle { gap: 8px; }
-  .pill-switch { width: 78px; height: 32px; padding: 0 40px; } /* 패딩도 줄여 균형 유지 */
-  .pill-switch .knob { width: 24px; height: 24px; }
-  .pill-switch.on .knob { left: calc(100% - 4px - 24px); }
-
-  .users-list { margin: 8px; border-radius: 12px; }
-  .user-item{ --padding-end: 10px; --inner-padding-end: 10px; --min-height: 56px; }
+/* emergency는 .ion-padding 안에서 렌더 → 타겟과 폭 맞춤 */
+:deep(.users-list){
+  margin-left: -16px;
+  margin-right: -16px;
 }
 </style>

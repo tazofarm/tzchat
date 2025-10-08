@@ -129,7 +129,7 @@ import { IonButton } from '@ionic/vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
 import { connectSocket, getSocket } from '@/lib/socket'
-import ProfilePhotoViewer from '@/components/02010_minipage/ProfilePhotoViewer.vue'
+import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
 
 const route = useRoute()
 const router = useRouter()

@@ -5,52 +5,27 @@
       <h1>Yes? Yes!</h1>
       <h2>네네챗</h2>
       <br /><br />
-      <h2>로그인</h2>
-      <br />
 
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
-        <!-- 아이디 입력 -->
-        <div class="form-group">
-          <label for="login-username">아이디</label>
-          <input
-            id="login-username"
-            name="username"
-            type="text"
-            placeholder="아이디"
-            v-model="username"
-            autocomplete="username"
-            required
-          />
-        </div>
-
-        <!-- 비밀번호 입력 -->
-        <div class="form-group">
-          <label for="login-password">비밀번호</label>
-          <input
-            id="login-password"
-            name="password"
-            type="password"
-            placeholder="비밀번호"
-            v-model="password"
-            autocomplete="current-password"
-            required
-          />
-        </div>
-
-        <!-- 로그인 버튼 -->
-        <button type="submit" :disabled="submitting">
+        <button
+          type="button"
+          :disabled="submitting"
+          @click="goLoginmain"
+        >
           {{ submitting ? '로그인 중...' : '로그인' }}
         </button>
+
+        <br><br><br><br>
+
+        <button
+          type="button"
+          :disabled="submitting"
+          @click="goLoginTester"
+        >
+          {{ submitting ? '로그인 중...' : 'Tester전용 로그인' }}
+        </button>
       </form>
-
-      <!-- 에러/안내 메시지 -->
-      <p class="error" v-if="message">{{ message }}</p>
-
-      <!-- 회원가입 링크 -->
-      <div class="link-container">
-        <p>계정이 없으신가요? <router-link to="/signup">회원가입</router-link></p>
-      </div>
     </div>
   </div>
 </template>
@@ -58,73 +33,78 @@
 <script setup lang="ts">
 /**
  * LoginPage.vue
- * ------------------------------------------------------
- * - 공통 API 인스턴스(api / auth)만 사용하여 경로('/login', '/me') 전달
- * - JWT 병행: 로그인 후 쿠키/토큰 기반으로 /me 재검증
- * - 소켓: refreshSocketAuth 의존 제거 → connect/reconnect 방식으로 간소화
- * - 가드 redirect 파라미터(예: /login?redirect=/home/2page) 반영
+ * - 이미 로그인인 경우에도 약관 동의 상태를 확인하여 /consents로 라우팅
+ * - 로그인 직후에도 동일 로직 재사용
  */
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api, { auth as AuthAPI } from '@/lib/api'  // ✅ 수정: AuthAPI → auth 이름 내보내기 사용
+import api, { auth as AuthAPI } from '@/lib/api'
 import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
 
 const router = useRouter()
 const route = useRoute()
+const submitting = ref(false)
 
-// 사용자 입력값
-const username = ref<string>('')
-const password = ref<string>('')
-const message = ref<string>('')
-const submitting = ref<boolean>(false)
-
-// ===== 진단: 실제 baseURL 로그 =====
-function debugBaseURL() {
+// ✅ 공통: 동의 상태 확인 후 목적지 결정
+async function redirectConsideringConsent(defaultRedirect = '/home/6page') {
   try {
-    const base = api?.defaults?.baseURL || '(unknown)'
-    const mode = (import.meta as any)?.env?.MODE || '(unknown)'
-    const viteMode = (import.meta as any)?.env?.VITE_MODE || '(unknown)'
-    const apiEnv = (import.meta as any)?.env?.VITE_API_BASE_URL
-    const wsEnv  = (import.meta as any)?.env?.VITE_WS_BASE
+    const { data } = await api.get('/api/terms/agreements/status') // { ok, data: { pending, items } }
+    const pending = data?.data?.pending || []
+    const pendingRequired = pending.filter((p: any) => p?.isRequired)
 
-    console.log('[HTTP][CFG][FINAL]', {
-      mode, viteMode,
-      baseURL_from_instance: base,
-      VITE_API_BASE_URL: apiEnv,
-      VITE_WS_BASE: wsEnv
-    })
+    if (pendingRequired.length > 0) {
+      // 필수 동의가 남아있으면 /consents로 이동
+      const redirectTo =
+        (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
+      router.replace({ path: '/consents', query: { redirect: redirectTo } })
+    } else {
+      // 없으면 원래 목적지로
+      const redirectTo =
+        (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
+      router.replace(redirectTo)
+    }
   } catch (e: any) {
-    console.log('[HTTP][CFG][ERR] debugBaseURL', { message: e?.message })
+    // 상태 조회 실패 시에는 기존 플로우로 진행
+    const redirectTo =
+      (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
+    router.replace(redirectTo)
   }
 }
 
-// 진입 시 세션/JWT 확인(401이면 정상 흐름)
+function goLoginmain() {
+  if (submitting.value) return
+  router.push('/loginmain')
+}
+function goLoginTester() {
+  if (submitting.value) return
+  router.push('/logintester')
+}
+
+// 진입 시 세션/JWT 확인 → 이미 로그인 상태라면 동의 상태 체크 뒤 라우팅
 onMounted(async () => {
-  debugBaseURL()
-  console.log('[UI][REQ] LoginPage mounted: /me precheck')
   try {
-    const me = await api.get('/api/me')
-    console.log('[UI][RES] already signed-in', { user: (me?.data as any)?.user?.username })
-    const redirectTo =
-      typeof route.query.redirect === 'string' && route.query.redirect
-        ? route.query.redirect
-        : '/home/6page'
-    router.push(redirectTo)
+    await api.get('/api/me')
+    // ✅ 이미 로그인 → 동의 상태 확인 후 라우팅
+    await redirectConsideringConsent('/home/6page')
   } catch (e: any) {
-    const status = e?.response?.status
-    if (status === 401) {
-      console.log('[UI][INFO] not signed-in (401) → login allowed')
+    if (e?.response?.status === 401) {
+      // 미로그인 → 로그인 진행 가능
+      // (화면 유지만, 추가 동작 없음)
     } else {
       console.log('[UI][ERR] /me precheck error', {
         code: e?.code,
-        status,
+        status: e?.response?.status,
         msg: e?.message
       })
     }
   }
 })
 
-// 로그인 함수
+// (선택) 사용자/비밀번호 입력 방식 로그인 지원 시 사용할 수 있는 함수
+const username = ref<string>('')  // 현재 화면에는 입력 UI 없음
+const password = ref<string>('')  // 현재 화면에는 입력 UI 없음
+const message  = ref<string>('')
+
 const login = async () => {
   if (submitting.value) return
   submitting.value = true
@@ -133,70 +113,28 @@ const login = async () => {
   try {
     const id = (username.value || '').trim()
     const pw = password.value
-
-    console.log('[UI][REQ] login submit', {
-      username: id,
-      pw: pw ? '(hidden)' : '(empty)'
-    })
-
     if (!id || !pw) {
       message.value = '아이디와 비밀번호를 입력하세요.'
       return
     }
 
-    // 로그인 요청 (서버: httpOnly 쿠키 설정 / 응답: token 포함 시 저장)
+    // 로그인 요청
     const res = await AuthAPI.login({ username: id, password: pw })
-
-    console.log('[HTTP][RES] /login', {
-      status: res?.status,
-      hasToken: !!((res?.data as any)?.token ?? (res?.data as any)?.data?.token),
-      nickname: (res?.data as any)?.nickname
-    })
-
-    // 민감정보 정리
     password.value = ''
 
-    // ===== 소켓 인증 반영: 연결 상태에 따라 connect/reconnect 처리 =====
+    // 소켓 인증 반영
     try {
       const s = getSocket()
-      if (s && s.connected) {
-        reconnectSocket()
-      } else {
-        connectSocket()
-      }
-    } catch (sockErr: any) {
-      console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
-    }
+      if (s && s.connected) reconnectSocket()
+      else connectSocket()
+    } catch {}
 
-    // 로그인 직후 /me 재검증
-    try {
-      const me = await api.get('/api/me')
-      console.log('[UI][RES] /me after login', { user: (me?.data as any)?.user?.username })
+    // /me 재검증
+    await api.get('/api/me')
 
-      message.value = ((res?.data as any)?.message || (res?.data as any)?.msg) || '로그인 되었습니다.'
-
-      const redirectTo =
-        typeof route.query.redirect === 'string' && route.query.redirect
-          ? route.query.redirect
-          : '/home/6page'
-      router.push(redirectTo)
-      return
-    } catch (meErr: any) {
-      console.log('[UI][ERR] /me after login failed', {
-        status: meErr?.response?.status,
-        data: meErr?.response?.data,
-        msg: meErr?.message,
-      })
-      message.value = '로그인 후 세션 확인에 실패했습니다. 잠시 후 다시 시도해주세요.'
-      return
-    }
+    // ✅ 로그인 직후에도 동의 상태 확인 → 라우팅
+    await redirectConsideringConsent('/home/6page')
   } catch (err: any) {
-    console.error('[HTTP][ERR] /login', {
-      status: err?.response?.status,
-      data: err?.response?.data,
-      msg: err?.message,
-    })
-
     const status = err?.response?.status
     if (status === 401) {
       message.value = err.response?.data?.message || '아이디/비밀번호를 확인해주세요.'

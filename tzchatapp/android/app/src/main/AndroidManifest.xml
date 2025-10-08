@@ -31,6 +31,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!-- 🔑 위치 하드웨어를 필수 아님으로 강제 (병합 충돌 대비) -->
     <uses-feature
