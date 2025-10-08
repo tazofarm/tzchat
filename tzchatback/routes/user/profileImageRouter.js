@@ -8,6 +8,8 @@
 // - 대표 지정: profileMain = <imageId>
 // - 삭제: 배열/디스크 정리 + 대표 삭제 시 후속 처리
 // - ✅ 응답 시 이미지 URL 절대경로로 정규화
+// - ✅ Mongoose 전체 검증 회피: updateOne + runValidators:false
+// - ✅ 업로드 루트: 프로젝트 루트(기본), ENV로 오버라이드
 // -------------------------------------------------------------
 
 const express = require('express');
@@ -19,25 +21,15 @@ const sharp = require('sharp');
 const requireLogin = require('@/middlewares/authMiddleware');
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
 
-
-
 // models/index.js 가 모든 모델을 export 한다는 가정
-
 const {
-  //chat
-    ChatRoom,  Message,
-  //payment  
-    Entitlement, PaymentTransaction, RefundRequest, Subscription,
-  //social  
-    FriendRequest, Report,
-  //system
-    AdminLog,  AppConfig,  Notice,
-  //user
-    DeletionRequest,  DeviceToken,  User,
-  //legal
-  Terms,  UserAgreement,
-
-  } = require('@/models');
+  ChatRoom, Message,
+  Entitlement, PaymentTransaction, RefundRequest, Subscription,
+  FriendRequest, Report,
+  AdminLog, AppConfig, Notice,
+  DeletionRequest, DeviceToken, User,
+  Terms, UserAgreement,
+} = require('@/models');
 
 const router = express.Router();
 router.use(requireLogin, blockIfPendingDeletion); // 전역 차단
@@ -46,7 +38,12 @@ router.use(requireLogin, blockIfPendingDeletion); // 전역 차단
 const log = (...args) => console.log('[profileImage]', ...args);
 
 // ===== 경로 유틸 =====
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+// ⚠ 기존: path.join(__dirname, '..', 'uploads') → routes/uploads 로 생김
+// ✅ 수정: 프로젝트 루트의 /uploads 이용(기본), 필요 시 ENV로 오버라이드
+const UPLOAD_ROOT =
+  process.env.UPLOAD_ROOT
+  || path.resolve(__dirname, '../../uploads'); // routes/user/ → ../../ → 프로젝트 루트
+
 const PROFILE_ROOT = path.join(UPLOAD_ROOT, 'profile');
 
 function ensureDirSync(dir) {
@@ -132,14 +129,12 @@ const SIZES = [
 ];
 
 async function createVariantsAndSave(srcPath, outBasePathNoExt, aspect) {
-  // srcPath 이미지 읽기 + EXIF 회전
   const input = sharp(srcPath, { failOnError: false }).rotate();
   const meta = await input.metadata();
   const w = meta.width || 0;
   const h = meta.height || 0;
 
   // 중앙 크롭 (목표 비율)
-  // width/height 중 더 긴 축을 잘라서 aspect 비율 맞추기
   const targetW1 = Math.min(w, Math.floor(h * aspect));
   const targetH1 = Math.min(h, Math.floor(w / aspect));
   const cropW = Math.max(1, targetW1);
@@ -149,7 +144,7 @@ async function createVariantsAndSave(srcPath, outBasePathNoExt, aspect) {
 
   const results = {};
   for (const s of SIZES) {
-    const outPath = `${outBasePathNoExt}_${s.name}.jpg`; // JPEG 고정 저장(용량 효율)
+    const outPath = `${outBasePathNoExt}_${s.name}.jpg`;
     await sharp(srcPath)
       .rotate()
       .extract({ left, top, width: cropW, height: cropH })
@@ -159,21 +154,28 @@ async function createVariantsAndSave(srcPath, outBasePathNoExt, aspect) {
 
     results[s.name] = outPath;
   }
-  return results; // { thumb: absPath, medium: absPath, full: absPath }
+  return results; // { thumb, medium, full } absolute paths
 }
 
 function toPublicUrl(absPath) {
-  // absPath: /app/.../uploads/profile/<userId>/<id>_thumb.jpg
+  // absPath: <UPLOAD_ROOT>/profile/<userId>/<id>_thumb.jpg
   // => /uploads/profile/<userId>/<file>
-  const idx = absPath.lastIndexOf('/uploads/');
-  if (idx === -1) {
-    // 윈도우 호환
-    const p = absPath.replace(/\\/g, '/');
-    const j = p.lastIndexOf('/uploads/');
-    if (j === -1) return null;
-    return p.slice(j);
-  }
-  return absPath.slice(idx);
+  const normalized = absPath.replace(/\\/g, '/');
+  const base = UPLOAD_ROOT.replace(/\\/g, '/');
+  const rel = normalized.startsWith(base) ? normalized.slice(base.length) : null;
+  if (!rel) return null;
+  return `/uploads${rel}`;
+}
+
+function publicUrlToAbs(publicUrl) {
+  if (!publicUrl) return null;
+  const p = publicUrl.replace(/\\/g, '/');
+  const i = p.indexOf('/uploads/');
+  if (i === -1) return null;
+  const rel = p.slice(i + '/uploads/'.length);
+  // 보안: 상위 경로 방지
+  const safeRel = rel.replace(/\.\./g, '');
+  return path.join(UPLOAD_ROOT, safeRel);
 }
 
 // ===== 권한 & 유틸 =====
@@ -201,7 +203,6 @@ router.get('/profile/images', requireLogin, async (req, res) => {
     const me = await User.findById(myId, { profileImages: 1, profileMain: 1 }).lean();
     if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
-    // 절대 URL로 변환
     const images = (me.profileImages || []).map(img => ({
       ...img,
       urls: {
@@ -256,14 +257,17 @@ router.get('/users/:id/profile/images', requireLogin, async (req, res) => {
 // [3] 이미지 업로드 (다중)
 // POST /api/profile/images
 // body: kind = 'avatar' | 'gallery' (default: 'gallery')
+// ✅ 변경점:
+//   - 기존: user.profileImages push 후 user.save() → phone required에 막힘
+//   - 수정: updateOne($push) + runValidators:false 로 원자적 반영
 // ======================================================
 router.post('/profile/images', requireLogin, upload.array('images', 10), async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
 
-    const user = await User.findById(myId);
-    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    const me = await User.findById(myId, { profileImages: 1, profileMain: 1 }).lean();
+    if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
     const kind = (req.body?.kind === 'avatar' || req.body?.kind === 'gallery') ? req.body.kind : 'gallery';
     const aspect = kind === 'avatar' ? 1.0 : 0.8; // 1:1 or 4:5
@@ -272,10 +276,12 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ message: '업로드된 파일이 없습니다.' });
 
+    const toInsert = [];
     const created = [];
+
     for (const file of files) {
       const uid = genId();
-      const baseNoExt = path.join(userDir, uid); // .../<userId>/<uid>
+      const baseNoExt = path.join(userDir, uid);
 
       // 3종 생성
       const variants = await createVariantsAndSave(file.path, baseNoExt, aspect);
@@ -283,21 +289,21 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
       // 원본 임시파일 삭제
       try { fs.unlinkSync(file.path); } catch {}
 
-      // DB 상대경로로 저장
       const urls = {
         thumb:  toPublicUrl(variants.thumb),
         medium: toPublicUrl(variants.medium),
         full:   toPublicUrl(variants.full),
       };
 
-      user.profileImages = user.profileImages || [];
-      user.profileImages.push({
+      const doc = {
         id: uid,
         kind,
         aspect,
         urls,
         createdAt: new Date(),
-      });
+      };
+
+      toInsert.push(doc);
 
       created.push({
         id: uid,
@@ -309,18 +315,25 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
           full:   toAbsoluteMediaUrl(urls.full, req),
         }
       });
-
-      // 대표사진 자동 설정: 기존 대표가 없고 avatar를 올리면 대표로
-      if (!user.profileMain && kind === 'avatar') {
-        user.profileMain = uid;
-      }
     }
- 
-    await user.save();
+
+    // 대표사진 자동 설정: 기존 대표가 없고 avatar를 올리면 첫 업로드를 대표로
+    const shouldSetMain = (!me.profileMain && kind === 'avatar' && toInsert.length > 0);
+    const setOps = shouldSetMain ? { profileMain: toInsert[0].id } : {};
+
+    await User.updateOne(
+      { _id: myId },
+      {
+        $push: { profileImages: { $each: toInsert } },
+        ...(Object.keys(setOps).length ? { $set: setOps } : {})
+      },
+      { runValidators: false }
+    );
 
     return res.json({
       success: true,
-      created
+      created,
+      ...(shouldSetMain ? { profileMain: toInsert[0].id } : {})
     });
   } catch (err) {
     console.error('[POST]/profile/images ERR', err?.message);
@@ -328,11 +341,11 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
     return res.status(code).json({ message: '이미지 업로드 실패' });
   }
 });
- 
+
 // ======================================================
 // [4] 대표 사진 지정
 // PUT /api/profile/main
-// body: { imageId: string }
+// ✅ 변경점: updateOne + runValidators:false
 // ======================================================
 router.put('/profile/main', requireLogin, async (req, res) => {
   try {
@@ -342,14 +355,17 @@ router.put('/profile/main', requireLogin, async (req, res) => {
     const { imageId } = req.body || {};
     if (!imageId) return res.status(400).json({ message: 'imageId가 필요합니다.' });
 
-    const user = await User.findById(myId);
-    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    const me = await User.findById(myId, { profileImages: 1 }).lean();
+    if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
-    const exists = (user.profileImages || []).some(img => String(img.id) === String(imageId));
+    const exists = (me.profileImages || []).some(img => String(img.id) === String(imageId));
     if (!exists) return res.status(404).json({ message: '해당 이미지가 존재하지 않습니다.' });
 
-    user.profileMain = imageId;
-    await user.save();
+    await User.updateOne(
+      { _id: myId },
+      { $set: { profileMain: imageId } },
+      { runValidators: false }
+    );
 
     return res.json({ success: true, profileMain: imageId });
   } catch (err) {
@@ -362,7 +378,9 @@ router.put('/profile/main', requireLogin, async (req, res) => {
 // ======================================================
 // [5] 이미지 삭제
 // DELETE /api/profile/images/:id
-// params: id = imageId
+// ✅ 변경점:
+//   - 파일 경로 계산을 UPLOAD_ROOT 기준으로 안전하게 변경
+//   - 배열 갱신은 updateOne($pull, $set) + runValidators:false
 // ======================================================
 router.delete('/profile/images/:id', requireLogin, async (req, res) => {
   try {
@@ -370,39 +388,41 @@ router.delete('/profile/images/:id', requireLogin, async (req, res) => {
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
 
     const { id: imageId } = req.params;
-    const user = await User.findById(myId);
-    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
-    const arr = user.profileImages || [];
+    const me = await User.findById(myId, { profileImages: 1, profileMain: 1 }).lean();
+    if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+
+    const arr = me.profileImages || [];
     const idx = arr.findIndex(img => String(img.id) === String(imageId));
     if (idx === -1) return res.status(404).json({ message: '이미지를 찾을 수 없습니다.' });
 
     // 파일 삭제
     const urls = arr[idx]?.urls || {};
-    const paths = [urls.thumb, urls.medium, urls.full].filter(Boolean).map(p => {
-      // /uploads/... -> abs path
-      return path.join(__dirname, '..', '..', p.replace(/^\//, '')); // 깊이 보정
-    });
+    const absPaths = [urls.thumb, urls.medium, urls.full]
+      .map(publicUrlToAbs)
+      .filter(Boolean);
 
-    for (const p of paths) {
+    for (const p of absPaths) {
       try { fs.unlinkSync(p); } catch (e) { /* 이미 삭제된 경우 무시 */ }
     }
 
-    // DB에서 제거
-    arr.splice(idx, 1);
-    user.profileImages = arr;
-
-    // 대표가 이 이미지였으면 후속 처리
-    if (String(user.profileMain || '') === String(imageId)) {
-      user.profileMain = '';
-      // 남은 사진이 있으면 첫 번째를 대표로
-      if (arr.length) {
-        user.profileMain = arr[0].id;
-      }
+    // 대표가 이 이미지였으면 후속 처리(남은 사진 중 첫 번째로 대체)
+    let nextMain = me.profileMain || '';
+    if (String(me.profileMain || '') === String(imageId)) {
+      const remain = arr.filter(x => String(x.id) !== String(imageId));
+      nextMain = remain.length ? remain[0].id : '';
     }
 
-    await user.save();
-    return res.json({ success: true, removedId: imageId, profileMain: user.profileMain || '' });
+    await User.updateOne(
+      { _id: myId },
+      {
+        $pull: { profileImages: { id: imageId } },
+        $set: { profileMain: nextMain }
+      },
+      { runValidators: false }
+    );
+
+    return res.json({ success: true, removedId: imageId, profileMain: nextMain });
   } catch (err) {
     console.error('[DELETE]/profile/images/:id ERR', err?.message);
     const code = err?.status || 500;
