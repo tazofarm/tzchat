@@ -7,7 +7,7 @@
 // - 읽음 처리: 상대가 보낸 미읽음 → readBy에 내 ID 추가 (+ 소켓 전파)
 // - 총 미읽음: TopMenu ⓝ 용 집계 API
 // - 이미지 업로드: 정적 경로(/uploads)와 확장자/콘텐츠 타입 일치 보장
-// - ✅ 응답 시 미디어 URL을 "백엔드 절대경로"로 정규화하여 반환
+// - ✅ 응답 시 미디어 URL을 "백엔드 절대경로"로 정규화하여 반환(혼합콘텐츠 방지)
 // - ✅ 업로드 저장 경로: /uploads/chat/YYYY/MM/DD/<roomId>/<uuid>.(jpg|png|webp|gif)
 // -------------------------------------------------------------
 const express = require('express');
@@ -99,28 +99,88 @@ function genId() {
 }
 
 /* ===========================================
- * ✅ URL 정규화 유틸
+ * ✅ URL 정규화 유틸 (혼합콘텐츠 방지 강화)
  * =========================================== */
 function stripTrailingSlashes(u) { return (u || '').replace(/\/+$/, ''); }
+function firstHeaderVal(h) { return (h || '').split(',')[0].trim(); }
+function parseForwarded(forwarded) {
+  const out = {};
+  if (!forwarded) return out;
+  const first = firstHeaderVal(forwarded);
+  for (const part of first.split(';')) {
+    const [k, v] = part.split('=').map(s => (s || '').trim());
+    if (!k || !v) continue;
+    out[k.toLowerCase()] = v.replace(/^"|"$/g, '');
+  }
+  return out;
+}
+
+/** 프록시/HTTPS 안전한 퍼블릭 베이스 URL 계산 */
 function getPublicBaseUrl(req) {
-  // .env 우선순위: PUBLIC_BASE_URL > FILE_BASE_URL > API_BASE_URL
+  // .env 우선순위
   const envBase =
     process.env.PUBLIC_BASE_URL ||
     process.env.FILE_BASE_URL ||
     process.env.API_BASE_URL ||
     '';
-
   if (envBase) return stripTrailingSlashes(envBase);
 
-  // Fallback: 요청의 오리진 사용 (프록시 사용 시 trust proxy 필요)
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http');
-  const host = req.get('host'); // ex) localhost:2000
-  return `${proto}://${host}`;
+  const fwd = parseForwarded(req.headers['forwarded']);
+  let proto =
+    (fwd.proto) ||
+    firstHeaderVal(req.headers['x-forwarded-proto']) ||
+    req.protocol ||
+    'https';
+  let host =
+    (fwd.host) ||
+    firstHeaderVal(req.headers['x-forwarded-host']) ||
+    req.get('host') ||
+    '';
+
+  const xfPort = firstHeaderVal(req.headers['x-forwarded-port']);
+  if (xfPort && host && !/:\d+$/.test(host)) host = `${host}:${xfPort}`;
+
+  const bareHost = host.replace(/:\d+$/, '');
+  if (/^tzchat\.tazocode\.com$/i.test(bareHost)) {
+    proto = 'https';
+  } else {
+    if (!/^https?$/i.test(proto)) proto = 'https';
+  }
+
+  if (!host) {
+    host = 'tzchat.tazocode.com';
+    proto = 'https';
+  }
+
+  return `${proto}://${host}`.replace(/\/+$/, '');
 }
+
+/**
+ * 업로드/미디어 URL을 절대 URL로 정규화.
+ * - 절대 URL이더라도 경로가 /uploads/ 로 시작하면 현재 오리진으로 "강제 교정"
+ *   (과거 http://localhost:2000/uploads/... → https://tzchat.tazocode.com/uploads/...)
+ * - 상대경로는 현재 오리진을 붙여 절대화
+ * - 외부 URL(업로드 경로 아님)은 그대로 유지
+ */
 function toAbsoluteMediaUrl(u, req) {
   if (!u) return u;
-  if (/^https?:\/\//i.test(u)) return u; // 이미 절대경로
   const base = getPublicBaseUrl(req);
+
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const url = new URL(u);
+      if (url.pathname.startsWith('/uploads/')) {
+        const absBase = new URL(base);
+        url.protocol = absBase.protocol; // 보통 https
+        url.host     = absBase.host;
+        return url.toString();
+      }
+      return u; // 외부 리소스
+    } catch {
+      // 파싱 실패 → 아래 상대 경로 처리로 폴백
+    }
+  }
+
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;
 }
@@ -139,7 +199,7 @@ function normalizeUserPhotos(user, req) {
   if (out.profilePhotoUrl) out.profilePhotoUrl = toAbsoluteMediaUrl(out.profilePhotoUrl, req);
   if (out.photoUrl) out.photoUrl = toAbsoluteMediaUrl(out.photoUrl, req);
 
-  // photos[].url
+  // photos[].url / photos[].src
   if (Array.isArray(out.photos)) {
     out.photos = out.photos.map(p => {
       if (!p || typeof p !== 'object') return p;
@@ -248,7 +308,7 @@ router.get('/chatrooms', requireLogin, async (req, res) => {
       const extra = byRoomId.get(String(r._id));
       const lastDoc = extra?.last;
 
-      // participants 사진 필드 절대경로 정규화
+      // participants 사진 필드 절대경로 정규화 (혼합콘텐츠 방지)
       const normalizedParticipants = Array.isArray(r.participants)
         ? r.participants.map(p => normalizeUserPhotos(p, req))
         : r.participants;
@@ -403,7 +463,7 @@ router.post('/chatrooms/:id/message', requireLogin, async (req, res) => {
     };
 
     if (type === 'image') {
-      messageData.imageUrl = content; // 기대값: "/uploads/..."
+      messageData.imageUrl = content; // 기대값: "/uploads/..." 또는 절대URL(교정 대상)
     } else {
       messageData.content = content;
     }
@@ -435,6 +495,7 @@ router.post('/chatrooms/:id/message', requireLogin, async (req, res) => {
     console.log('[DB][QRY]', { model: 'Message', op: 'findById.populate(sender)', criteria: message._id });
     message = await Message.findById(message._id).populate('sender', 'nickname').lean();
 
+    // 응답 시 이미지 URL 절대화(혼합콘텐츠 방지 포함)
     message.imageUrl = toAbsoluteMediaUrl(message.imageUrl || '', req);
 
     const emit = getEmit(req);
@@ -656,7 +717,7 @@ router.post('/chatrooms/:id/upload-image', requireLogin, upload.single('image'),
 
     // 상대경로: /uploads/chat/YYYY/MM/DD/<roomId>/<filename>
     const relativePath = `/uploads/chat/${yyyy}/${mm}/${dd}/${roomId}/${finalFilename}`;
-    // 응답: 절대경로
+    // 응답: 절대경로(혼합콘텐츠 방지 규칙 적용)
     const imageUrl = toAbsoluteMediaUrl(relativePath, req);
 
     log('✅ [upload-image] 저장 완료:', relativePath, '⇒ 응답:', imageUrl, '| mime=', mime);

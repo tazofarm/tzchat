@@ -68,6 +68,34 @@ function genId() {
 
 // ===== URL 정규화 =====
 function stripTrailingSlashes(u) { return (u || '').replace(/\/+$/, ''); }
+function firstHeaderVal(h) {
+  return (h || '').split(',')[0].trim();
+}
+function parseForwarded(forwarded) {
+  // RFC 7239: Forwarded: proto=https;host=example.com:443;for="1.2.3.4"
+  const out = {};
+  if (!forwarded) return out;
+  const first = firstHeaderVal(forwarded);
+  for (const part of first.split(';')) {
+    const [k, v] = part.split('=').map(s => (s || '').trim());
+    if (!k || !v) continue;
+    const val = v.replace(/^"|"$/g, '');
+    out[k.toLowerCase()] = val;
+  }
+  return out;
+}
+
+/**
+ * 퍼블릭 베이스 URL 계산 (프록시/HTTPS 안전)
+ * 우선순위:
+ *  1) ENV: PUBLIC_BASE_URL/FILE_BASE_URL/API_BASE_URL
+ *  2) RFC7239 Forwarded 헤더(proto/host)
+ *  3) X-Forwarded-Proto / X-Forwarded-Host / X-Forwarded-Port
+ *  4) req.protocol + req.get('host')
+ * 추가 규칙:
+ *  - 호스트가 존재하고 프로토콜이 모호하면 https 우선
+ *  - tzchat.tazocode.com 도메인은 무조건 https로 고정
+ */
 function getPublicBaseUrl(req) {
   const envBase =
     process.env.PUBLIC_BASE_URL ||
@@ -76,9 +104,39 @@ function getPublicBaseUrl(req) {
     '';
   if (envBase) return stripTrailingSlashes(envBase);
 
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http');
-  const host = req.get('host'); // ex) localhost:2000
-  return `${proto}://${host}`;
+  const fwd = parseForwarded(req.headers['forwarded']);
+  let proto =
+    (fwd.proto) ||
+    firstHeaderVal(req.headers['x-forwarded-proto']) ||
+    req.protocol ||
+    'https';
+  let host =
+    (fwd.host) ||
+    firstHeaderVal(req.headers['x-forwarded-host']) ||
+    req.get('host') ||
+    '';
+
+  // x-forwarded-port가 있는데 host에 포트가 없으면 붙여준다.
+  const xfPort = firstHeaderVal(req.headers['x-forwarded-port']);
+  if (xfPort && host && !/:\d+$/.test(host)) host = `${host}:${xfPort}`;
+
+  // tzchat.tazocode.com은 무조건 HTTPS 고정 (혼합콘텐츠 방지)
+  const bareHost = host.replace(/:\d+$/, '');
+  if (/^tzchat\.tazocode\.com$/i.test(bareHost)) {
+    proto = 'https';
+  } else {
+    // 프록시 환경에서 보통 https가 맞음 (명시 안 되면 https로 가정)
+    if (!/^https?$/i.test(proto)) proto = 'https';
+  }
+
+  if (!host) {
+    // 최악의 경우라도 혼합콘텐츠 피하려고 도메인이 없으면 로컬호스트 대신 빈 호스트를 쓰지 않고 throw
+    // 다만 운영 중 장애를 막기 위해 안전한 기본값(https://tzchat.tazocode.com) 제공 가능
+    host = 'tzchat.tazocode.com';
+    proto = 'https';
+  }
+
+  return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
 /**
@@ -115,25 +173,29 @@ function publicUrlToAbs(publicUrl) {
  *  - 입력이 http(s) 절대 URL인데 path가 /uploads/로 시작하면, origin을 현재 요청 기준으로 교체.
  *  - 입력이 상대(/uploads/...)면 현재 기준으로 절대화.
  *  - 그 외 외부 URL은 그대로 둠.
+ *  - 최종 프로토콜은 가능하면 https.
  */
 function toAbsoluteUploadUrl(u, req) {
   if (!u) return u;
   const base = getPublicBaseUrl(req);
+
   // 절대 URL?
   if (/^https?:\/\//i.test(u)) {
     try {
       const url = new URL(u);
       if (url.pathname.startsWith('/uploads/')) {
         const absBase = new URL(base);
-        url.protocol = absBase.protocol;
+        url.protocol = absBase.protocol;  // 보통 https
         url.host     = absBase.host;
         return url.toString();
       }
-      return u; // 업로드 경로 아님 → 그대로
+      // 업로드 경로가 아니면 외부 리소스일 수 있으므로 그대로 둔다.
+      return u;
     } catch {
-      // 파싱 실패 시 아래 로직으로
+      // 파싱 실패 시 아래 상대 로직으로 폴백
     }
   }
+
   // 상대 경로
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;

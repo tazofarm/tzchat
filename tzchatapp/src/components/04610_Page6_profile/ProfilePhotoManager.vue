@@ -225,9 +225,69 @@ type GetListResponse = {
   profileImages: ProfileImage[]
 }
 
-/** ===== 상수 ===== */
+/** ===== 상수/유틸 ===== */
 const DEFAULT_MAN = '/img/man.jpg'
 const DEFAULT_WOMAN = '/img/woman.jpg'
+
+/** 혼합콘텐츠 방지용 베이스 호스트 */
+const RAW_API_BASE = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '')
+  .toString()
+  .replace(/\/$/, '')
+
+/** 현재 페이지의 origin(HTTPS) */
+const PAGE_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
+
+/**
+ * URL 정규화:
+ * - 절대 URL이더라도 http://localhost:* → 페이지 도메인의 HTTPS로 교체
+ * - 루트(/uploads/.. ) 상대경로면 API_BASE 또는 페이지 origin으로 보정
+ * - 프로토콜 미스매치 방지
+ */
+function normalizeUrl(u?: string): string {
+  if (!u) return ''
+  // data/blob 은 그대로
+  if (/^(data|blob):/.test(u)) return u
+
+  const apiBase = RAW_API_BASE || PAGE_ORIGIN
+
+  // 절대 URL
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const url = new URL(u)
+      // localhost 또는 다른 프로토콜이면 현재 호스트/프로토콜로 맞춤
+      const needFixHost = /^(localhost|127\.0\.0\.1)$/i.test(url.hostname)
+      const needFixProto = typeof window !== 'undefined' && window.location.protocol === 'https:' && url.protocol !== 'https:'
+      if (needFixHost || needFixProto) {
+        const base = new URL(apiBase || PAGE_ORIGIN)
+        url.protocol = base.protocol
+        url.hostname = base.hostname
+        url.port = base.port
+        return url.toString()
+      }
+      return u
+    } catch {
+      return u
+    }
+  }
+
+  // 루트 또는 상대경로
+  if (u.startsWith('/')) {
+    return apiBase ? `${apiBase}${u}` : u
+  }
+  return apiBase ? `${apiBase}/${u}` : `/${u}`
+}
+
+/** 이미지 객체의 urls 모두 정규화 */
+function normalizeImage(i: ProfileImage): ProfileImage {
+  return {
+    ...i,
+    urls: {
+      thumb: normalizeUrl(i.urls.thumb),
+      medium: normalizeUrl(i.urls.medium),
+      full: normalizeUrl(i.urls.full),
+    },
+  }
+}
 
 /** ===== 상태 ===== */
 const gender = computed(() => props.gender || '')
@@ -245,11 +305,16 @@ async function loadImages() {
   try {
     const url = props.userId ? `/api/profile/images?userId=${encodeURIComponent(props.userId)}` : '/api/profile/images'
     const { data } = await api.get<GetListResponse>(url)
-    const list = (data.profileImages || []).slice().sort((a, b) => {
-      const ta = +new Date(a.createdAt || 0)
-      const tb = +new Date(b.createdAt || 0)
-      return ta - tb
-    })
+
+    const list = (data.profileImages || [])
+      .map(normalizeImage) // ← URL 정규화
+      .slice()
+      .sort((a, b) => {
+        const ta = +new Date(a.createdAt || 0)
+        const tb = +new Date(b.createdAt || 0)
+        return ta - tb
+      })
+
     images.value = list
     profileMain.value = data.profileMain || ''
   } catch {
