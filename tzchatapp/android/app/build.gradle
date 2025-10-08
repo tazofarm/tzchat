@@ -1,9 +1,8 @@
 // ------------------------------------------------------------
-// app/build.gradle  (릴리스 서명 설정 + Firebase SDK 추가 + NDK 심볼 포함)
+// app/build.gradle  (릴리스 서명 설정 + Firebase SDK 추가)
 // - 기존 내용 최대한 유지
 // - keystore.properties 읽어서 release 서명 적용
 // - google-services.json 존재 시 플러그인 자동 적용 (로그로 확인 가능)
-// - ✅ release 빌드에 NDK 심볼 포함(debugSymbolLevel) 추가
 // -----------------------------------------------------------
 
 apply plugin: 'com.android.application'
@@ -38,8 +37,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // ✅ 스토어 업로드 핵심: 업로드할 때마다 versionCode는 1,2,3… 증가
-        versionCode 20
-        versionName "1.20"
+        versionCode 21
+        versionName "1.21"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -83,20 +82,12 @@ android {
 
             // ✅ 릴리스 빌드에 서명 적용
             signingConfig signingConfigs.release
-
-            // ✅ [중요] 네이티브 크래시 분석용 심볼 포함
-            // SYMBOL_TABLE: 용량/정보 균형. (더 자세히 원하면 'FULL' 사용)
-            ndk {
-                debugSymbolLevel 'SYMBOL_TABLE'
-            }
         }
 
         // debug 빌드는 기본값 유지 (난독화/축소 비활성)
         debug {
             minifyEnabled false
             shrinkResources false
-            // (선택) 디버그에서도 네이티브 심볼 zip 생성 원하면 아래 주석 해제
-            // ndk { debugSymbolLevel 'SYMBOL_TABLE' }
         }
     }
 }
@@ -118,13 +109,15 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // 🔽 Firebase BoM 및 필요한 SDK들
+    // 🔽 [ADD] Firebase BoM 및 필요한 SDK들
+    // BoM을 쓰면 하위 Firebase 의존성의 버전은 지정하지 않습니다.
     implementation platform('com.google.firebase:firebase-bom:34.3.0')
+
+    // 사용 목적에 따라 필요한 것만 선택하세요:
     implementation 'com.google.firebase:firebase-analytics'   // 앱 분석
     implementation 'com.google.firebase:firebase-messaging'   // 푸시 알림(FCM)
-    // (선택) 네이티브/자바 크래시 수집을 원하면 아래 2개를 활성화하고, 루트 build.gradle에 crashlytics-gradle 플러그인 classpath 추가 필요
-    // implementation 'com.google.firebase:firebase-crashlytics' // 크래시 리포트
-    // apply plugin: 'com.google.firebase.crashlytics'
+    // implementation 'com.google.firebase:firebase-auth'     // (선택) 전화번호/구글 로그인 등 Auth 사용 시
+    // implementation 'com.google.firebase:firebase-crashlytics' // (선택) 크래시 리포트
 }
 
 apply from: 'capacitor.build.gradle'

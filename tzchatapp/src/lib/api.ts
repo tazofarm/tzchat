@@ -32,6 +32,20 @@ function joinUrl(base: string, path: string) {
   return `${b}${p}`
 }
 
+// ✅ '/api' 가 실수로 섞인 base 값을 항상 제거
+function removeApiSuffix(u: string): string {
+  if (!u) return u
+  // 절대 URL일 때는 URL 파서로 안전하게 처리
+  try {
+    const url = new URL(u)
+    url.pathname = url.pathname.replace(/\/api\/?$/i, '')
+    return stripTrailingSlashes(url.origin + url.pathname)
+  } catch {
+    // 상대/경로 문자열일 때
+    return stripTrailingSlashes(u.replace(/\/api\/?$/i, ''))
+  }
+}
+
 // 토큰 유틸
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 function getAuthToken(): string | null { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
@@ -42,20 +56,25 @@ export function clearAuthToken() { setAuthToken(null) }
 // ❗️여기서는 절대로 '/api'를 덧붙이지 않습니다.
 function computeBaseURL(): string {
   const raw = String(VITE_API_BASE_URL || '').trim()
+
   if (raw) {
-    if (isHttpAbs(raw)) return stripTrailingSlashes(raw)
+    // 1) 절대 URL
+    if (isHttpAbs(raw)) return removeApiSuffix(raw)
+    // 2) 상대 경로(.env에 '/api' 등) → origin과 병합 후 '/api' 제거
     try {
       const origin = `${window.location.protocol}//${window.location.host}`
-      return stripTrailingSlashes(joinUrl(origin, raw))
+      return removeApiSuffix(joinUrl(origin, raw))
     } catch {
-      return stripTrailingSlashes(raw)
+      return removeApiSuffix(raw)
     }
   }
+
+  // 3) ENV 미설정 → 현재 오리진 또는 로컬 폴백
   let origin = ''
   try { origin = `${window.location.protocol}//${window.location.host}` } catch {}
   const fallback = origin || 'http://localhost:2000'
   console.warn('[CFG][api] VITE_API_BASE_URL 미설정/형식불량 → 폴백 사용', { MODE, origin: fallback })
-  return stripTrailingSlashes(fallback)
+  return removeApiSuffix(fallback)
 }
 
 const ENV_BASE = computeBaseURL()
@@ -71,7 +90,7 @@ export const api = axios.create({
 console.log('%c[HTTP][CFG]', 'color:#0a0;font-weight:bold', {
   MODE,
   VITE_API_BASE_URL: VITE_API_BASE_URL || '(from env)',
-  finalBaseURL: ENV_BASE,
+  normalizedBaseURL: ENV_BASE,
   withCredentials: USE_COOKIES,
 })
 
@@ -108,10 +127,12 @@ api.interceptors.response.use(
     const url = (err.config as any)?.url || ''
 
     // 🔹 공개 API 예외 처리
+    //    ↳ '/api/me' 포함: 공개 페이지에서도 호출 가능하지만 401이면 리다이렉트 금지
     const isPublic =
       url.startsWith('/api/terms/') ||
       url.startsWith('/api/login') ||
-      url.startsWith('/api/health')
+      url.startsWith('/api/health') ||
+      url.startsWith('/api/me')
 
     // 401: 인증 만료/부재 → 로그인으로
     if (status === 401 && !isPublic) {
