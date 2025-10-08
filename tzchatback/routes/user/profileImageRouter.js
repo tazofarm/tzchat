@@ -7,7 +7,7 @@
 // - 목록 조회: 내/상대방
 // - 대표 지정: profileMain = <imageId>
 // - 삭제: 배열/디스크 정리 + 대표 삭제 시 후속 처리
-// - ✅ 응답 시 이미지 URL 절대경로로 정규화
+// - ✅ 응답 시 이미지 URL 절대경로로 정규화(과거 localhost 절대URL도 강제 교정)
 // - ✅ Mongoose 전체 검증 회피: updateOne + runValidators:false
 // - ✅ 업로드 루트: 프로젝트 루트(기본), ENV로 오버라이드
 // -------------------------------------------------------------
@@ -66,7 +66,7 @@ function genId() {
   return crypto.randomBytes(16).toString('hex'); // 32 hex
 }
 
-// ===== URL 정규화 (절대 URL로) =====
+// ===== URL 정규화 =====
 function stripTrailingSlashes(u) { return (u || '').replace(/\/+$/, ''); }
 function getPublicBaseUrl(req) {
   const envBase =
@@ -80,10 +80,61 @@ function getPublicBaseUrl(req) {
   const host = req.get('host'); // ex) localhost:2000
   return `${proto}://${host}`;
 }
-function toAbsoluteMediaUrl(u, req) {
+
+/**
+ * 서버 내부 저장용 절대경로 → 퍼블릭 상대경로 (/uploads/...) 로 변환
+ */
+function toPublicUrl(absPath) {
+  // absPath: <UPLOAD_ROOT>/profile/<userId>/<id>_thumb.jpg
+  // => /uploads/profile/<userId>/<file>
+  const normalized = (absPath || '').replace(/\\/g, '/');
+  const base = UPLOAD_ROOT.replace(/\\/g, '/');
+  const rel = normalized.startsWith(base) ? normalized.slice(base.length) : null;
+  if (!rel) return null;
+  return `/uploads${rel}`;
+}
+
+/**
+ * 퍼블릭 URL(/uploads/...) → 서버 파일 시스템 절대경로
+ */
+function publicUrlToAbs(publicUrl) {
+  if (!publicUrl) return null;
+  const p = publicUrl.replace(/\\/g, '/');
+  const i = p.indexOf('/uploads/');
+  if (i === -1) return null;
+  const rel = p.slice(i + '/uploads/'.length).replace(/\.\./g, ''); // 보안: 상위 경로 제거
+  return path.join(UPLOAD_ROOT, rel);
+}
+
+/**
+ * ✅ 핵심: 응답 시 절대 URL로 정규화하되,
+ * 과거에 http://localhost:2000/uploads/... 처럼 "잘못 저장된 절대URL"도
+ * 현재 요청 도메인/프로토콜 기준으로 강제 교체한다.
+ *
+ * 규칙:
+ *  - 입력이 http(s) 절대 URL인데 path가 /uploads/로 시작하면, origin을 현재 요청 기준으로 교체.
+ *  - 입력이 상대(/uploads/...)면 현재 기준으로 절대화.
+ *  - 그 외 외부 URL은 그대로 둠.
+ */
+function toAbsoluteUploadUrl(u, req) {
   if (!u) return u;
-  if (/^https?:\/\//i.test(u)) return u;
   const base = getPublicBaseUrl(req);
+  // 절대 URL?
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const url = new URL(u);
+      if (url.pathname.startsWith('/uploads/')) {
+        const absBase = new URL(base);
+        url.protocol = absBase.protocol;
+        url.host     = absBase.host;
+        return url.toString();
+      }
+      return u; // 업로드 경로 아님 → 그대로
+    } catch {
+      // 파싱 실패 시 아래 로직으로
+    }
+  }
+  // 상대 경로
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;
 }
@@ -121,7 +172,6 @@ const upload = multer({
 });
 
 // ===== 이미지 처리 (크롭 + 리사이즈 3종) =====
-// aspect: 1(avatar) 또는 0.8(=4/5, gallery)
 const SIZES = [
   { name: 'thumb',  w: 240  },
   { name: 'medium', w: 720  },
@@ -157,27 +207,6 @@ async function createVariantsAndSave(srcPath, outBasePathNoExt, aspect) {
   return results; // { thumb, medium, full } absolute paths
 }
 
-function toPublicUrl(absPath) {
-  // absPath: <UPLOAD_ROOT>/profile/<userId>/<id>_thumb.jpg
-  // => /uploads/profile/<userId>/<file>
-  const normalized = absPath.replace(/\\/g, '/');
-  const base = UPLOAD_ROOT.replace(/\\/g, '/');
-  const rel = normalized.startsWith(base) ? normalized.slice(base.length) : null;
-  if (!rel) return null;
-  return `/uploads${rel}`;
-}
-
-function publicUrlToAbs(publicUrl) {
-  if (!publicUrl) return null;
-  const p = publicUrl.replace(/\\/g, '/');
-  const i = p.indexOf('/uploads/');
-  if (i === -1) return null;
-  const rel = p.slice(i + '/uploads/'.length);
-  // 보안: 상위 경로 방지
-  const safeRel = rel.replace(/\.\./g, '');
-  return path.join(UPLOAD_ROOT, safeRel);
-}
-
 // ===== 권한 & 유틸 =====
 function getMyId(req) {
   return req?.user?._id || req?.session?.user?._id || null;
@@ -206,9 +235,9 @@ router.get('/profile/images', requireLogin, async (req, res) => {
     const images = (me.profileImages || []).map(img => ({
       ...img,
       urls: {
-        thumb:  toAbsoluteMediaUrl(img?.urls?.thumb  || '', req),
-        medium: toAbsoluteMediaUrl(img?.urls?.medium || '', req),
-        full:   toAbsoluteMediaUrl(img?.urls?.full   || '', req),
+        thumb:  toAbsoluteUploadUrl(img?.urls?.thumb  || '', req),
+        medium: toAbsoluteUploadUrl(img?.urls?.medium || '', req),
+        full:   toAbsoluteUploadUrl(img?.urls?.full   || '', req),
       }
     }));
 
@@ -236,9 +265,9 @@ router.get('/users/:id/profile/images', requireLogin, async (req, res) => {
     const images = (user.profileImages || []).map(img => ({
       ...img,
       urls: {
-        thumb:  toAbsoluteMediaUrl(img?.urls?.thumb  || '', req),
-        medium: toAbsoluteMediaUrl(img?.urls?.medium || '', req),
-        full:   toAbsoluteMediaUrl(img?.urls?.full   || '', req),
+        thumb:  toAbsoluteUploadUrl(img?.urls?.thumb  || '', req),
+        medium: toAbsoluteUploadUrl(img?.urls?.medium || '', req),
+        full:   toAbsoluteUploadUrl(img?.urls?.full   || '', req),
       }
     }));
 
@@ -258,8 +287,9 @@ router.get('/users/:id/profile/images', requireLogin, async (req, res) => {
 // POST /api/profile/images
 // body: kind = 'avatar' | 'gallery' (default: 'gallery')
 // ✅ 변경점:
-//   - 기존: user.profileImages push 후 user.save() → phone required에 막힘
-//   - 수정: updateOne($push) + runValidators:false 로 원자적 반영
+//   - DB에는 상대경로(/uploads/...) 저장 유지
+//   - 응답에는 현재 도메인 기준 절대 URL 제공(과거 localhost 절대URL 방지)
+//   - updateOne($push) + runValidators:false 로 원자적 반영
 // ======================================================
 router.post('/profile/images', requireLogin, upload.array('images', 10), async (req, res) => {
   try {
@@ -310,9 +340,9 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
         kind,
         aspect,
         urlsAbs: {
-          thumb:  toAbsoluteMediaUrl(urls.thumb, req),
-          medium: toAbsoluteMediaUrl(urls.medium, req),
-          full:   toAbsoluteMediaUrl(urls.full, req),
+          thumb:  toAbsoluteUploadUrl(urls.thumb,  req),
+          medium: toAbsoluteUploadUrl(urls.medium, req),
+          full:   toAbsoluteUploadUrl(urls.full,   req),
         }
       });
     }

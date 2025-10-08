@@ -38,18 +38,8 @@ server {
 
     client_max_body_size 20m;
 
-    # CSP (Ionic/Capacitor 호환)
-    add_header Content-Security-Policy "
-      default-src 'self' capacitor:;
-      connect-src 'self' https: wss: capacitor: data: blob:;
-      img-src 'self' https: data: blob:;
-      media-src 'self' https: data: blob:;
-      font-src 'self' https: data:;
-      style-src 'self' 'unsafe-inline' https: data:;
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob:;
-      frame-ancestors 'self';
-      base-uri 'self';
-    " always;
+    # ✅ CSP: 반드시 "한 줄"로! (HTTP/2는 헤더에 개행 금지)
+    add_header Content-Security-Policy "default-src 'self' capacitor:; connect-src 'self' https: wss: capacitor: data: blob:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' 'unsafe-inline' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob:; frame-ancestors 'self'; base-uri 'self';" always;
 
     # 공통 프록시 헤더
     proxy_set_header Host              $host;
@@ -65,24 +55,19 @@ server {
     index index.html;
 
     # -----------------------------------------------------
-    # ✅ 정적 법/정책 문서 (SPA보다 우선)
-    #   - 프론트 public/legal → dist/legal 로 빌드된 결과를 직접 서빙
-    #   - /legal/privacy → /legal/privacy.html 로 리다이렉트
+    # 정적 법/정책 문서
     # -----------------------------------------------------
     location = /legal { return 301 /legal/; }
 
-    # 확장자 없는 슬러그를 .html로 정규화
     location ~ ^/legal/([a-z0-9\-]+)$ {
         return 301 /legal/$1.html;
     }
 
-    # 정적 파일 서빙
     location /legal/ {
         alias /home/tazofarm/project/tzchat/tzchatapp/dist/legal/;
         index index.html;
         try_files $uri $uri/ =404;
 
-        # 캐시 비활성(문서 갱신 반영용)
         add_header Cache-Control "no-cache, no-store, must-revalidate";
         add_header Pragma "no-cache";
         add_header Expires "0";
@@ -91,7 +76,7 @@ server {
         error_log  /var/log/nginx/legal_error.log;
     }
 
-    # 파비콘(루트) - dist 기준
+    # 파비콘
     location = /favicon.png {
         alias /home/tazofarm/project/tzchat/tzchatapp/dist/favicon.png;
         try_files $uri =404;
@@ -100,14 +85,12 @@ server {
         error_log  /var/log/nginx/frontend_error.log;
     }
 
-    # 과거 경로 호환: /privacy(.html) → /legal/privacy
+    # 과거 경로 호환
     location = /privacy      { return 301 /legal/privacy; }
     location = /privacy.html { return 301 /legal/privacy; }
 
-    # 정적 청크 (dist/assets)
+    # 정적 청크
     location /assets/ {
-        # root는 server 블록의 root(dist)를 그대로 사용 가능하지만
-        # 명시해도 무방
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
         expires 30d;
@@ -116,7 +99,18 @@ server {
         error_log  /var/log/nginx/assets_error.log;
     }
 
-    # Service Worker (해시 없는 파일만 캐시 억제)
+    # Firebase Messaging Service Worker (루트)
+    location = /firebase-messaging-sw.js {
+        root /home/tazofarm/project/tzchat/tzchatapp/dist;
+        try_files $uri =404;
+        add_header Cache-Control "no-store";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        access_log /var/log/nginx/frontend_access.log;
+        error_log  /var/log/nginx/frontend_error.log;
+    }
+
+    # Service Worker
     location = /service-worker.js {
         root /home/tazofarm/project/tzchat/tzchatapp/dist;
         try_files $uri =404;
@@ -127,11 +121,13 @@ server {
         error_log  /var/log/nginx/frontend_error.log;
     }
 
-    # 업로드 프록시
+    # 업로드: 정적 파일 직접 서빙
     location /uploads/ {
-        proxy_pass http://localhost:2000;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header Origin $http_origin;
+        alias /home/tazofarm/project/tzchat/uploads/;
+        autoindex off;
+        try_files $uri =404;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
         access_log /var/log/nginx/uploads_access.log;
         error_log  /var/log/nginx/uploads_error.log;
     }
@@ -183,7 +179,7 @@ server {
         error_log  /var/log/nginx/ws_error.log;
     }
 
-    # SPA history (⚠️ /legal/*보다 뒤에 있어야 함)
+    # SPA history
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;
