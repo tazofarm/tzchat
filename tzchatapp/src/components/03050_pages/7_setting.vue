@@ -26,9 +26,9 @@
     <div class="list-wrap">
       <ul class="list">
         <!-- 번호 리스트 -->
-        <li class="list-item" @click="goPage('/home/setting/0001')">01구독신청하기</li>
+        <li class="list-item" @click="goPage('/home/setting/0001')">구독신청하기01</li>
 
-        <li class="list-item" @click="goPage('/home/setting/0002')">02공지사항</li>
+        <li class="list-item" @click="goPage('/home/setting/0002')">공지사항02</li>
 
         <!-- ✅ 변경: 클릭 시 페이지 이동 대신 즉시 메일 열기 -->
         <li class="list-item" @click="openSupportMail">문의/건의 하기 (E-mail)</li>
@@ -46,7 +46,7 @@
         <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="goPage('/home/setting/0020')">
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-          <span>20회원탈퇴</span>
+          <span>회원탈퇴20</span>
         </li>
 
         <!-- ✅ 권한 관련: 알림/위치 요청 -->

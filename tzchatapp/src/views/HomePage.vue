@@ -5,7 +5,7 @@
     
     <!-- 상단 메뉴 -->
     <TopMenu />
-    <USpace height="4vh" /> <!-- ← 원하는 높이로 조절 --> 
+    <USpace height="6vh" /> <!-- ← 원하는 높이로 조절 --> 
 
     <!-- 가운데 스크롤 영역 -->
     <MainPage />
@@ -40,7 +40,7 @@ ion-page.home-page {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto; 
   /* auto: TopMenu / 1fr: MainPage / auto: Space / auto: BottomMenu */
-  background: #fff;
+  background: #070707;
   color: #000;
 }
 
@@ -51,6 +51,6 @@ ion-page.home-page > *:nth-child(2) {
   overscroll-behavior: contain;
 }
 
-ion-page.home-page > *:first-child { border-bottom: 1px solid #eee; }
+ion-page.home-page > *:first-child { border-bottom: 1px solid #070707; }
 ion-page.home-page > *:last-child  { border-top: 1px solid #eee; }
 </style>

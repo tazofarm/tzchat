@@ -32,12 +32,13 @@
 /* -----------------------------------------------------------
    Blocks List (헤더 카운트 + 공통 UserList + 차단해제)
    ✅ 항상 id를 추출해 재조회하여 전체 필드를 확보
+   ✅ 백엔드(friendRouter) 경로에 맞게 차단 해제 API 수정:
+      - DELETE /api/block/:id (단수 'block')
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
-import { IonButton, IonIcon } from '@ionic/vue'
 import { closeCircleOutline } from 'ionicons/icons'
 
 const router = useRouter()
@@ -118,7 +119,8 @@ const blocksCount = computed(()=> users.value.length)
 /* 차단 해제 */
 async function unblock(userId){
   if(!userId) return
-  await api.delete(`/api/blocks/${userId}`)
+  // 🔧 백엔드 friendRouter 기준: DELETE /api/block/:id (단수)
+  await api.delete(`/api/block/${userId}`)
   users.value = users.value.filter(u=> String(u._id)!==String(userId))
 }
 const onUnblockClick = (userId) => unblock(userId)

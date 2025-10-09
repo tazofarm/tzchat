@@ -195,19 +195,18 @@ async function onSubmit() {
       // 4) 서버 세션/JWT 확인(선택)
       try { await api.get('/api/me') } catch {}
 
-      // 5) ✅ 동의 상태 확인 후 라우팅
+      // 5) ✅ 동의 상태 확인 후 라우팅 (로그인과 동일하게 통일)
       try {
         const status = await api.get('/api/terms/agreements/status') // { ok, data: { pending, items } }
         const pending = status?.data?.data?.pending || []
         if (Array.isArray(pending) && pending.length > 0) {
-          // 약관 미동의 → AgreementPage로
-          router.replace({ path: '/agreement', query: { return: resolveReturn() } })
+          // 약관 미동의 → 로그인과 동일한 전용 동의 페이지로
+          router.replace({ name: 'AgreementPagePublic', query: { return: resolveReturn() } })
+          // 또는 경로 사용 시: router.replace({ path: '/consents', query: { redirect: resolveReturn() } })
         } else {
-          // 모두 동의 또는 동의 필요 없음 → 원래 목적지
           redirectAfterLogin()
         }
       } catch {
-        // 상태 조회 실패 시 기본 목적지로
         redirectAfterLogin()
       }
     } catch (loginErr: any) {

@@ -11,6 +11,7 @@
 
     <!-- ✅ 공통 리스트 컴포넌트 + 하단 액션 버튼 슬롯 -->
     <UserList
+      :key="usersKey"
       :users="users"
       :isLoading="isLoading"
       emptyText="받은 친구 신청이 없습니다."
@@ -22,7 +23,7 @@
           size="default"
           color="primary"
           class="btn-gold-solid"
-          :disabled="!reqByUserId[user._id]"
+          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
           @click.stop="onIntroClick(reqByUserId[user._id])"
         >인사말</ion-button>
 
@@ -30,7 +31,7 @@
           size="default"
           color="success"
           class="btn-gold-solid"
-          :disabled="!reqByUserId[user._id]"
+          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
           @click.stop="onAcceptClick(reqByUserId[user._id]?._id)"
         >수락</ion-button>
 
@@ -38,7 +39,7 @@
           size="default"
           color="medium"
           class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id]"
+          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
           @click.stop="onRejectClick(reqByUserId[user._id]?._id)"
         >거절</ion-button>
 
@@ -46,25 +47,72 @@
           size="default"
           color="danger"
           class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id]"
+          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
           @click.stop="onBlockClick(reqByUserId[user._id]?._id)"
         >차단</ion-button>
       </template>
     </UserList>
+
+    <!-- ✅ 인사말 모달 -->
+    <ion-modal :is-open="introModal.open" @didDismiss="closeIntro">
+      <ion-header translucent>
+        <ion-toolbar>
+          <ion-title>인사말</ion-title>
+          <ion-buttons slot="end">
+            <ion-button @click="closeIntro">닫기</ion-button>
+          </ion-buttons>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ion-padding">
+        <div class="intro-meta" v-if="introModal.req">
+          <div class="intro-row">
+            <span class="label">보낸 사람</span>
+            <span class="value">{{ introFromName }}</span>
+          </div>
+          <div class="intro-row">
+            <span class="label">요청 ID</span>
+            <span class="value mono">{{ introModal.req._id }}</span>
+          </div>
+        </div>
+        <div class="intro-block">
+          <div class="intro-title">메시지</div>
+          <div class="intro-text" v-if="introText" v-text="introText" />
+          <div class="intro-empty" v-else>인사말 메시지가 없습니다.</div>
+        </div>
+        <div class="intro-actions">
+          <ion-button expand="block" @click="copyIntro" :disabled="!introText">복사</ion-button>
+          <ion-button expand="block" color="success" @click="acceptFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">수락</ion-button>
+          <ion-button expand="block" color="medium" @click="rejectFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">거절</ion-button>
+          <ion-button expand="block" color="danger" @click="blockFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">차단</ion-button>
+        </div>
+      </ion-content>
+    </ion-modal>
+
+    <!-- ✅ IonToast (useIonToast 제거 대체) -->
+    <ion-toast
+      :is-open="toastState.open"
+      :message="toastState.message"
+      :color="toastState.color"
+      duration="1600"
+      position="top"
+      @didDismiss="toastState.open = false"
+    />
   </div>
 </template>
 
 <script setup>
 /* -----------------------------------------------------------
-   Received Only: '나에게 친구 신청한 사람' + 상단 카운트 + 하단 액션
-   - 상단: 받은신청 수(pending) / 20
-   - 하단: 소개/수락/거절/차단 버튼 (요청ID 필요 → userId→request 매핑 사용)
+   Received Only: 나에게 친구 신청한 사람 전용 페이지
+   - 즉시 반응 개선: UserList 강제 재렌더(:key), per-request busy, IonToast 알림
+   - 인사말: 요청 객체의 intro/message/note 필드 표시 모달
 ----------------------------------------------------------- */
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
-import { IonButton, IonIcon } from '@ionic/vue'
+import {
+  IonButton, IonIcon, IonModal, IonHeader, IonToolbar, IonTitle, IonButtons, IonContent, IonToast
+} from '@ionic/vue'
 import { mailOpenOutline } from 'ionicons/icons'
 
 const router = useRouter()
@@ -73,12 +121,22 @@ const icons = { mailOpenOutline }
 /* ===== 상태 ===== */
 const users = ref([])                 // 화면 표시용 사용자 (받은신청 보낸 사람만)
 const isLoading = ref(true)
-const receivedRequests = ref([])      // 서버에서 받은 원본 요청 배열 (pending만 포함)
-                                      // [{ _id, from, status:'pending', ... }, ...] 형태 기대
+const receivedRequests = ref([])      // [{ _id, from, intro/message, status:'pending', ... }]
+
+/* ===== 인사말(모달) ===== */
+const introModal = ref({ open: false, req: null })
+const introText = computed(() => {
+  const r = introModal.value.req
+  return r?.intro ?? r?.message ?? r?.note ?? r?.memo ?? ''
+})
+const introFromName = computed(() => {
+  const r = introModal.value.req
+  const u = (r && typeof r.from === 'object') ? r.from : null
+  return u?.nickname || u?.name || u?.username || u?._id || '알 수 없음'
+})
 
 /* ===== 유틸 ===== */
 const uniq = (arr = []) => Array.from(new Set(arr.map(String)))
-
 function toTS(v) {
   if (!v) return 0
   try { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0 } catch { return 0 }
@@ -98,57 +156,43 @@ function normalizeUser(u = {}) {
   const r2 =
     u.region2 ?? u.region2Name ?? u.regionName2 ?? u.city2 ?? u.area2 ??
     (Array.isArray(u.region) ? u.region[1] : undefined) ?? '/'
-
   const pref =
     u.preference ?? u.preferenceText ?? u.pref ?? u.trait ?? u.feature ??
     (Array.isArray(u.tags) ? u.tags.join(', ') : undefined) ?? '-'
-
   const lastLogin = u.last_login || u.lastLogin || u.updatedAt || u.createdAt
-
   return { ...u, region1: r1, region2: r2, preference: pref, last_login: lastLogin }
 }
 
 /* ===== 네비게이션 ===== */
-const goToUserProfile = (userId) => {
-  if (!userId) return
-  router.push(`/home/user/${userId}`)
-}
+const goToUserProfile = (userId) => { if (userId) router.push(`/home/user/${userId}`) }
 
-/* ===== 받은신청 → 신청자 ID 수집 (모든 포맷 대응) ===== */
+/* ===== 받은신청 파싱 ===== */
 function extractPendingRequests(data) {
   const arr = Array.isArray(data) ? data
            : (Array.isArray(data?.requests) ? data.requests
            : (Array.isArray(data?.pending) ? data.pending
            : []))
-
-  // 객체 배열만 필터 (문자열 배열인 경우는 아래 다른 경로에서 처리)
   const reqs = (arr || []).filter(r => r && typeof r === 'object')
   return reqs.filter(r => (r.status ?? 'pending') === 'pending')
 }
 function extractSenderIdsFromAny(data) {
-  // 1) 표준/객체 경로
   const pendingReqs = extractPendingRequests(data)
   const ids1 = pendingReqs
     .map(r => (typeof r.from === 'object' ? r.from?._id : r.from))
     .filter(Boolean)
     .map(String)
-
-  // 2) 단순 배열 경로 (ids / pendingIds / requests가 id 배열인 경우)
   const idList =
     (Array.isArray(data?.pendingIds) && data.pendingIds) ||
     (Array.isArray(data?.ids) && data.ids) ||
     (Array.isArray(data) && typeof data[0] !== 'object' && data) ||
     []
   const ids2 = idList.map(String)
-
   return uniq([...ids1, ...ids2])
 }
 
-/* ===== 사용자 조회: bulk → 개별, 최종 id 필터 ===== */
+/* ===== 사용자 조회: bulk → per-id 보강 ===== */
 async function fetchUsersByIdsStrict(ids = []) {
   if (!ids.length) return []
-
-  // bulk
   let bulkList = []
   try {
     const res = await api.post('/api/search/users', { ids })
@@ -157,15 +201,11 @@ async function fetchUsersByIdsStrict(ids = []) {
   } catch (e) {
     console.warn('[receive] bulk search failed, fallback to per-id:', e?.message || e)
   }
-
   if (Array.isArray(bulkList) && bulkList.length) {
     const set = new Set(ids.map(String))
     const filtered = bulkList.filter(u => u && set.has(String(u._id)))
     if (filtered.length === ids.length) return filtered
-    // 의심스러운 경우 개별 조회로 보강
   }
-
-  // per-id
   const results = await Promise.all(ids.map(async id => {
     try {
       const r = await api.get(`/api/users/${id}`)
@@ -175,10 +215,14 @@ async function fetchUsersByIdsStrict(ids = []) {
   return results.filter(Boolean)
 }
 
-/* ===== 상단 카운트 ===== */
+/* ===== 상단 카운트 & 강제 리렌더 키 ===== */
 const pendingCount = computed(() => receivedRequests.value.length)
+const usersKey = computed(() => {
+  const ids = users.value.map(u => u._id).join(',')
+  return `${ids}|${pendingCount.value}`
+})
 
-/* ===== userId → request 매핑 (하단 버튼 활성화를 위해) ===== */
+/* ===== userId → request 매핑 ===== */
 const reqByUserId = computed(() => {
   const m = Object.create(null)
   for (const r of receivedRequests.value) {
@@ -188,70 +232,110 @@ const reqByUserId = computed(() => {
   return m
 })
 
-/* ===== Actions ===== */
-async function acceptFriendRequest (id) {
-  if (!id) return
-  await api.put(`/api/friend-request/${id}/accept`, {})
-  // 요청/사용자 제거
-  receivedRequests.value = receivedRequests.value.filter(x => x._id !== id)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === id)?._id
-  if (uid) users.value = users.value.filter(u => u._id !== uid)
+/* ===== per-request busy 관리 ===== */
+const busy = ref({}) // { [reqId]: true/false }
+const isBusy = (reqId) => !!reqId && !!busy.value[String(reqId)]
+async function withBusy(reqId, fn) {
+  if (!reqId) return
+  const key = String(reqId)
+  busy.value = { ...busy.value, [key]: true }
+  try {
+    await fn?.()
+  } finally {
+    const next = { ...busy.value }
+    delete next[key]
+    busy.value = next
+  }
 }
-async function rejectFriendRequest (id) {
+/* ===== 공통 후처리(수락/거절/차단 후 즉시 반영) ===== */
+function removeRequestLocally(id) {
   if (!id) return
-  await api.put(`/api/friend-request/${id}/reject`, {})
+  // 1) 현재 매핑에서 userId를 먼저 찾아둔다
+  const mapping = reqByUserId.value
+  const uid = Object.keys(mapping).find(k => mapping[k]?._id === id)
+
+  // 2) 사용자 리스트에서 해당 유저 제거
+  if (uid) {
+    users.value = users.value.filter(u => String(u._id) !== String(uid))
+  }
+
+  // 3) 마지막에 요청 목록에서 제거 (매핑 유지가 필요했기 때문)
   receivedRequests.value = receivedRequests.value.filter(x => x._id !== id)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === id)?._id
-  if (uid) users.value = users.value.filter(u => u._id !== uid)
-}
-async function blockFriendRequest (id) {
-  if (!id) return
-  await api.put(`/api/friend-request/${id}/block`, {})
-  receivedRequests.value = receivedRequests.value.filter(x => x._id !== id)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === id)?._id
-  if (uid) users.value = users.value.filter(u => u._id !== uid)
 }
 
-/* 버튼 핸들러(템플릿 바인딩용) */
-const onIntroClick  = (requestObj) => {
-  // 소개 버튼 클릭 시 동작 (모달/시트 띄우기 등)
-  // 필요 시 Modal 컴포넌트 연동 가능. 여기서는 콘솔만 남깁니다.
-  console.log('[intro] open for request:', requestObj?._id)
+/* ===== IonToast 상태 + 도우미 ===== */
+const toastState = ref({ open: false, message: '', color: 'dark' })
+function toast(message = '', color = 'dark') {
+  toastState.value = { open: true, message, color }
+  setTimeout(() => (toastState.value.open = false), 1600)
 }
+
+/* ===== 서버 액션 ===== */
+async function acceptFriendRequest(id) {
+  if (!id) return
+  await withBusy(id, async () => {
+    await api.put(`/api/friend-request/${id}/accept`, {})
+    removeRequestLocally(id)
+    toast('친구로 수락했습니다.')
+  })
+}
+async function rejectFriendRequest(id) {
+  if (!id) return
+  await withBusy(id, async () => {
+    await api.put(`/api/friend-request/${id}/reject`, {})
+    removeRequestLocally(id)
+    toast('요청을 거절했습니다.')
+  })
+}
+async function blockFriendRequest(id) {
+  if (!id) return
+  await withBusy(id, async () => {
+    await api.put(`/api/friend-request/${id}/block`, {})
+    removeRequestLocally(id)
+    toast('해당 사용자를 차단했습니다.')
+  })
+}
+
+/* ===== 버튼 핸들러 ===== */
+const onIntroClick  = (requestObj) => { introModal.value = { open: true, req: requestObj || null } }
 const onAcceptClick = (payload) => acceptFriendRequest(typeof payload === 'string' ? payload : payload?._id)
 const onRejectClick = (payload) => rejectFriendRequest(typeof payload === 'string' ? payload : payload?._id)
 const onBlockClick  = (payload) => blockFriendRequest(typeof payload === 'string' ? payload : payload?._id)
+
+/* ===== 인사말 모달 동작 ===== */
+function closeIntro() { introModal.value = { open: false, req: null } }
+async function copyIntro() {
+  try {
+    await navigator.clipboard.writeText(introText.value || '')
+    toast('인사말을 복사했습니다.')
+  } catch { toast('복사에 실패했습니다.', 'danger') }
+}
+function acceptFromIntro() { if (introModal.value.req) onAcceptClick(introModal.value.req._id) }
+function rejectFromIntro() { if (introModal.value.req) onRejectClick(introModal.value.req._id) }
+function blockFromIntro()  { if (introModal.value.req) onBlockClick(introModal.value.req._id) }
 
 /* ===== 초기 로딩 ===== */
 onMounted(async () => {
   try {
     isLoading.value = true
-
-    // 1) 받은 친구 신청 목록 가져오기
     const res = await api.get('/api/friend-requests/received')
-
-    // 2) pending만 남겨 보관 (상단 카운트/버튼용 원본)
     const pendingReqs = extractPendingRequests(res?.data)
     receivedRequests.value = pendingReqs
 
-    // 3) 신청자 id 수집
     const senderIds = extractSenderIdsFromAny(res?.data)
     if (!senderIds.length) {
       users.value = []
       return
     }
-
-    // 4) 해당 id 유저들만 강제 조회(+최종 id 필터)
     const raw = await fetchUsersByIdsStrict(senderIds)
     const set = new Set(senderIds.map(String))
     const strictFinal = raw.filter(u => u && set.has(String(u._id)))
-
-    // 5) 정규화 + 정렬
     users.value = sortByRecent(strictFinal.map(normalizeUser))
   } catch (e) {
     console.error('❌ 받은신청 전용 리스트 로딩 실패:', e)
     users.value = []
     receivedRequests.value = []
+    toast('받은 친구 신청을 불러오지 못했습니다.', 'danger')
   } finally {
     isLoading.value = false
   }
@@ -278,24 +362,19 @@ onMounted(async () => {
 /* 버튼 크기/폰트/라운드(두 클래스 모두에 적용) */
 .btn-gold-solid,
 .btn-gold-outline {
-  --height: 18px;      /* ✅ 버튼 높이 지정 (원하는 값으로 조절 가능) */
-  --border-radius: 12px;   /* 모서리 둥글기 */
-  --padding-start: 1px;   /* 좌우 여백 */
+  --height: 18px;
+  --border-radius: 12px;
+  --padding-start: 1px;
   --padding-end: 1px;
   --padding-top: 0;
   --padding-bottom: 0;
-
-  font-size: 12px;         /* 글씨 크기 */
+  font-size: 12px;
   font-weight: 800;
-  min-width: 65px;         /* 최소 폭 */
-  min-height :30px;
-  
-  /* 기존 색상 유지 */
+  min-width: 65px;
+  min-height: 30px;
   --background: linear-gradient(135deg, var(--gold, #d4af37), var(--gold-strong, #b18f1a));
   --color: #000;
 }
-
-/* 윤곽형 버튼(거절, 차단 등)도 동일 높이 유지 */
 .btn-gold-outline {
   --background: transparent;
   --color: var(--gold-weak, #e6c964);
@@ -306,13 +385,23 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 12px;            /* 버튼 사이 간격 */
-  padding: 0px 0;       /* ✅ 위아래 여백 (기존 10px 정도였다면 줄이거나 늘이세요) */
+  gap: 12px;
+  padding: 0 0;
 }
+
+/* 인사말 모달 스타일 */
+.intro-meta { display:grid; gap:6px; margin-bottom:12px; }
+.intro-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:#bbb; }
+.intro-row .label{ color:#888; }
+.intro-row .value{ font-weight:700; }
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.intro-block { background:#101010; border:1px solid rgba(212,175,55,.15); border-radius:10px; padding:12px; }
+.intro-title{ font-weight:800; color:var(--gold, #d4af37); margin-bottom:6px; }
+.intro-text{ white-space:pre-wrap; line-height:1.5; }
+.intro-empty{ color:#888; }
+.intro-actions{ display:grid; gap:8px; margin-top:14px; }
 
 /* 배경(페이지 컨텍스트에 맞춰 최소만 지정) */
 :root, :host{ --bg:#0b0b0d; --text:#d7d7d9; }
 .receive-only-wrapper{ color:var(--text); }
-
-
 </style>

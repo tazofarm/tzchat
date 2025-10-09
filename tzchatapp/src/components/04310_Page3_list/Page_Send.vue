@@ -25,12 +25,13 @@
           @click.stop="onCancelClick(reqByUserId[user._id]?._id)"
         >신청 취소</ion-button>
 
+        <!-- ✅ 차단은 FriendRequest의 id가 아니라 '대상 사용자 id'로 처리해야 함 -->
         <ion-button
           size="small"
           color="danger"
           class="btn-gold-outline"
           :disabled="!reqByUserId[user._id]"
-          @click.stop="onBlockClick(reqByUserId[user._id]?._id)"
+          @click.stop="onBlockClick(user._id)"
         >차단</ion-button>
       </template>
     </UserList>
@@ -44,6 +45,9 @@
    - 각 행 하단: "취소" + "차단" 버튼
    - 응답 포맷 다양성 대응 (requests/pendingIds/ids/객체배열)
    - 일괄조회(bulk) → 의심 시 개별 조회 폴백 → 최종 id 필터
+   - 🔧 수정 요점:
+     • '차단'은 /api/friend-request/:id/block(수신자 전용)이 아니라
+       일반 차단 엔드포인트 /api/block/:userId 를 호출해야 동작합니다.
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -156,7 +160,7 @@ async function fetchUsersByIdsStrict(ids = []) {
 /* ===== 상단 카운트 ===== */
 const pendingCount = computed(() => sentRequests.value.length)
 
-/* ===== userId → request 매핑 (취소/차단 버튼 활성화) ===== */
+/* ===== userId → request 매핑 (취소 버튼 활성화) ===== */
 const reqByUserId = computed(() => {
   const m = Object.create(null)
   for (const r of sentRequests.value) {
@@ -167,24 +171,28 @@ const reqByUserId = computed(() => {
 })
 
 /* ===== 액션: 취소 & 차단 ===== */
-async function cancelFriendRequest (id) {
-  if (!id) return
-  await api.delete(`/api/friend-request/${id}`)
+// ✅ 신청 취소: FriendRequest 문서 id 필요
+async function cancelFriendRequest (friendRequestId) {
+  if (!friendRequestId) return
+  await api.delete(`/api/friend-request/${friendRequestId}`)
   // 요청/화면 동기화
-  sentRequests.value = sentRequests.value.filter(x => x._id !== id)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === id)?._id
+  sentRequests.value = sentRequests.value.filter(x => x._id !== friendRequestId)
+  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === friendRequestId)?._id
   if (uid) users.value = users.value.filter(u => u._id !== uid)
 }
-async function blockFriendRequest (id) {
-  if (!id) return
-  await api.put(`/api/friend-request/${id}/block`, {})
-  // 요청/화면 동기화 (차단 시 목록에서 제거)
-  sentRequests.value = sentRequests.value.filter(x => x._id !== id)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === id)?._id
-  if (uid) users.value = users.value.filter(u => u._id !== uid)
+// ✅ 차단: '대상 사용자 id'로 일반 차단 엔드포인트 호출
+async function blockUser (userId) {
+  if (!userId) return
+  await api.put(`/api/block/${userId}`, {})
+  // 차단 시 관련 pending 신청은 서버에서 일괄 rejected 처리됨
+  // 화면에서도 해당 사용자 제거
+  const fr = reqByUserId.value[userId]
+  if (fr) sentRequests.value = sentRequests.value.filter(x => x._id !== fr._id)
+  users.value = users.value.filter(u => String(u._id) !== String(userId))
 }
 const onCancelClick = (payload) => cancelFriendRequest(typeof payload === 'string' ? payload : payload?._id)
-const onBlockClick  = (payload) => blockFriendRequest(typeof payload === 'string' ? payload : payload?._id)
+// 🔧 변경: userId를 직접 전달
+const onBlockClick  = (userId) => blockUser(userId)
 
 /* ===== 초기 로딩 ===== */
 onMounted(async () => {
@@ -238,19 +246,18 @@ onMounted(async () => {
 /* 버튼 크기/폰트/라운드(두 클래스 모두에 적용) */
 .btn-gold-solid,
 .btn-gold-outline {
-  --height: 18px;      /* ✅ 버튼 높이 지정 (원하는 값으로 조절 가능) */
-  --border-radius: 12px;   /* 모서리 둥글기 */
-  --padding-start: 1px;   /* 좌우 여백 */
+  --height: 18px;      /* ✅ 버튼 높이 지정 */
+  --border-radius: 12px;
+  --padding-start: 1px;
   --padding-end: 1px;
   --padding-top: 0;
   --padding-bottom: 0;
 
-  font-size: 12px;         /* 글씨 크기 */
+  font-size: 12px;
   font-weight: 800;
-  min-width: 65px;         /* 최소 폭 */
-  min-height :30px;
-  
-  /* 기존 색상 유지 */
+  min-width: 65px;
+  min-height: 30px;
+
   --background: linear-gradient(135deg, var(--gold, #d4af37), var(--gold-strong, #b18f1a));
   --color: #000;
 }
@@ -266,8 +273,8 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 12px;            /* 버튼 사이 간격 */
-  padding: 0px 20px;       /* ✅ 위아래 여백 (기존 10px 정도였다면 줄이거나 늘이세요) */
+  gap: 12px;
+  padding: 0px 20px;
 }
 
 /* 배경 */

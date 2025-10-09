@@ -126,18 +126,19 @@ async function fetchUsersByIdsStrict(ids=[]){
   return per.filter(Boolean)
 }
 
-/* 액션: 친구삭제 / 차단하기 */
+/* 액션: 친구삭제 / 차단하기
+   ⚠️ 백엔드 라우터와 정확히 맞춤:
+   - 친구삭제: DELETE /api/friend/:id   (단수 friend)
+   - 차단하기: PUT    /api/block/:id    (단수 block)
+*/
 async function removeFriend(userId){
   if(!userId) return
-  // 선택: 확인 팝업
-  // if(!confirm('정말 친구에서 삭제하시겠어요?')) return
-  await api.delete(`/api/friends/${userId}`)
+  await api.delete(`/api/friend/${userId}`)
   users.value = users.value.filter(u => String(u._id) !== String(userId))
 }
 async function blockUser(userId){
   if(!userId) return
-  // if(!confirm('정말 차단하시겠어요?')) return
-  await api.post(`/api/blocks/${userId}`)
+  await api.put(`/api/block/${userId}`)
   users.value = users.value.filter(u => String(u._id) !== String(userId))
 }
 const onRemoveClick = (userId) => removeFriend(userId)

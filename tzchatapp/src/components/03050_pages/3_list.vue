@@ -1,63 +1,70 @@
 <template>
-  <!-- ✅ 이 래퍼 클래스가 페이지 배경/하위 Ionic 컴포넌트 배경을 모두 고정합니다 -->
-  <div class="friends-page dark-scope">
-    <!-- ✅ 상단 고정 탭 -->
-    <div class="top-tabs" role="tablist" aria-label="목록 전환">
-      <ion-segment :value="currentTab" @ionChange="onTabChange">
-        <ion-segment-button value="premium">
-          <ion-label>Premium</ion-label>
-        </ion-segment-button>
+  <!-- ✅ Ionic 정석 구조로 변경: ion-page > ion-header > ion-content -->
+  <ion-page class="friends-page dark-scope">
+    <!-- 상단 고정 탭을 ion-header/ion-toolbar 안으로 이동 -->
+    <ion-header translucent="true">
+      <ion-toolbar class="top-tabs" role="tablist" aria-label="목록 전환">
+        <ion-segment :value="currentTab" @ionChange="onTabChange">
+          <ion-segment-button value="premium">
+            <ion-label>Premium</ion-label>
+          </ion-segment-button>
 
-        <ion-segment-button value="received">
-          <ion-label>받은신청</ion-label>
-        </ion-segment-button>
+          <ion-segment-button value="received">
+            <ion-label>받은신청</ion-label>
+          </ion-segment-button>
 
-        <ion-segment-button value="sent">
-          <ion-label>보낸신청</ion-label>
-        </ion-segment-button>
+          <ion-segment-button value="sent">
+            <ion-label>보낸신청</ion-label>
+          </ion-segment-button>
 
-        <ion-segment-button value="friends">
-          <ion-label>친구리스트</ion-label>
-        </ion-segment-button>
+          <ion-segment-button value="friends">
+            <ion-label>친구리스트</ion-label>
+          </ion-segment-button>
 
-        <ion-segment-button value="blocks">
-          <ion-label>차단리스트</ion-label>
-        </ion-segment-button>
-      </ion-segment>
-    </div>
+          <ion-segment-button value="blocks">
+            <ion-label>차단리스트</ion-label>
+          </ion-segment-button>
+        </ion-segment>
+      </ion-toolbar>
+    </ion-header>
 
-    <!-- ✅ 선택된 탭의 '페이지' 하나만 렌더 -->
-    <div class="page-container fl-scope" role="region" aria-label="탭 페이지 영역">
-      <component
-        :is="currentView"
-        @open-receive="openReceive"
-        @close-receive="closeReceive"
-      />
+    <!-- ✅ 본문 -->
+    <ion-content fullscreen="true">
+      <div class="page-container fl-scope" role="region" aria-label="탭 페이지 영역">
+        <component
+          :is="currentView"
+          @open-receive="openReceive"
+          @close-receive="closeReceive"
+        />
 
-      <!-- ✅ 하단에 받은신청 패널(3) -->
-      <transition name="slide-up">
-        <section
-          v-if="receiveUser"
-          class="receive-panel"
-          role="dialog"
-          aria-label="받은신청 상세"
-        >
-          <header class="receive-head">
-            <h3>받은 신청</h3>
-            <button type="button" class="btn-close" @click="closeReceive" aria-label="닫기">×</button>
-          </header>
+        <!-- ✅ 하단에 받은신청 패널(3) -->
+        <transition name="slide-up">
+          <section
+            v-if="receiveUser"
+            class="receive-panel"
+            role="dialog"
+            aria-label="받은신청 상세"
+          >
+            <header class="receive-head">
+              <h3>받은 신청</h3>
+              <button type="button" class="btn-close" @click="closeReceive" aria-label="닫기">×</button>
+            </header>
 
-          <!-- ⬇⬇⬇ 상세 패널 컴포넌트 (경로 주의) -->
-          <ReceivePanel :user="receiveUser" @close="closeReceive" />
-        </section>
-      </transition>
-    </div>
-  </div>
+            <!-- ⬇⬇⬇ 상세 패널 컴포넌트 (경로 주의) -->
+            <ReceivePanel :user="receiveUser" @close="closeReceive" />
+          </section>
+        </transition>
+      </div>
+    </ion-content>
+  </ion-page>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
-import { IonSegment, IonSegmentButton, IonLabel } from '@ionic/vue'
+import {
+  IonPage, IonHeader, IonToolbar, IonContent,
+  IonSegment, IonSegmentButton, IonLabel
+} from '@ionic/vue'
 
 // 탭별 페이지
 import PremiumPage  from '@/components/04310_Page3_list/Page_Premium.vue'
@@ -66,10 +73,7 @@ import SentPage     from '@/components/04310_Page3_list/Page_Send.vue'
 import FriendsPage  from '@/components/04310_Page3_list/Page_Friend.vue'
 import BlocksPage   from '@/components/04310_Page3_list/Page_Block.vue'
 
-
-
-// ✅ 받은신청 '상세 패널' 컴포넌트 (기존 PageReceive 잘못 임포트 수정)
-//    실제 위치에 맞춰 경로를 조정하세요.
+// ✅ 받은신청 '상세 패널' 컴포넌트
 import ReceivePanel from '@/components/02010_minipage/mini_list/UserList.vue'
 
 const currentTab = ref('premium')
@@ -122,11 +126,11 @@ const closeReceive = () => { receiveUser.value = null }
   --background-activated: #17171a !important;
 }
 
-/* ========== 상단 탭 ========== */
+/* ========== 상단 탭 (toolbar 안) ========== */
+/* ✅ sticky 제거: header가 고정 역할 수행 */
 .top-tabs {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 5;
+  /* position: sticky;  ← 제거 */
+  /* top: env(safe-area-inset-top, 0px); ← 제거 */
   background: var(--bg-deep, #0a0a0a);
   padding: 4px 6px 8px;
   border-bottom: 1px solid var(--border, #333);

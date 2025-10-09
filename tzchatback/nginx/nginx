@@ -123,7 +123,8 @@ server {
 
     # 업로드: 정적 파일 직접 서빙
     location /uploads/ {
-        alias /home/tazofarm/project/tzchat/uploads/;
+        # ★ 여기 수정: 백엔드가 실제 저장하는 경로(tzchatback/uploads)로 교정
+        alias /home/tazofarm/project/tzchat/tzchatback/uploads/;
         autoindex off;
         try_files $uri =404;
         expires 30d;

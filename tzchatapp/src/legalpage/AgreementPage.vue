@@ -4,14 +4,14 @@
     <ion-header translucent>
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button default-href="/home/6page" text="뒤로가기" />
+          <ion-back-button :disabled="submitting" default-href="/home/6page" text="뒤로가기" />
         </ion-buttons>
         <ion-title>동의</ion-title>
       </ion-toolbar>
     </ion-header>
 
     <ion-content fullscreen>
-      <section class="container">
+      <section class="container" :aria-busy="state.loading || submitting">
         <h2 class="title">서비스 이용을 위해 </h2>
         <h2 class="title">아래 항목에 동의해 주세요</h2>
 
@@ -19,15 +19,19 @@
 
         <form v-else @submit.prevent="submit">
           <!-- 모두 동의 카드 -->
-          <div class="card card-all" @click="allCheckedModel = !allCheckedModel">
+          <div
+            class="card card-all"
+            @click="!submitting && (allCheckedModel = !allCheckedModel)"
+            :aria-disabled="submitting"
+          >
             <label class="row" @click.stop>
-              <input class="chk" type="checkbox" v-model="allCheckedModel" aria-label="모두 동의하기" />
+              <input class="chk" type="checkbox" v-model="allCheckedModel" :disabled="submitting" aria-label="모두 동의하기" />
               <span class="row-text">모두 동의하기</span>
             </label>
           </div>
 
           <!-- 리스트 카드 -->
-          <ul class="card list" role="list">
+          <ul class="card list" role="list" aria-live="polite">
             <li v-for="item in state.pending" :key="item.slug" class="item" role="listitem">
               <label class="row">
                 <input
@@ -35,6 +39,7 @@
                   type="checkbox"
                   v-model="selected"
                   :value="item.slug"
+                  :disabled="submitting"
                   :aria-label="labelOf(item.slug, item.title)"
                 />
                 <span class="row-text">
@@ -42,7 +47,7 @@
                   {{ labelOf(item.slug, item.title) }}
                 </span>
               </label>
-              <button type="button" class="view" @click="openDoc(item.slug)">내용보기</button>
+              <button type="button" class="view" :disabled="submitting" @click="openDoc(item.slug)">내용보기</button>
             </li>
           </ul>
 
@@ -93,14 +98,20 @@ const alert = reactive<{
   buttons: []
 })
 
+/** 모든 항목 체크 여부(파생) */
 const allChecked = computed(() =>
   state.pending.length > 0 && selected.value.length === state.pending.length
 )
+
+/** '모두 동의' v-model */
 const allCheckedModel = computed({
   get: () => allChecked.value,
-  set: (val: boolean) => { selected.value = val ? state.pending.map(p => p.slug) : [] }
+  set: (val: boolean) => {
+    selected.value = val ? state.pending.map(p => p.slug) : []
+  }
 })
 
+/** 제출 가능: 필수 항목이 모두 포함되어야 함 */
 const canSubmit = computed(() =>
   state.pending.every(p => !p.isRequired || selected.value.includes(p.slug))
 )
@@ -111,16 +122,19 @@ function labelOf(slug: string, title?: string) {
 }
 
 /** 공통 오류 표시(팝업) */
-function showError(message: string, opts: { phase: 'load' | 'submit' }){
-  alert.header = opts.phase === 'load' ? '동의 정보 불러오기 실패' : '동의 처리 실패'
-  alert.message = message
+function showError(message: string, opts: { phase: 'load' | 'submit' }, pendingLeft?: PendingItem[]){
+  const remain = (pendingLeft && pendingLeft.length)
+    ? `<br/><br/><b>미완료 항목:</b><br/>- ${pendingLeft.map(i => (i.title || i.slug)).join('<br/>- ')}`
+    : ''
+  alert.header = opts.phase === 'load' ? '동의 정보 불러오기 실패' : '동의 처리 필요'
+  alert.message = message + remain
   alert.buttons = opts.phase === 'load'
     ? [
         { text: '돌아가기', role: 'cancel', handler: () => router.replace(returnTo.value) },
         { text: '재시도', role: 'confirm', handler: () => load() }
       ]
     : [
-        { text: '닫기', role: 'cancel' }
+        { text: '확인', role: 'cancel' }
       ]
   alert.open = true
 }
@@ -135,9 +149,7 @@ function normalizeAxiosError(e: any, fallback: string){
 async function load() {
   state.loading = true
   try {
-    // ✅ any로 받아와서 형태를 정규화 (Axios 원본/가공 모두 대응)
     const raw: any = await getAgreementStatus()
-    // 우선순위: axios.data.data.pending → axios.data.pending → top-level.pending
     const pending: PendingItem[] =
       (raw?.data?.data?.pending) ??
       (raw?.data?.pending) ??
@@ -150,7 +162,9 @@ async function load() {
       router.replace(returnTo.value)
       return
     }
-    selected.value = state.pending.filter(p => p.isRequired).map(p => p.slug)
+
+    // ✅ 초기값: 아무 것도 체크하지 않음 (필수 포함)
+    selected.value = []
   } catch (e: any) {
     showError(normalizeAxiosError(e, '동의 상태를 가져오지 못했습니다.'), { phase: 'load' })
   } finally {
@@ -162,7 +176,25 @@ async function submit() {
   if (!canSubmit.value || submitting.value) return
   submitting.value = true
   try {
+    // 1) 배치 동의 저장
     await acceptAgreements(selected.value)
+
+    // 2) 저장 직후 상태 재조회 (경쟁상태/누락 방지)
+    const raw: any = await getAgreementStatus()
+    const pendingNow: PendingItem[] =
+      (raw?.data?.data?.pending) ??
+      (raw?.data?.pending) ??
+      (raw?.pending) ??
+      []
+
+    if (Array.isArray(pendingNow) && pendingNow.length > 0) {
+      // 아직 남아있다면 전환하지 않고 사용자에게 안내
+      state.pending = pendingNow
+      showError('일부 항목이 아직 동의되지 않았습니다. 필요한 항목을 모두 선택한 뒤 다시 시도하세요.', { phase: 'submit' }, pendingNow)
+      return
+    }
+
+    // 3) 모두 해제됨 → 원래 화면으로
     router.replace(returnTo.value)
   } catch (e: any) {
     showError(normalizeAxiosError(e, '동의 처리 중 오류가 발생했습니다.'), { phase: 'submit' })
@@ -172,7 +204,7 @@ async function submit() {
 }
 
 function openDoc(slug: string) {
-  // 공개 라우트 이름 사용
+  if (submitting) return
   router.push({ name: 'LegalPageV2Public', params: { slug }, query: { return: returnTo.value } })
 }
 

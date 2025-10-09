@@ -134,14 +134,15 @@ async function authFromJwtOrSession(req, res, next) {
  * - region1, region2 저장 포함
  * - birthyear 숫자 변환
  * - 중복/필수값 검증 & 상세 로그
- * - ⬆️ consents 수신 → 필수 검증 → UserAgreement 일괄 저장
+ * - ⬇️ 변경: consents는 선택 입력(검증 강제 X). 로그인 후 pending으로 처리
+ * - ⬆️ 변경: User.create 예외(E11000/Validation/Cast) 세분화 → 4xx로 응답
  */
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
 
   let {
     username, password, nickname, gender, birthyear, region1, region2,
-    consents = [], // [{ slug, version, optedIn? }]
+    consents = [], // [{ slug, version, optedIn? }] (선택)
   } = req.body || {};
   try {
     username = s(username);
@@ -156,99 +157,103 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
-    // 사용자/닉네임 중복
+    // 사전 중복 점검(경쟁조건 대비 후단에서도 E11000 처리)
     const [userExists, nicknameExists] = await Promise.all([
-      User.findOne({ username }).lean(),
-      User.findOne({ nickname }).lean(),
+      User.findOne({ username }).select('_id').lean(),
+      User.findOne({ nickname }).select('_id').lean(),
     ]);
     if (userExists) {
-      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_USERNAME', username });
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_USERNAME_PRECHECK', username });
       return res.status(409).json({ ok: false, message: '아이디 중복' });
     }
     if (nicknameExists) {
-      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_NICKNAME', nickname });
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_NICKNAME_PRECHECK', nickname });
       return res.status(409).json({ ok: false, message: '닉네임 중복' });
     }
 
-    // ----- 활성 동의 문서 로드 (consent 전용) -----
-    const activeConsents = await Terms.find({ isActive: true, kind: 'consent' })
-      .select('slug title version defaultRequired')
-      .lean();
-
-    // consents 입력 정규화 (배열 보장)
-    if (!Array.isArray(consents)) consents = [];
-    const consentMap = new Map(
-      consents
-        .filter(c => c && typeof c.slug === 'string' && typeof c.version === 'string')
-        .map(c => [c.slug, { version: String(c.version), optedIn: typeof c.optedIn === 'boolean' ? c.optedIn : true }])
-    );
-
-    // ----- 필수 동의 검증: defaultRequired=true 모두 존재 & 버전 일치 -----
-    const requiredDocs = activeConsents.filter(d => !!d.defaultRequired);
-    const missing = [];
-    for (const doc of requiredDocs) {
-      const c = consentMap.get(doc.slug);
-      if (!c || String(c.version) !== String(doc.version)) {
-        missing.push({ slug: doc.slug, requiredVersion: String(doc.version) });
+    // ----- 사용자 생성 (예외 세분화) -----
+    let user;
+    try {
+      const hashed = await bcrypt.hash(String(password), 10);
+      user = await User.create({
+        username,
+        password: hashed,
+        nickname,
+        gender: ['man', 'woman'].includes(String(gender)) ? String(gender) : 'man',
+        birthyear: Number.isFinite(birthYearNum) ? birthYearNum : undefined,
+        region1,
+        region2,
+        last_login: null
+      });
+    } catch (e) {
+      if (e && e.code === 11000) {
+        const dupField = Object.keys(e.keyValue || {})[0];
+        const which = dupField === 'nickname' ? '닉네임' : '아이디';
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue: e.keyValue });
+        return res.status(409).json({ ok: false, message: `${which} 중복` });
       }
+      if (e?.name === 'ValidationError') {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'VALIDATION_ERROR', errors: e.errors });
+        return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
+      }
+      if (e?.name === 'CastError') {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'CAST_ERROR', path: e.path, value: e.value });
+        return res.status(400).json({ ok: false, message: '입력값 변환 중 오류가 발생했습니다.' });
+      }
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'CREATE_USER_FAILED', message: e?.message });
+      return res.status(500).json({ ok: false, message: '서버 오류' });
     }
-    if (missing.length) {
-      console.log('[AUTH][ERR]', { step: 'signup', code: 'CONSENT_MISSING_OR_VERSION_MISMATCH', missing });
-      return res.status(400).json({
-        ok: false,
-        message: '필수 동의가 누락되었거나 버전이 일치하지 않습니다.',
-        missing,
-      });
-    }
 
-    // ----- 사용자 생성 -----
-    const hashed = await bcrypt.hash(String(password), 10);
-    const user = await User.create({
-      username,
-      password: hashed,
-      nickname,
-      gender,
-      birthyear: birthYearNum,
-      region1,
-      region2,
-      last_login: null
-    });
+    // ----- consents 저장(있을 때만). 실패해도 가입 성공은 유지 -----
+    if (Array.isArray(consents) && consents.length > 0) {
+      try {
+        const activeConsents = await Terms.find({ isActive: true, kind: 'consent' })
+          .select('slug title version defaultRequired')
+          .lean();
 
-    // ----- 동의 일괄 저장 (필수 + 선택, 입력된 것만) -----
-    const now = new Date();
-    const bulk = [];
-    for (const doc of activeConsents) {
-      const c = consentMap.get(doc.slug);
-      if (!c) continue; // 선택 항목 미체크는 건너뜀
+        const activeBySlug = new Map(activeConsents.map(d => [String(d.slug), d]));
+        const now = new Date();
+        const bulk = [];
 
-      bulk.push({
-        updateOne: {
-          filter: { userId: user._id, slug: doc.slug },
-          update: {
-            $set: {
-              version: String(c.version),
-              agreedAt: now,
-              optedIn: c.optedIn,
-              docId: doc._id,
-              meta: {
-                title: doc.title,
-                kind: 'consent',
-                defaultRequired: !!doc.defaultRequired,
+        for (const c of consents) {
+          if (!c || typeof c.slug !== 'string') continue;
+
+          const slug = String(c.slug);
+          const version = (c.version != null) ? String(c.version) : null;
+          const optedIn = (typeof c.optedIn === 'boolean') ? c.optedIn : true;
+
+          const matched = activeBySlug.get(slug);
+          bulk.push({
+            updateOne: {
+              filter: { userId: user._id, slug },
+              update: {
+                $set: {
+                  version: version || (matched ? String(matched.version) : undefined),
+                  agreedAt: now,
+                  optedIn,
+                  docId: matched ? matched._id : undefined,
+                  meta: matched ? {
+                    title: matched.title,
+                    kind: 'consent',
+                    defaultRequired: !!matched.defaultRequired,
+                  } : undefined,
+                },
               },
+              upsert: true,
             },
-          },
-          upsert: true,
-        },
-      });
-    }
-    if (bulk.length) {
-      await UserAgreement.bulkWrite(bulk);
+          });
+        }
+
+        if (bulk.length) await UserAgreement.bulkWrite(bulk);
+      } catch (e) {
+        console.log('[AUTH][WARN] consents save skipped', { message: e?.message });
+      }
     }
 
     console.log('[API][RES] /signup 201', { userId: String(user._id), username });
     return res.status(201).json({ ok: true, message: '회원가입 성공' });
   } catch (err) {
-    console.log('[AUTH][ERR]', { step: 'signup', message: err?.message });
+    console.log('[AUTH][ERR]', { step: 'signup', raw: err, message: err?.message, code: err?.code, name: err?.name });
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
@@ -352,7 +357,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       .lean();
 
     if (!user) {
-      console.timeEnd('[API][TIMING] GET /api/me');
+      console.timeEnd('[API][TIMING] GET /api/me'); 
       console.log('[AUTH][ERR]', { step: 'me', code: 'NO_USER', userId });
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
@@ -369,7 +374,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       activatedAt = null;
       console.log('[AUTH][DBG]', { step: 'me', message: 'emergency auto-off' });
     }
- 
+
     const modifiedUser = {
       ...user,
       emergency: {
@@ -496,3 +501,4 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
+ 

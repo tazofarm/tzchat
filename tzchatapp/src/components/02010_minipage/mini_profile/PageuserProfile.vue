@@ -1,3 +1,6 @@
+<!-- src/02010_minipage/mini_profile/PageuserProfile.vue -->
+
+
 <template>
   <!-- ✅ 6_profile 스타일을 적용한 사용자 프로필 상세 페이지 -->
   <div class="page-wrapper">
@@ -114,9 +117,10 @@
         <!-- 대화하기 -->
         <div class="chat-button">
           <ion-button
+            type="button"
             expand="block"
             class="btn-primary"
-            :disabled="!user.isFriend"
+            :disabled="!user.isFriend || isSubmitting"
             @click="startChat(user._id)"
           >
             <IonIcon :icon="icons.chatbubblesOutline" class="btn-icon" />
@@ -128,6 +132,7 @@
         <div class="button-group" role="group" aria-label="사용자 액션">
           <!-- ▼ 상태: 상대가 나에게 '보낸 신청'이 대기중 => 수락하기 -->
           <ion-button
+            type="button"
             v-if="!user.isFriend && hasIncomingRequest && !user.isBlocked"  
             class="btn-primary"
             :disabled="isSubmitting"
@@ -139,10 +144,11 @@
 
           <!-- ▼ 상태: 친구 아님 && 내가 보낸 pending 없음 && 차단 아님 => 친구신청 -->
           <ion-button
+            type="button"
             v-if="!user.isFriend && !hasPendingRequest && !hasIncomingRequest && !user.isBlocked"
             class="btn-outline"
             @click="onOpenFriendRequest"
-            :disabled="showRequestModal"
+            :disabled="showRequestModal || isSubmitting"
           >
             <IonIcon :icon="icons.personAddOutline" class="btn-icon" />
             친구신청
@@ -150,6 +156,7 @@
 
           <!-- ▼ 상태: 내가 보낸 pending 있음 => 신청 취소 -->
           <ion-button
+            type="button"
             v-if="!user.isFriend && hasPendingRequest && !user.isBlocked"
             class="btn-warning"
             :disabled="isSubmitting"
@@ -161,6 +168,7 @@
 
           <!-- ▼ 상태: 이미 친구 => 친구 삭제 -->
           <ion-button
+            type="button"
             v-if="user.isFriend"
             class="btn-danger"
             :disabled="isSubmitting"
@@ -172,6 +180,7 @@
 
           <!-- 차단 / 차단 해제 -->
           <ion-button
+            type="button"
             v-if="!user.isBlocked"
             class="btn-warning"
             :disabled="isSubmitting"
@@ -181,6 +190,7 @@
             차단하기
           </ion-button>
           <ion-button
+            type="button"
             v-else
             class="btn-muted"
             :disabled="isSubmitting"
@@ -192,6 +202,7 @@
 
           <!-- 신고 -->
           <ion-button
+            type="button"
             class="btn-secondary"
             :disabled="isSubmitting"
             @click="reportUser(user._id)"
@@ -220,6 +231,7 @@
 
           <div class="footer-btns">
             <ion-button
+              type="button"
               class="btn-primary"
               expand="block"
               @click="closeIntroModal"
@@ -251,12 +263,14 @@
 
           <div class="footer-btns">
             <ion-button
+              type="button"
               class="btn-primary"
               expand="block"
               :disabled="isSubmitting"
               @click="sendFriendRequest"
             >신청 보내기</ion-button>
             <ion-button
+              type="button"
               class="btn-muted"
               expand="block"
               :disabled="isSubmitting"
@@ -384,12 +398,13 @@ function closeIntroModal() { showIntroModal.value = false }
 
 /* ========== 데이터 로드 ========== */
 async function loadUser() {
-  const targetId = route.params.id
+  const targetId = String(route.params.id || '')
   const res = await axios.get(`/api/users/${targetId}`, { withCredentials: true })
   const data = (res.data as any)?.user ?? res.data ?? {}
   user.value = {
     ...user.value,
     ...data,
+    _id: String(data._id || targetId),
     isFriend:  !!data.isFriend,
     isBlocked: !!data.isBlocked,
     sentRequestCountTotal: data.sentRequestCountTotal ?? 0,
@@ -401,13 +416,13 @@ async function loadUser() {
 /** ✅ 내가 보낸 친구신청 '대기중'인지 확인 */
 async function syncPendingRequestState() {
   try {
-    const targetId = user.value._id || route.params.id
+    const targetId = String(user.value._id || route.params.id || '')
     if (!targetId) return
     const res = await axios.get('/api/friend-requests/sent', { withCredentials: true })
     const list = (res.data?.requests ?? res.data ?? []) as any[]
     const pending = list.find((r:any) =>
-      (r.to?._id === targetId || r.to === targetId) &&
-      (r.status === 'pending' || r.status === 'PENDING')
+      (String(r.to?._id ?? r.to) === targetId) &&
+      String(r.status).toLowerCase() === 'pending'
     )
     hasPendingRequest.value = !!pending
     pendingRequestId.value = pending?._id ?? null
@@ -420,13 +435,13 @@ async function syncPendingRequestState() {
 /** ✅ 상대가 나에게 보낸 친구신청 '대기중'인지 확인 (수락하기 노출 조건) */
 async function syncIncomingRequestState() {
   try {
-    const targetId = user.value._id || route.params.id
+    const targetId = String(user.value._id || route.params.id || '')
     if (!targetId) return
     const res = await axios.get('/api/friend-requests/received', { withCredentials: true })
     const list = (res.data?.requests ?? res.data ?? []) as any[]
     const pending = list.find((r:any) =>
-      (r.from?._id === targetId || r.from === targetId) &&
-      (r.status === 'pending' || r.status === 'PENDING')
+      (String(r.from?._id ?? r.from) === targetId) &&
+      String(r.status).toLowerCase() === 'pending'
     )
     hasIncomingRequest.value = !!pending
     incomingRequestId.value = pending?._id ?? null
@@ -462,7 +477,9 @@ async function sendFriendRequest() {
     isSubmitting.value = true
     const payload = { to: user.value._id, message: requestMessage.value }
     const res = await axios.post('/api/friend-request', payload, { withCredentials: true })
-    pendingRequestId.value = res.data?.request?._id ?? res.data?._id ?? null
+    // 서버는 FriendRequest 문서를 그대로 반환 (populated 가능)
+    const reqId = res.data?._id ?? res.data?.request?._id ?? null
+    pendingRequestId.value = reqId
     hasPendingRequest.value = true
     showRequestModal.value = false
   } finally {
@@ -498,12 +515,15 @@ async function acceptIncomingRequest() {
   }
 }
 
-function startChat(targetId: string) { console.log('💬 대화 시작:', targetId) }
+function startChat(targetId: string) {
+  // TODO: 채팅방 라우트 규칙에 맞춰 이동 처리
+  console.log('💬 대화 시작:', targetId)
+}
 
 async function removeFriend(targetId: string) {
   try {
     isSubmitting.value = true
-    await axios.delete(`/api/friend/${targetId}`, { withCredentials: true })
+    await axios.delete(`/api/friend/${String(targetId)}`, { withCredentials: true })
     user.value.isFriend = false
   } finally {
     isSubmitting.value = false
@@ -513,7 +533,7 @@ async function removeFriend(targetId: string) {
 async function blockUser(targetId: string) {
   try {
     isSubmitting.value = true
-    await axios.put(`/api/block/${targetId}`, {}, { withCredentials: true })
+    await axios.put(`/api/block/${String(targetId)}`, {}, { withCredentials: true })
     user.value.isBlocked = true
     hasPendingRequest.value = false
     pendingRequestId.value = null
@@ -528,7 +548,7 @@ async function blockUser(targetId: string) {
 async function unblockUser(targetId: string) {
   try {
     isSubmitting.value = true
-    await axios.delete(`/api/block/${targetId}`, { withCredentials: true })
+    await axios.delete(`/api/block/${String(targetId)}`, { withCredentials: true })
     user.value.isBlocked = false
   } finally {
     isSubmitting.value = false
@@ -543,7 +563,7 @@ function reportUser(targetId: string) {
   const reporterId = getReporterId()
   const reporterNickname = getReporterNickname()
 
-  const targetUserId = user.value._id || targetId || String(route.params.id || '')
+  const targetUserId = String(user.value._id || targetId || route.params.id || '')
   const targetNickname = user.value.nickname || user.value.username || '-'
 
   const bodyLines = [
@@ -619,6 +639,8 @@ function goBack() { router.back() }
 .title-action-btn .action-text { color: var(--gold); font-weight: 700; }
 
 .photo-slot { display: flex; justify-content: center; padding: 8px 0 12px; }
+
+
 
 .info-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.4; table-layout: fixed; }
 .pf-col-th { width: 40%; } .pf-col-td { width: 60%; }

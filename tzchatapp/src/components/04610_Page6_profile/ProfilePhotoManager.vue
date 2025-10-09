@@ -30,9 +30,9 @@
             <button class="selector-close" @click="closeSelector" aria-label="닫기">×</button>
           </div>
 
-          <!-- ✅ 빈칸 없이: 이미지 수 + 1개의 추가 버튼(최대 MAX_SLOTS) -->
+          <!-- ✅ 항상 8칸 고정 표시 -->
           <div class="slot-grid">
-            <div v-for="n in visibleSlotCount" :key="n" class="slot">
+            <div v-for="n in MAX_SLOTS" :key="n" class="slot">
               <!-- 이미지 타일 -->
               <template v-if="n - 1 < images.length">
                 <div class="slot-box">
@@ -335,12 +335,6 @@ const mainDisplayUrl = computed(() => {
 const mainId = computed(() => profileMain.value || images.value[0]?.id || '')
 function isMain(img: ProfileImage) { return img && img.id === mainId.value }
 
-/** ✅ 보이는 슬롯(이미지 수 + 1 추가 버튼) */
-const visibleSlotCount = computed(() => {
-  const canAddMore = images.value.length < MAX_SLOTS
-  return Math.min(MAX_SLOTS, images.value.length + (canAddMore ? 1 : 0))
-})
-
 /** ===== 선택기 ===== */
 const selectorOpen = ref(false)
 function openSelector() { if (readonly.value) return; selectorOpen.value = true; loadImages() }
@@ -613,8 +607,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <style scoped>
+/* —— styles unchanged —— */
 .photo-manager { width: 100%; }
-
 /* 상단 대표 */
 .wrap { max-width: 520px; margin: 12px auto 0; }
 .row  { display: flex; align-items: center; justify-content: center; }
@@ -622,15 +616,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   display: block; width: 100%; max-width: 180px; aspect-ratio: 1/1;
   object-fit: cover; border-radius: 16px; background: #111; margin: 0 auto; cursor: pointer;
 }
-
-/* ── 오버레이: 최상단, 화면 꽉 채우기, 내부 스크롤 ────────────── */
+/* 오버레이 공통 */
 .selector,
 .confirm,
 .lightbox,
 .cropper {
   position: fixed;
   inset: 0;
-  z-index: 2147483647; /* 어떤 상단/하단 패널보다 위 */
+  z-index: 2147483647;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -639,26 +632,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   background: rgba(0,0,0,0.45);
 }
 .lightbox { background: rgba(0,0,0,0.88); }
-
-/* 카드(팝업 내용)는 뷰포트 안으로 제한 */
 .selector-card,
 .confirm-card,
 .crop-card {
   width: min(96vw, 620px);
   max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
   overflow: auto;
-
   background: #fff; color: #000;
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.18);
   padding: 12px;
 }
-
-/* 선택 팝업 */
 .selector-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .selector-close { width: 34px; height: 34px; border-radius: 999px; border: 0; background: #bcbcbc; color: #fff; font-size: 20px; cursor: pointer; }
-
-/* ✅ 4열 그리드(보이는 슬롯만) */
+/* 그리드 */
 .slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; padding: 6px 2px; }
 .slot { display: flex; flex-direction: column; gap: 6px; }
 .slot-img, .slot-empty {
@@ -671,7 +658,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .badge-main{ position: absolute; left: 6px; top: 6px; padding: 2px 6px; border-radius: 999px; background: #111; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
 .slot-del { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; border-radius: 999px; border: 0; background: rgba(0,0,0,0.55); color: #fff; font-size: 18px; line-height: 26px; cursor: pointer; }
 .slot-empty { font-size: 28px; cursor: pointer; }
-
 /* 삭제 모달 */
 .confirm-title { margin: 0 0 12px; font-weight: 800; }
 .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -679,7 +665,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .btn.danger { background: #ffb4ab; color: #000; }
 .btn.ghost { background: #f3f3f3; color: #333; }
 .btn.primary { background: #ffd166; color: #000; }
-
 /* 라이트박스 */
 .viewer-close { position: fixed; top: 10px; right: 12px; width: 40px; height: 40px; border-radius: 999px; border: 0; background: rgba(255,255,255,0.18); color: #fff; font-size: 26px; cursor: pointer; }
 .carousel { position: relative; width: 100vw; height: 86vh; overflow: hidden; }
@@ -692,53 +677,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .set-main { position: fixed; left: 12px; bottom: 12px; height: 40px; padding: 0 14px; border: 0; border-radius: 12px; font-weight: 800; cursor: pointer; background: #ffd166; color: #000; }
 .set-main:disabled { opacity: 0.7; cursor: default; }
 .viewer-back { position: fixed; right: 12px; bottom: 12px; height: 40px; padding: 0 14px; border: 0; border-radius: 12px; font-weight: 800; cursor: pointer; background: rgba(255,255,255,0.2); color: #fff; }
-.toast { position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: #fff; padding: 6px 12px; border-radius: 999px; font-weight: 700; }
-
-/* 크롭 모달 */
+/* 크롭 */
 .crop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .crop-close { width: 34px; height: 34px; border-radius: 999px; border: 0; background: #bcbcbc; color: #fff; font-size: 20px; cursor: pointer; }
-
-/* 크롭 박스: 화면 높이에 맞춘 정사각(툴바/버튼 영역 여유 포함) */
 .crop-box {
   --square-by-width: min(92vw, 300px);
   --square-by-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 320px);
   width: min(var(--square-by-width), var(--square-by-height));
   height: min(var(--square-by-width), var(--square-by-height));
   margin: 0 auto;
-
   position: relative;
   overflow: hidden;
   background: #000;
   border-radius: 14px;
-
   touch-action: none;
   overscroll-behavior: contain;
 }
 .crop-img { position: absolute; left: 50%; top: 50%; transform-origin: center center; will-change: transform; user-select: none; -webkit-user-drag: none; }
 .mask { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.9); border-radius: 14px; }
-
-/* 컨트롤 */
 .crop-controls { margin-top: 12px; display: grid; gap: 10px; }
 .crop-controls label { font-size: 14px; color: #333; }
 .crop-controls input[type="range"] { width: 100%; }
-
-/* 하단 버튼을 한 줄(3열)로 고정 */
 .crop-controls .ctrl-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* 세 개 버튼을 같은 비율 */
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   align-items: center;
 }
 .crop-controls .btn { white-space: nowrap; }
-.crop-controls .right-group { display: contents; } /* 두 버튼을 각 칸에 배치 */
-
-/* 초기화 버튼 (구분용) */
-.btn.reset {
-  background: #e0f0ff;   /* 파스텔 블루 */
-  color: #0057a3;
-}
-.btn.reset:hover {
-  background: #cce5ff;
-}
-
+.crop-controls .right-group { display: contents; }
+.btn.reset { background: #e0f0ff; color: #0057a3; }
+.btn.reset:hover { background: #cce5ff; }
 </style>

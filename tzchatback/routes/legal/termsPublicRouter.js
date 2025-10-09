@@ -166,16 +166,24 @@ async function fetchActiveConsentWithUser(userId) {
   const items = activeConsents.map(doc => {
     const ua = userAgreements.find((r) => r.slug === doc.slug);
     const sameVersion = ua ? String(ua.version) === String(doc.version) : false;
+
+    // ✅ 필수 여부는 isRequired가 없으면 defaultRequired로 대체
+    const isReq = !!(doc.isRequired ?? doc.defaultRequired);
+    const accepted = ua?.optedIn === true;
+
+    // ✅ 수정: 필수인데 optedIn !== true 인 경우도 pending 으로 판단
+    const pending = !sameVersion || (isReq && !accepted);
+
     return {
       slug: doc.slug,
       title: doc.title,
       version: doc.version,
-      isRequired: !!doc.isRequired,
+      isRequired: isReq,
       defaultRequired: !!doc.defaultRequired,
       hasRecord: !!ua,
       sameVersion,
       optedIn: ua?.optedIn ?? null,
-      pending: !sameVersion, // 현재 활성버전으로 기록이 없으면 pending
+      pending,
     };
   });
 
@@ -263,7 +271,7 @@ router.post('/agreements/accept', requireLogin, async (req, res) => {
             meta: {
               title: doc.title,
               kind: 'consent',
-              isRequired: !!doc.isRequired,
+              isRequired: !!(doc.isRequired ?? doc.defaultRequired),
               defaultRequired: !!doc.defaultRequired,
               userAgent: req.get('User-Agent'),
               ip: req.ip,
@@ -383,15 +391,16 @@ router.get('/require-consent', requireLogin, async (req, res) => {
       .select('slug title version')
       .lean();
     const userAgreements = await UserAgreement.find({ userId })
-      .select('slug version')
+      .select('slug version optedIn')
       .lean();
 
     const needSlugs = [];
     for (const doc of requiredDocs) {
-      const matched = userAgreements.find(
-        (ua) => ua.slug === doc.slug && String(ua.version) === String(doc.version)
+      const ua = userAgreements.find(
+        (x) => x.slug === doc.slug && String(x.version) === String(doc.version)
       );
-      if (!matched) needSlugs.push(doc.slug);
+      // ✅ 필수는 미동의(optedIn !== true)도 재동의 필요
+      if (!ua || ua.optedIn !== true) needSlugs.push(doc.slug);
     }
 
     res.json({

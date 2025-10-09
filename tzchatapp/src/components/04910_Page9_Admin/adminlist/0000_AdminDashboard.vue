@@ -36,7 +36,7 @@
         <!-- 번호 리스트 -->
 
         
-        <li class="list-item" @click="goPage('/home/legals/v2')">약관 및 법적조치(메인)</li>
+        <li class="list-item" @click="goPage('/home/legals/v2')">약관 및 법적조치(수정)</li>
         <li class="list-item" @click="goPage('/home/admin/0001')">0001_Heartbeat</li>
         <li class="list-item" @click="goPage('/home/admin/0002')">0002_회원검색</li>
         <li class="list-item" @click="goPage('/home/admin/0003')">0003_alluser</li>

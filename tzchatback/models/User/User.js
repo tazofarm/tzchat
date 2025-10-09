@@ -117,10 +117,11 @@ const userSchema = new mongoose.Schema(
     // ────────────────────────────────────────────────────────
     phone: {
       type: String,
+      required: false,   // ← 필수 해제
+      default: null,
       unique: true,
-      required: true, // 계정 식별/인증에 사용
-    },   // E.164 (예: +821012345678)
-
+      sparse: true,      // ← unique + optional 조합에 반드시 필요
+    },
     phoneHash: {
       type: String,
       unique: true,

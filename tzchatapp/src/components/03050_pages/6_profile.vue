@@ -653,11 +653,11 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 .page-wrapper{background:radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,.08), transparent 55%), radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,.06), transparent 60%), var(--bg); color:var(--text); min-height:100%}
 .container{padding:12px}
 .card{border:1px solid var(--divider); border-radius:12px; padding:12px; background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0)), var(--panel); color:var(--text); box-shadow:0 8px 24px var(--shadow); backdrop-filter:blur(2px); position:relative}
-.card-title{display:flex; align-items:center; gap:8px; margin:0 0 5px 0; margin-bottom:15px; font-size:clamp(15px,4.2vw,18px); font-weight:800; color:var(--text); position:relative}
+.card-title{display:flex; align-items:center; gap:8px; margin:0 0 5px 0; margin-bottom:10px; font-size:clamp(15px,4.2vw,18px); font-weight:800; color:var(--text); position:relative}
 .card-title::after{content:""; height:2px; width:44px; background:linear-gradient(90deg, var(--gold), transparent); position:absolute; left:0; bottom:-6px}
 .title-icon{font-size:18px; color:var(--gold)}
-.pf-photo{display:flex; justify-content:center; padding:4px 0 12px}
-.pf-photo :deep(.avatar){max-width:120px}
+.pf-photo{display:flex; justify-content:center; padding:  0px 0px 15px}
+.pf-photo :deep(.avatar){max-width:130px} 
 .title-action-btn{position:absolute; top:10px; right:10px; display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px; border:1px solid var(--divider); background:rgba(0,0,0,.25); color:#fff; font-weight:700; font-size:13px; cursor:pointer; transition:transform .08s ease, background .2s ease, border-color .2s ease}
 .title-action-btn:hover,.title-action-btn:focus{background:rgba(212,175,55,.12); border-color:var(--gold); outline:none}
 .title-action-btn:active{transform:translateY(1px)}

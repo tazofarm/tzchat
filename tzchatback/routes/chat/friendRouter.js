@@ -13,18 +13,14 @@ const { isValidObjectId } = mongoose;
 
 // models/index.js 가 모든 모델을 export 한다는 가정
 const {
-  // chat
-  ChatRoom, Message,
-  // social
-  FriendRequest, Report,
-  // user
-  User,
+  ChatRoom, Message,          // chat
+  FriendRequest, Report,      // social
+  User,                       // user
 } = require('@/models');
 
-// ✅ 공통 인증 미들웨어(OPTIONS 통과 + Bearer/X-Auth-Token/쿠키/쿼리 지원)
+// ✅ 공통 인증 미들Middleware(OPTIONS 통과 + Bearer/X-Auth-Token/쿠키/쿼리 지원)
 const requireLogin = require('@/middlewares/authMiddleware');
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
-
 
 // 🔔 푸시 발송 모듈
 const { sendPushToUser } = require('@/push/sender');
@@ -33,7 +29,7 @@ const router = express.Router();
 // 전역 보호: 로그인 후 탈퇴 유예 계정 차단
 router.use(requireLogin, blockIfPendingDeletion);
 
-
+/* ----------------------------- 유틸/로깅 ------------------------------ */
 function log(...args) { try { console.log('[friendRouter]', ...args); } catch (_) {} }
 function logErr(...args) { try { console.error('[friendRouter][ERR]', ...args); } catch (_) {} }
 
@@ -54,6 +50,28 @@ async function populateRequest(doc) {
     { path: 'from', select: USER_MIN_FIELDS },
     { path: 'to',   select: USER_MIN_FIELDS },
   ]);
+}
+
+/** 리스트 타입에 맞춰 ID 저장값을 결정(String 배열이면 String으로, ObjectId 배열이면 ObjectId로) */
+function normalizeIdForList(list, id) {
+  const str = String(id);
+  if (Array.isArray(list) && list.length > 0) {
+    const first = list[0];
+    // ObjectId 배열로 보이면 ObjectId 반환
+    if (first && typeof first === 'object' && typeof first.equals === 'function') {
+      return new mongoose.Types.ObjectId(str);
+    }
+    // 문자열 배열로 보이면 String 반환
+    if (typeof first === 'string') return str;
+  }
+  // 비어있으면 스키마를 알 수 없으니 기본을 문자열로
+  return str;
+}
+
+/** 배열 포함 여부(문자열 기준 비교) */
+function includesId(list, id) {
+  const sid = String(id);
+  return (list || []).some(v => String(v) === sid);
 }
 
 /* ===========================================================
@@ -113,12 +131,13 @@ router.post('/friend-request', requireLogin, async (req, res) => {
     if (!toUser)   return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
     if (fromUser.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
 
-    const alreadyFriend = (fromUser.friendlist || []).some(fid => String(fid) === toId);
-    if (alreadyFriend) return res.status(400).json({ message: '이미 친구 상태입니다.' });
+    if ((fromUser.friendlist || []).some(fid => String(fid) === toId))
+      return res.status(400).json({ message: '이미 친구 상태입니다.' });
 
     const iBlockedHim = (fromUser.blocklist || []).some(bid => String(bid) === toId);
     const heBlockedMe = (toUser.blocklist || []).some(bid => String(bid) === fromId);
-    if (iBlockedHim || heBlockedMe) return res.status(400).json({ message: '차단 상태에서는 친구 신청이 불가합니다.' });
+    if (iBlockedHim || heBlockedMe)
+      return res.status(400).json({ message: '차단 상태에서는 친구 신청이 불가합니다.' });
 
     const exists = await FriendRequest.findOne({
       $or: [
@@ -131,7 +150,7 @@ router.post('/friend-request', requireLogin, async (req, res) => {
     try {
       const request = await FriendRequest.create({ from: fromId, to: toId, message: message || '', status: 'pending' });
 
-      // 누적 카운터 증가 (best-effort)
+      // 누점 카운터 증가 (best-effort)
       try {
         await Promise.all([
           User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }),
@@ -171,7 +190,7 @@ router.post('/friend-request', requireLogin, async (req, res) => {
       throw createErr;
     }
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     return res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -197,7 +216,7 @@ router.delete('/friend-request/:id', requireLogin, async (req, res) => {
     log('🗑️ 친구 신청 취소', { path: req.baseUrl + req.path, fromId, toId: deleted.to?._id, id });
     res.json({ ok: true, deletedId: id });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -214,7 +233,7 @@ router.get('/friend-requests/received', requireLogin, async (req, res) => {
       .populate('from', USER_MIN_FIELDS);
     res.json(requests);
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -231,19 +250,25 @@ router.get('/friend-requests/sent', requireLogin, async (req, res) => {
       .populate('to', USER_MIN_FIELDS);
     res.json(requests);
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /** ============================
  *  🤝 친구 신청 수락
+ *  - ✅ 프론트가 바로 채팅방으로 이동할 수 있도록 roomId 반환
  * ============================ */
 router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
     const { id } = req.params;
+
+    // 1) 잘못된 ObjectId 방어
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: '유효하지 않은 요청 ID입니다.' });
+    }
 
     const request = await FriendRequest.findOneAndUpdate(
       { _id: id, to: myId, status: 'pending' },
@@ -253,45 +278,66 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
     if (!request) return res.status(403).json({ message: '권한 없음 또는 신청 없음/이미 처리됨' });
 
     const fromId = String(request.from);
-    const toId = String(request.to);
+    const toId   = String(request.to);
 
-    const [userMe, userFrom] = await Promise.all([
-      User.findById(toId),
-      User.findById(fromId),
-    ]);
-    if (!userMe || !userFrom) return res.status(404).json({ message: '사용자 조회 실패' });
-
-    if (!userMe.friendlist.some(fid => String(fid) === fromId)) userMe.friendlist.push(userFrom._id);
-    if (!userFrom.friendlist.some(fid => String(fid) === toId)) userFrom.friendlist.push(userMe._id);
-    await Promise.all([userMe.save(), userFrom.save()]);
-
-    // 채팅방 생성(없으면)
-    let chatRoom = await ChatRoom.findOne({ participants: { $all: [userMe._id, userFrom._id], $size: 2 } });
-    if (!chatRoom) {
-      chatRoom = await ChatRoom.create({ participants: [userMe._id, userFrom._id], messages: [] });
-      log('💬 채팅방 생성', { roomId: chatRoom._id });
-    }
-
-    const systemMessage = await Message.create({ chatRoom: chatRoom._id, sender: null, content: '채팅이 시작되었습니다.' });
-    chatRoom.messages.push(systemMessage._id);
-    await chatRoom.save();
+    // save() 대신 원자적 업데이트로 친구 추가
+    const toObjId   = new mongoose.Types.ObjectId(toId);
+    const fromObjId = new mongoose.Types.ObjectId(fromId);
 
     await Promise.all([
-      User.updateOne({ _id: fromId }, { $inc: { acceptedChatCountTotal: 1 } }),
-      User.updateOne({ _id: toId },   { $inc: { acceptedChatCountTotal: 1 } }),
+      User.updateOne({ _id: toObjId },   { $addToSet: { friendlist: fromObjId } }),
+      User.updateOne({ _id: fromObjId }, { $addToSet: { friendlist: toObjId   } }),
     ]);
 
-    const populated = await populateRequest(request);
-    const emit = req.app.get('emit');
-    if (emit && emit.friendRequestAccepted) emit.friendRequestAccepted(populated);
+    let roomId = null;
 
-    log('🤝 친구 수락 & 채팅 시작', { path: req.baseUrl + req.path, fromId, toId, roomId: chatRoom._id });
-    res.json({ ok: true });
+    // 2) 채팅방/메시지 생성은 실패해도 수락 자체는 성공 처리
+    try {
+      let chatRoom = await ChatRoom.findOne({
+        participants: { $all: [toObjId, fromObjId], $size: 2 }
+      });
+
+      if (!chatRoom) {
+        chatRoom = await ChatRoom.create({ participants: [toObjId, fromObjId], messages: [] });
+        log('💬 채팅방 생성', { roomId: chatRoom._id });
+      } else {
+        log('💬 기존 채팅방 사용', { roomId: chatRoom._id });
+      }
+
+      roomId = String(chatRoom._id);
+
+      // sender 필수 스키마 대비: 시스템 메시지도 일단 내 아이디로 기록
+      const systemMessage = await Message.create({
+        chatRoom: chatRoom._id,
+        sender: toObjId, // myId
+        content: '채팅이 시작되었습니다.',
+      });
+      chatRoom.messages.push(systemMessage._id);
+      await chatRoom.save();
+    } catch (chatErr) {
+      logErr('chat/message create failed (ignored)', chatErr);
+      // 계속 진행
+    }
+
+    await Promise.all([
+      User.updateOne({ _id: fromObjId }, { $inc: { acceptedChatCountTotal: 1 } }),
+      User.updateOne({ _id: toObjId },   { $inc: { acceptedChatCountTotal: 1 } }),
+    ]);
+
+    const emit = req.app.get('emit');
+    if (emit && emit.friendRequestAccepted) {
+      try { emit.friendRequestAccepted(await populateRequest(request)); } catch (e) { logErr('emit.friendRequestAccepted failed', e); }
+    }
+
+    log('🤝 친구 수락 & 채팅 시작', { path: req.baseUrl + req.path, fromId, toId, roomId });
+    // ✅ roomId 함께 반환하여 프론트가 즉시 채팅방으로 이동 가능
+    res.json({ ok: true, roomId });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
+
 
 /** ============================
  *  ❌ 친구 신청 거절
@@ -316,7 +362,7 @@ router.put('/friend-request/:id/reject', requireLogin, async (req, res) => {
     log('❌ 친구 거절', { path: req.baseUrl + req.path, from: String(request.from), to: myId, id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -337,12 +383,21 @@ router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
     );
     if (!request) return res.status(403).json({ message: '권한 없음 또는 신청 없음/이미 처리됨' });
 
-    const me = await User.findById(myId);
     const fromId = String(request.from);
-    if (!me.blocklist.some(bid => String(bid) === fromId)) {
-      me.blocklist.push(fromId);
-      await me.save();
-    }
+    if (!isValidObjectId(fromId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
+
+    const myObjId = new mongoose.Types.ObjectId(myId);
+    const fromObjId = new mongoose.Types.ObjectId(fromId);
+
+    // ✅ save() 대신 원자 연산: blocklist 추가 + 서로 friendlist 제거
+    await Promise.all([
+      User.updateOne({ _id: myObjId },   { $addToSet: { blocklist: fromObjId }, $pull: { friendlist: fromObjId } }),
+      User.updateOne({ _id: fromObjId }, { $pull: { friendlist: myObjId } }),
+      FriendRequest.updateMany(
+        { status: 'pending', $or: [ { from: myObjId, to: fromObjId }, { from: fromObjId, to: myObjId } ] },
+        { $set: { status: 'rejected' } }
+      )
+    ]);
 
     const populated = await populateRequest(request);
     const emit = req.app.get('emit');
@@ -354,7 +409,7 @@ router.put('/friend-request/:id/block', requireLogin, async (req, res) => {
     log('🚫 친구 차단', { path: req.baseUrl + req.path, fromId, toId: myId, id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -366,10 +421,12 @@ router.get('/friends', requireLogin, async (req, res) => {
   try {
     const me = getMyId(req);
     if (!me) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    // friendlist가 [String]인 경우 populate는 무시되므로, 프론트는 id만 사용하거나
+    // 스키마를 ObjectId로 전환하는 것을 권장
     const user = await User.findById(me).populate('friendlist', USER_MIN_FIELDS);
     res.json(user?.friendlist || []);
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -384,7 +441,7 @@ router.get('/blocks', requireLogin, async (req, res) => {
     const user = await User.findById(me).populate('blocklist', USER_MIN_FIELDS);
     res.json(user?.blocklist || []);
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -392,24 +449,32 @@ router.get('/blocks', requireLogin, async (req, res) => {
 /** ============================
  *  👤 유저 프로필 + 친구/차단 여부
  * ============================ */
+// (2) 유저 프로필 + 친구/차단 여부 - 민감정보 제외 보강
 router.get('/users/:id', requireLogin, async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+
     const targetId = String(req.params.id);
 
-    const targetUser = await User.findById(targetId).lean();
+    // password 등 민감정보 제외
+    const SAFE_USER_FIELDS =
+      'username nickname birthyear gender region1 region2 preference profileImages profileMain ' +
+      'search_birthyear1 search_birthyear2 search_region1 search_region2 search_preference user_level ' +
+      'last_login marriage createdAt updatedAt';
+
+    const targetUser = await User.findById(targetId).select(SAFE_USER_FIELDS).lean();
     if (!targetUser) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
-    const me = await User.findById(myId).lean();
+    const me = await User.findById(myId).select('friendlist blocklist').lean();
     if (!me) return res.status(404).json({ message: '내 정보가 없습니다.' });
 
-    const isFriend  = (me.friendlist  || []).some(fid => String(fid) === targetId);
-    const isBlocked = (me.blocklist   || []).some(bid => String(bid) === targetId);
+    const isFriend = (me.friendlist || []).some(fid => String(fid) === targetId);
+    const isBlocked = (me.blocklist || []).some(bid => String(bid) === targetId);
 
     res.json({ ...targetUser, isFriend, isBlocked });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -423,20 +488,31 @@ router.delete('/friend/:id', requireLogin, async (req, res) => {
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
     const targetId = String(req.params.id);
 
-    const me = await User.findById(myId);
-    const target = await User.findById(targetId);
-    if (!me || !target) return res.status(404).json({ message: '사용자를 찾을 수 없습니다' });
+    if (!isValidObjectId(targetId)) {
+      return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
+    }
 
-    me.friendlist = (me.friendlist || []).filter(fid => String(fid) !== targetId);
-    target.friendlist = (target.friendlist || []).filter(fid => String(fid) !== myId);
+    const myObjId = new mongoose.Types.ObjectId(myId);
+    const targetObjId = new mongoose.Types.ObjectId(targetId);
 
-    await me.save();
-    await target.save();
+    const [r1, r2] = await Promise.all([
+      // 내 리스트에서 상대 제거
+      User.updateOne({ _id: myObjId },    { $pull: { friendlist: targetObjId } }),
+      // 상대 리스트에서 나 제거
+      User.updateOne({ _id: targetObjId },{ $pull: { friendlist: myObjId } }),
+    ]);
 
-    log('🗑️ 친구 삭제', { path: req.baseUrl + req.path, myId, targetId });
-    res.json({ ok: true });
+    log('🗑️ 친구 삭제', {
+      path: req.baseUrl + req.path,
+      myId,
+      targetId,
+      modifiedA: r1.modifiedCount || 0,
+      modifiedB: r2.modifiedCount || 0,
+    });
+
+    return res.json({ ok: true, modifiedA: r1.modifiedCount || 0, modifiedB: r2.modifiedCount || 0 });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -455,37 +531,44 @@ router.put('/block/:id', requireLogin, async (req, res) => {
     if (!isValidObjectId(targetId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
     if (myId === targetId) return res.status(400).json({ message: '자기 자신을 차단할 수 없습니다.' });
 
-    const [me, target] = await Promise.all([ User.findById(myId), User.findById(targetId) ]);
-    if (!me || !target) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    const myObjId = new mongoose.Types.ObjectId(myId);
+    const targetObjId = new mongoose.Types.ObjectId(targetId);
 
-    let added = false;
-    if (!me.blocklist.some(bid => String(bid) === targetId)) {
-      me.blocklist.push(target._id);
-      added = true;
-    }
-
-    const beforeA = me.friendlist?.length || 0;
-    const beforeB = target.friendlist?.length || 0;
-    me.friendlist     = (me.friendlist     || []).filter(fid => String(fid) !== targetId);
-    target.friendlist = (target.friendlist || []).filter(fid => String(fid) !== myId);
-    const removedFriends = (beforeA !== (me.friendlist?.length||0)) || (beforeB !== (target.friendlist?.length||0));
-
-    const { modifiedCount } = await FriendRequest.updateMany(
-      { status: 'pending', $or: [ { from: myId, to: targetId }, { from: targetId, to: myId } ] },
-      { $set: { status: 'rejected' } }
-    );
-
-    await Promise.all([me.save(), target.save()]);
+    // ✅ save() 없이 원자 연산으로 처리
+    const [rBlock, rPullA, rPullB, rReject] = await Promise.all([
+      User.updateOne({ _id: myObjId },    { $addToSet: { blocklist: targetObjId } }),
+      User.updateOne({ _id: myObjId },    { $pull: { friendlist: targetObjId } }),
+      User.updateOne({ _id: targetObjId },{ $pull: { friendlist: myObjId } }),
+      FriendRequest.updateMany(
+        { status: 'pending', $or: [ { from: myObjId, to: targetObjId }, { from: targetObjId, to: myObjId } ] },
+        { $set: { status: 'rejected' } }
+      ),
+    ]);
 
     const emit = req.app.get('emit');
     if (emit && emit.blockCreated) {
       try { emit.blockCreated({ blockerId: myId, blockedId: targetId }); } catch (e) { logErr('emit.blockCreated failed', e); }
     }
 
-    log('🚫 일반 차단 완료', { path: req.baseUrl + req.path, myId, targetId, addedBlock: added, removedFriends, rejectedPending: modifiedCount });
-    return res.json({ ok: true, addedBlock: added, removedFriends, rejectedPending: modifiedCount });
+    log('🚫 일반 차단 완료', {
+      path: req.baseUrl + req.path,
+      myId,
+      targetId,
+      blockAdded: rBlock.modifiedCount || 0,
+      removedA: rPullA.modifiedCount || 0,
+      removedB: rPullB.modifiedCount || 0,
+      rejectedPending: rReject.modifiedCount || 0,
+    });
+
+    return res.json({
+      ok: true,
+      blockAdded: rBlock.modifiedCount || 0,
+      removedA: rPullA.modifiedCount || 0,
+      removedB: rPullB.modifiedCount || 0,
+      rejectedPending: rReject.modifiedCount || 0,
+    });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     return res.status(500).json({ message: '서버 오류' });
   }
 });
@@ -499,16 +582,17 @@ router.delete('/block/:id', requireLogin, async (req, res) => {
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
     const targetId = String(req.params.id);
 
-    const me = await User.findById(myId);
-    if (!me) return res.status(404).json({ message: '사용자 정보 없음' });
+    if (!isValidObjectId(targetId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
 
-    me.blocklist = (me.blocklist || []).filter(bid => String(bid) !== targetId);
-    await me.save();
+    const myObjId = new mongoose.Types.ObjectId(myId);
+    const targetObjId = new mongoose.Types.ObjectId(targetId);
 
-    log('✅ 차단 해제', { path: req.baseUrl + req.path, myId, targetId });
-    res.json({ ok: true });
+    const r = await User.updateOne({ _id: myObjId }, { $pull: { blocklist: targetObjId } });
+
+    log('✅ 차단 해제', { path: req.baseUrl + req.path, myId, targetId, modified: r.modifiedCount || 0 });
+    res.json({ ok: true, modified: r.modifiedCount || 0 });
   } catch (err) {
-    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
