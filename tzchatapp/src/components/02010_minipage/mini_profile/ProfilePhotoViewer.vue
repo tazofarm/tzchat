@@ -61,7 +61,8 @@ const isFemale = (g?: string) =>
   (g || '').toLowerCase().includes('여') || /(woman|female|^f$)/i.test(g || '')
 
 /* ----------------------------------------------------------
-   ✅ API BASE 처리: http/https 혼합 차단 + 절대경로 보정
+   ✅ API BASE 계산 (혼합콘텐츠/도메인 보정)
+   - 우선순위: VITE_API_FILE_BASE > VITE_API_BASE_URL > axios baseURL > window.origin
 ---------------------------------------------------------- */
 function getApiOrigin(): URL {
   const envBase = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '').toString().trim()
@@ -69,33 +70,71 @@ function getApiOrigin(): URL {
   let u: URL
   try { u = new URL(candidate, window.location.origin) } catch { u = new URL(window.location.origin) }
 
+  // https 페이지에서 http면 먼저 https로 승격
   if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-    try {
-      const httpsTry = new URL(u.toString())
-      httpsTry.protocol = 'https:'
-      u = httpsTry
-    } catch {}
+    try { u = new URL(`https://${u.host}`) } catch {}
   }
   return u
 }
 const API_ORIGIN = getApiOrigin()
 
+/* ----------------------------------------------------------
+   ✅ URL 절대화 + 로컬호스트 교체 + 프로토콜 승격
+   - 절대 URL에 'localhost', '127.0.0.1', '*.local' 등이 오면
+     => 호스트를 API_ORIGIN으로 교체하고 경로는 유지
+   - https 페이지에서 http면 가능하면 https로 승격
+---------------------------------------------------------- */
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
+function isLikelyLocalHost(h: string) {
+  if (LOCAL_HOSTNAMES.has(h)) return true
+  if (h.endsWith('.local')) return true
+  // 개발 포트 패턴(예: :2000, :3000, :5173 등)
+  return /(^|:)(1|2|3|4|5)\d{3}$/.test(h.split(':').slice(1).join(':')) // 포트 존재시 대략 감지
+}
+
+function remapToApiOrigin(parsed: URL): string {
+  // 업로드/정적 경로만 교체 (안전)
+  const path = parsed.pathname || '/'
+  // 일반적으로 /uploads, /files, /img 등을 사용
+  if (/^\/(uploads|files|img|images|static)\b/i.test(path)) {
+    return `${API_ORIGIN.origin}${path}${parsed.search}${parsed.hash}`
+  }
+  // 그 외도 강제 교체 (필요 시)
+  return `${API_ORIGIN.origin}${path}${parsed.search}${parsed.hash}`
+}
+
 function toAbsolute(u?: string): string {
   if (!u) return ''
+
+  // 절대 URL/데이터/블롭 처리
   if (/^(https?:|data:|blob:)/i.test(u)) {
-    if (window.location.protocol === 'https:' && u.startsWith('http://')) {
-      try {
-        const parsed = new URL(u)
+    try {
+      const parsed = new URL(u)
+      // 1) 로컬호스트/개발호스트라면 -> 프로덕션 API_ORIGIN으로 교체
+      if (isLikelyLocalHost(parsed.hostname)) {
+        return remapToApiOrigin(parsed)
+      }
+      // 2) https 페이지에서 http면 -> 가능하면 https 또는 API_ORIGIN으로 교체
+      if (window.location.protocol === 'https:' && parsed.protocol === 'http:') {
+        // 호스트가 API_ORIGIN과 같다면 https 승격
         if (parsed.hostname === API_ORIGIN.hostname) {
           parsed.protocol = 'https:'
           return parsed.toString()
         }
-      } catch {}
+        // 다르면 안전하게 API_ORIGIN으로 교체(경로 유지)
+        return remapToApiOrigin(parsed)
+      }
+      return parsed.toString()
+    } catch {
+      // URL 파싱 실패시 하단 상대경로 처리로 폴백
     }
-    return u
   }
+
+  // 프로토콜 상대 //host/path
   if (u.startsWith('//')) return `${API_ORIGIN.protocol}${u}`
+  // 루트 시작 경로
   if (u.startsWith('/')) return `${API_ORIGIN.origin}${u}`
+  // 일반 상대경로
   return `${API_ORIGIN.origin}/${u}`
 }
 
