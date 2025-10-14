@@ -39,13 +39,17 @@
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">
+        <!--  
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+        -->  
           <span>로그아웃</span>
         </li>
 
         <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="goPage('/home/setting/0020')">
+        <!--  
           <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+        -->  
           <span>회원탈퇴20</span>
         </li>
 
@@ -259,23 +263,47 @@ const sendTestNoti = async () => {
 .list-wrap { width: min(92vw, 480px); margin: 0 auto; }
 .list { list-style: none; margin: 0; padding: 0; }
 .list-item {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 12px 16px; margin: 10px 0; border-radius: 12px;
+  display: flex;
+  justify-content: center;     /* 🔹 가로 중앙 */
+  align-items: center;         /* 🔹 세로 중앙 */
+  height: 40px; /* 🔹 원하는 높이 지정 (예: 40~56px) */
+  border-radius: 12px;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 10px 0;
+  border-radius: 12px;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
-  border: 1px solid var(--panel-border); color: var(--text);
-  font-size: 14px; font-weight: 700; cursor: pointer; user-select: none;
+  border: 1.5px solid var(--panel-border);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
   box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0.5px rgba(255,255,255,0.04);
   transition: border-color 0.18s, color 0.18s, transform 0.06s;
 }
 .list-item:hover { border-color: rgba(212,175,55,0.65); color: var(--accent-gold, #d4af37); }
 .list-item:active { transform: translateY(1px); }
 .withdraw-button {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 12px 16px; margin: 14px 0 6px; border-radius: 12px; height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;        /* 버튼 높이 */
+  padding: 0 18px;     /* 좌우 여백만 */
+  border-radius: 12px;
+  margin: 14px 0 6px;
   background: linear-gradient(180deg, #dc3545 0%, #b02a37 100%);
-  border: 1px solid #b02a37; color: #fff; font-size: 15px; font-weight: 800;
-  cursor: pointer; user-select: none;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0.5px rgba(255,255,255,0.12);
+  border: 1.5px solid #656364;      /* border: 1.5px solid #b02a37; */
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25),
+              inset 0 0 0.5px rgba(255,255,255,0.12);
   transition: filter 0.18s, transform 0.06s, border-color 0.18s;
 }
 .withdraw-button:hover { filter: brightness(1.02); border-color: #962231; }

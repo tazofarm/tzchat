@@ -5,10 +5,11 @@
     <ion-header translucent="true">
       <ion-toolbar class="top-tabs" role="tablist" aria-label="목록 전환">
         <ion-segment :value="currentTab" @ionChange="onTabChange">
+          <!-- 
           <ion-segment-button value="premium">
             <ion-label>Premium</ion-label>
           </ion-segment-button>
-
+          -->
           <ion-segment-button value="received">
             <ion-label>받은신청</ion-label>
           </ion-segment-button>
@@ -33,6 +34,8 @@
       <div class="page-container fl-scope" role="region" aria-label="탭 페이지 영역">
         <component
           :is="currentView"
+          :viewer-level="viewerLevel"
+          :is-premium="isPremium"
           @open-receive="openReceive"
           @close-receive="closeReceive"
         />
@@ -51,7 +54,12 @@
             </header>
 
             <!-- ⬇⬇⬇ 상세 패널 컴포넌트 (경로 주의) -->
-            <ReceivePanel :user="receiveUser" @close="closeReceive" />
+            <ReceivePanel
+              :user="receiveUser"
+              :viewer-level="viewerLevel"
+              :is-premium="isPremium"
+              @close="closeReceive"
+            />
           </section>
         </transition>
       </div>
@@ -60,11 +68,12 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   IonPage, IonHeader, IonToolbar, IonContent,
   IonSegment, IonSegmentButton, IonLabel
 } from '@ionic/vue'
+import { api } from '@/lib/api'
 
 // 탭별 페이지
 import PremiumPage  from '@/components/04310_Page3_list/Page_Premium.vue'
@@ -76,7 +85,7 @@ import BlocksPage   from '@/components/04310_Page3_list/Page_Block.vue'
 // ✅ 받은신청 '상세 패널' 컴포넌트
 import ReceivePanel from '@/components/02010_minipage/mini_list/UserList.vue'
 
-const currentTab = ref('premium')
+const currentTab = ref('received')
 const onTabChange = (ev) => {
   const val = ev?.detail?.value
   if (!val) return
@@ -96,8 +105,37 @@ const currentView = computed(() => viewMap[currentTab.value] || PremiumPage)
 const receiveUser = ref(null)
 const openReceive = (user) => { receiveUser.value = user || null }
 const closeReceive = () => { receiveUser.value = null }
-</script>
 
+/* ✅ 프리미엄 가림 로직 전달용 상태 */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium   = ref(false)
+
+onMounted(async () => {
+  try {
+    const me = (await api.get('/api/me')).data?.user || {}
+    const levelFromApi =
+      me?.level ||
+      me?.user_level ||
+      me?.membership ||
+      ''
+    viewerLevel.value = String(levelFromApi || '').trim()
+
+    const premiumBool =
+      me?.isPremium ??
+      me?.premium ??
+      (String(levelFromApi || '').trim() === '프리미엄')
+    isPremium.value = Boolean(premiumBool)
+  } catch (e) {
+    // 서버 실패 시 로컬 스토리지 폴백
+    const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+    viewerLevel.value = lv
+    const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+    isPremium.value = ['프리미엄', 'premium', 'premium_member', 'prem'].includes(lv) ||
+                      ['true','1','yes','y'].includes(boolish)
+  }
+})
+</script>
+  
 <style scoped>
 /* =======================
    다크 테마 강제 고정
@@ -131,9 +169,11 @@ const closeReceive = () => { receiveUser.value = null }
 .top-tabs {
   /* position: sticky;  ← 제거 */
   /* top: env(safe-area-inset-top, 0px); ← 제거 */
+  
   background: var(--bg-deep, #0a0a0a);
   padding: 4px 6px 8px;
   border-bottom: 1px solid var(--border, #333);
+  
 }
 .top-tabs :deep(ion-segment) {
   --background: var(--panel, #141414);
@@ -146,6 +186,7 @@ const closeReceive = () => { receiveUser.value = null }
   flex-wrap: nowrap;
   justify-content: space-between;
   overflow-x: auto;
+  
 }
 .top-tabs :deep(ion-segment-button) {
   flex: 1 1 20%;

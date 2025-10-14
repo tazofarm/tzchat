@@ -6,7 +6,7 @@
       <!-- ✅ DB값(현재 저장값) 우선 선택 -->
       <!-- ✅ 비활성 옵션도 "현재 값"일 때는 선택 허용 -->
       <select v-model="preference" class="preference-select" aria-label="검색 특징 선택">
-        <option value="">선택</option>
+        <!--<option value="">선택</option>-->
         <option
           v-for="opt in options"
           :key="opt.value"
@@ -34,8 +34,9 @@
 /* ============================================================
    Search_Preference_Modal.vue
    - DB에서 받은 값(props.message) 우선 노출
-   - 비활성 옵션도 현재 선택값이면 선택 허용
-   - 기준 모달 레이아웃/색상 통일
+   - "이성친구*"로 시작하면 동성 옵션 비활성
+   - "동성친구*"로 시작하면 이성 옵션 비활성
+   - 단, 현재 선택값(preference)과 같으면 비활성 무시(선택 허용)
 ============================================================ */
 import { ref, onMounted, watch } from 'vue'
 import axios from '@/lib/api'
@@ -52,22 +53,39 @@ const preference = ref('')      // 현재 선택 값
 const errorMsg   = ref('')
 const successMsg = ref('')
 
-/* 옵션 목록 (일부 기본 disabled) */
+/* 옵션 목록 (라벨/값 고정) */
 const options = [
-  { label: '이성친구 - 전체', value: '이성친구 - 전체', disabled: false },
-  { label: '이성친구 - 일반', value: '이성친구 - 일반', disabled: false },
-  { label: '이성친구 - 특수', value: '이성친구 - 특수', disabled: true  },
-  { label: '동성친구 - 전체', value: '동성친구 - 전체', disabled: false },
-  { label: '동성친구 - 일반', value: '동성친구 - 일반', disabled: true  },
-  { label: '동성친구 - 특수', value: '동성친구 - 특수', disabled: true  },
+  { label: '이성친구 - 전체', value: '이성친구 - 전체' },
+  { label: '이성친구 - 내 성향', value: '이성친구 - 내 성향' },
+  { label: '동성친구 - 전체', value: '동성친구 - 전체' },
+  { label: '동성친구 - 내 성향', value: '동성친구 - 내 성향' },
 ]
 
-/* disabled 판단: 기본 disabled지만 현재 선택값과 같으면 허용 */
+/* 그룹 추출: '이성친구' | '동성친구' | null */
+function extractGroup(val) {
+  if (typeof val !== 'string') return null
+  if (val.startsWith('이성친구')) return '이성친구'
+  if (val.startsWith('동성친구')) return '동성친구'
+  return null
+}
+
+/* 비활성 규칙:
+   - 현재 선택 그룹이 '이성친구'면 '동성친구*' 모두 비활성
+   - 현재 선택 그룹이 '동성친구'면 '이성친구*' 모두 비활성
+   - 단, value가 현재 선택값과 같으면 항상 활성(선택 유지 가능) */
 function isOptionDisabled(value) {
-  const opt = options.find(o => o.value === value)
-  if (!opt) return false
+  // 현재 선택값과 같으면 항상 허용
   if (value === preference.value) return false
-  return !!opt.disabled
+
+  const currentGroup = extractGroup(preference.value || props.message || '')
+  const valueGroup =
+    value.startsWith('이성친구') ? '이성친구'
+      : value.startsWith('동성친구') ? '동성친구'
+      : null
+
+  if (!currentGroup || !valueGroup) return false
+  // 그룹이 다르면 비활성
+  return currentGroup !== valueGroup
 }
 
 /* 초기/재오픈 시 DB값 우선 동기화 */

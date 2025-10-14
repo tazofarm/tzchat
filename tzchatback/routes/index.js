@@ -26,6 +26,7 @@ module.exports = (app) => {
   app.use('/api', require('./user/authRouter'));                 // 로그인/로그아웃/토큰 발급 등 인증 전담
   app.use('/api', require('./user/profileImageRouter'));         // 프로필 이미지 업로드·리사이즈·목록·대표 지정·삭제
   app.use('/api', require('./user/userRouter'));                 // 내 정보 수정(닉네임/지역/자기소개/특징)
+  app.use('/api', require('./user/gradeRouter'));                 // 유저 등급 수동 작업 라우터 (임시)
 
   // ----------------------------------------------------------
   // Chat / Social

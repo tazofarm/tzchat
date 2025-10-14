@@ -11,7 +11,7 @@
       <span class="icon-wrap" aria-hidden="true">
         <IonIcon :icon="item.icon" class="menu-icon" />
 
-        <!-- ✅ 친구/채팅 뱃지 조건 수정 (path 문자열 직접 비교) -->
+        <!-- ✅ 친구/채팅 뱃지 조건 (경로 직접 비교) -->
         <span
           v-if="item.path === '/home/3page' && badgeFriends"
           class="icon-badge"
@@ -32,10 +32,11 @@
 
 <script setup>
 /**
- * TopMenu.vue (fixed + de-dup listeners)
- * - 공용 소켓 모듈 사용(connectSocket/getSocket)
- * - 공용 api 인스턴스 사용('/me', '/chatrooms/unread-total')
- * - 소켓 이벤트 중복 바인딩 방지: off → on 패턴
+ * TopMenu.vue
+ * - List(사람 아이콘)의 ⓝ 배지는 "받은 친구 신청" 신규 발생시에만 표시
+ *   (friendRequest:created 이벤트에서 toId === 내 아이디 일 때만 ON)
+ * - Chat ⓝ 배지는 /api/chatrooms/unread-total 로 계산
+ * - friends:state 커스텀 이벤트를 수신하여 받은신청 상태와 동기화
  */
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -58,8 +59,8 @@ const route = useRoute()
 const router = useRouter()
 
 const menuItems = [
-  //{ name: 't-emer', path: '/home/91page', icon: starOutline },
-  //{ name: 't-tar', path: '/home/92page', icon: starOutline },
+  { name: 't-emer', path: '/home/91page', icon: diamondOutline },
+  { name: 't-tar', path: '/home/92page', icon: locateOutline },
   { name: 't-all', path: '/home/93page', icon: warningOutline },
   { name: 'Premium', path: '/home/0page', icon: diamondOutline },
   { name: 'Search', path: '/home/2page', icon: locateOutline },
@@ -73,12 +74,14 @@ const goTo = (path) => router.push(path)
 const isActive = (path) => (route.path === path ? 'active' : '')
 
 /* ===== 상태 ===== */
-const badgeFriends = ref(false)
+const badgeFriends = ref(false) // ✅ "받은" 친구 신청 전용 배지
 const badgeChat = ref(false)
 const myId = ref(null)
 let socket = null
 
-/* ===== 친구 탭: window 이벤트 연동(기존) ===== */
+/* ===== 받은신청 상태: window 이벤트 연동 =====
+   - detail.hasNew: boolean (새로운 '받은' 친구 신청 존재 여부)
+*/
 const onFriendsState = (e) => {
   const hasNew = !!e?.detail?.hasNew
   badgeFriends.value = hasNew
@@ -102,13 +105,17 @@ const hConnect = async () => {
   if (myId.value) socket.emit('join', { userId: myId.value })
   await refreshChatBadge('socket-connect')
 }
+
+/* ✅ 핵심 변경: "받은 친구 신청"일 때만 배지 ON */
 const hFriendReq = (req) => {
   const me = myId.value
   if (!me) return
-  const fromId = req?.from?._id
-  const toId = req?.to?._id
-  if (fromId === me || toId === me) badgeFriends.value = true
+  const toId = req?.to?._id || req?.to
+  if (toId === me) {
+    badgeFriends.value = true
+  }
 }
+
 const hRoomsBadge = async (payload) => {
   console.log('[TopMenu] socket chatrooms:badge:', payload)
   await refreshChatBadge('socket-badge')
@@ -132,13 +139,13 @@ function bindSocket() {
   socket.off('chatMessage', hChatMsg)
 
   socket.on('connect', hConnect)
-  socket.on('friendRequest:created', hFriendReq)
+  socket.on('friendRequest:created', hFriendReq) // ← 받은신청일 때만 배지 ON
   socket.on('chatrooms:badge', hRoomsBadge)
   socket.on('chatrooms:updated', hRoomsUpdated)
   socket.on('chatMessage', hChatMsg)
 }
 
-/* ===== 라우트 변화에 반응 ===== */
+/* ===== 라우트 변화 반응 ===== */
 watch(() => route.path, (p) => {
   if (p === '/home/4page') {
     setTimeout(() => refreshChatBadge('route-enter-chat'), 250)
@@ -157,8 +164,10 @@ onMounted(async () => {
   socket = getSocket() || connectSocket()
   bindSocket()
 
+  // Received 페이지가 방송하는 상태를 수신
   window.addEventListener('friends:state', onFriendsState)
 
+  // 현재 상태 요청(Received 페이지가 friends:state로 응답)
   try {
     window.dispatchEvent(new CustomEvent('friends:requestState'))
   } catch {}

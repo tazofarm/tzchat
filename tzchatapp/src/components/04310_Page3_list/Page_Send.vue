@@ -9,10 +9,13 @@
       </h3>
     </div>
 
-    <!-- ✅ 공통 리스트 + 하단 액션(취소/차단) -->
+    <!-- ✅ 공통 리스트 + 하단 액션(취소/차단)
+         ✅ 프리미엄 가림을 위해 viewer-level / is-premium 전달 -->
     <UserList
       :users="users"
       :isLoading="isLoading"
+      :viewer-level="viewerLevel"
+      :is-premium="isPremium"
       emptyText="보낸 친구 신청이 없습니다."
       @select="u => goToUserProfile(u._id)"
     >
@@ -48,6 +51,7 @@
    - 🔧 수정 요점:
      • '차단'은 /api/friend-request/:id/block(수신자 전용)이 아니라
        일반 차단 엔드포인트 /api/block/:userId 를 호출해야 동작합니다.
+   - ✅ Premium 가림: viewerLevel / isPremium을 UserList로 전달
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -63,6 +67,10 @@ const icons = { sendOutline }
 const users = ref([])            // 보낸신청 대상 유저들(to)만
 const isLoading = ref(true)
 const sentRequests = ref([])     // [{ _id, to, status:'pending', ... }...] (pending만 유지)
+
+/* ✅ 프리미엄 가림 로직 전달용 */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium   = ref(false)
 
 /* ===== 유틸 ===== */
 const uniq = (arr = []) => Array.from(new Set(arr.map(String)))
@@ -198,6 +206,29 @@ const onBlockClick  = (userId) => blockUser(userId)
 onMounted(async () => {
   try {
     isLoading.value = true
+
+    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
+    try {
+      const me = (await api.get('/api/me')).data?.user || {}
+      const levelFromApi =
+        me?.level ||
+        me?.user_level ||
+        me?.membership ||
+        ''
+      viewerLevel.value = String(levelFromApi || '').trim()
+      const premiumBool =
+        me?.isPremium ??
+        me?.premium ??
+        (String(levelFromApi || '').trim() === '프리미엄')
+      isPremium.value = Boolean(premiumBool)
+    } catch {
+      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+      viewerLevel.value = lv
+      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+                        ['true','1','yes','y'].includes(boolish)
+    }
+
     // 1) 보낸 친구 신청 목록
     const res = await api.get('/api/friend-requests/sent')
 

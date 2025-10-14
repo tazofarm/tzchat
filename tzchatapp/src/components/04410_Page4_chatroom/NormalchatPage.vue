@@ -6,8 +6,15 @@
         v-for="room in chatRooms"
         :key="room._id"
         button
-        class="chat-item" 
-        @click="goToChat(room._id)"
+        class="chat-item"
+        @click="onItemClick(room._id)"
+        @touchstart.passive="onPressStart(room._id, $event)"
+        @touchend.passive="onPressEnd"
+        @touchcancel.passive="onPressEnd"
+        @touchmove.passive="onPressCancelMove"
+        @mousedown.left="onPressStart(room._id, $event)"
+        @mouseup.left="onPressEnd"
+        @mouseleave="onPressEnd"
       >
         <!-- ⬇️ 좌측: 상대방 대표사진 (ProfilePhotoViewer 재사용) -->
         <div class="list-avatar lead-start" slot="start">
@@ -29,7 +36,8 @@
               v-if="room.unreadCount > 0"
               class="badge-new"
               aria-label="안읽은 메시지"
-            >ⓝ</span>
+              >ⓝ</span
+            >
           </h3>
 
           <!-- 최근 메시지 프리뷰: 텍스트 or [사진] or 기본 문구 -->
@@ -37,9 +45,37 @@
         </ion-label>
 
         <!-- ✅ 오른쪽 끝: 최근 날짜(MM-DD) -->
-        <ion-note slot="end" class="date-note" :aria-label="`최근 날짜 ${formatLastDate(room)}`">
+        <ion-note
+          slot="end"
+          class="date-note"
+          :aria-label="`최근 날짜 ${formatLastDate(room)}`"
+        >
           {{ formatLastDate(room) }}
         </ion-note>
+
+        <!-- 🧨 길게누름 액션: 삭제 버튼 -->
+        <div
+          v-if="longPressRoomId === room._id"
+          class="item-actions"
+          @click.stop
+        >
+          <button
+            type="button"
+            class="btn-delete"
+            @click.stop="confirmAndDelete(room._id)"
+            aria-label="채팅방 삭제"
+          >
+            삭제
+          </button>
+          <button
+            type="button"
+            class="btn-cancel"
+            @click.stop="hideActions"
+            aria-label="닫기"
+          >
+            취소
+          </button>
+        </div>
       </ion-item>
     </ion-list>
 
@@ -47,31 +83,21 @@
       <p class="ion-text-center">채팅방이 없습니다.</p>
     </ion-text>
   </div>
-</template>ss
+</template>
 
 <script setup>
 // ------------------------------------------------------
-// 채팅방 리스트 (aaa.vue)
-// - 상단 탭 및 관련 라우팅/상태 제거
-// - 정렬: 최신 메시지 시각 DESC
-// - 우측 끝에 최근 날짜 표시(MM-DD)
-// - 소켓 갱신 시 재조회
+// 채팅방 리스트 (aaa.vue) + 길게누름 삭제
+// - 길게 누르면 해당 아이템 위에 "삭제/취소" 버튼 표시
+// - 삭제 클릭 시 API 요청 → 성공 시 리스트에서 제거
+// - 클릭 내비게이션은 길게누름이 발동한 경우 1회 무시
 // ------------------------------------------------------
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '@/lib/api'
-import {
-  IonList,
-  IonItem,
-  IonLabel,
-  IonText,
-  IonNote,
-} from '@ionic/vue'
+import { IonList, IonItem, IonLabel, IonText, IonNote } from '@ionic/vue'
 import { useRouter } from 'vue-router'
 
-// ✅ 회원목록에서 쓰던 검증된 컴포넌트 재사용
 import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
-
-// ✅ 공용 소켓 모듈(JWT/쿠키 하이브리드 핸드셰이크)
 import { connectSocket, getSocket } from '@/lib/socket'
 
 const router = useRouter()
@@ -79,9 +105,64 @@ const router = useRouter()
 const myId = ref('')
 const chatRooms = ref([])
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
+// 길게누름(롱프레스) 상태/로직
+// ─────────────────────────────────────────────
+const longPressTimer = ref(null)
+const longPressDelay = 600 // ms
+const longPressRoomId = ref(null)
+const skipNextClick = ref(false)
+const pressStartXY = ref({ x: 0, y: 0 })
+
+const onPressStart = (roomId, ev) => {
+  // 터치 이동(스크롤)로 오인 방지 위해 시작 좌표 저장
+  const point =
+    ev?.touches && ev.touches[0]
+      ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
+      : { x: ev.clientX ?? 0, y: ev.clientY ?? 0 }
+  pressStartXY.value = point
+
+  clearTimeout(longPressTimer.value)
+  longPressTimer.value = setTimeout(() => {
+    longPressRoomId.value = roomId
+    skipNextClick.value = true // 길게누름 이후 발생하는 click 1회 무시
+  }, longPressDelay)
+}
+
+const onPressEnd = () => {
+  clearTimeout(longPressTimer.value)
+  longPressTimer.value = null
+}
+
+const onPressCancelMove = (ev) => {
+  // 손가락이 크게 이동하면(=스크롤 제스처) 롱프레스 취소
+  const t = ev?.touches?.[0]
+  if (!t) return
+  const dx = Math.abs(t.clientX - pressStartXY.value.x)
+  const dy = Math.abs(t.clientY - pressStartXY.value.y)
+  if (dx > 10 || dy > 10) {
+    onPressEnd()
+  }
+}
+
+const hideActions = () => {
+  longPressRoomId.value = null
+  // skipNextClick은 곧바로 false로 만들면 버튼 누른 직후 다른 클릭을 허용
+  skipNextClick.value = false
+}
+
+const onItemClick = (roomId) => {
+  if (skipNextClick.value || longPressRoomId.value) {
+    // 길게누름 직후 발생한 클릭은 네비게이션 무시
+    skipNextClick.value = false
+    return
+  }
+  goToChat(roomId)
+}
+
+// ─────────────────────────────────────────────
 // 날짜 포맷: MM-DD
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const formatLastDate = (room) => {
   const t = getRoomTime(room)
   if (!t) return ''
@@ -91,9 +172,9 @@ const formatLastDate = (room) => {
   return `${mm}-${dd}`
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
 // 유틸: 응답 정규화 + 정렬
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const normalizeRooms = (data) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.rooms)) return data.rooms
@@ -105,7 +186,6 @@ const normalizeRooms = (data) => {
 const getRoomTime = (r) => r?.lastMessage?.createdAt || r?.updatedAt || null
 
 const sortRoomsDesc = (rooms) => {
-  // 최신 시각 내림차순(최근이 위)
   return rooms.sort((a, b) => {
     const at = getRoomTime(a)
     const bt = getRoomTime(b)
@@ -113,17 +193,21 @@ const sortRoomsDesc = (rooms) => {
   })
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
 // 화면 표시 유틸
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const getPartner = (participants = []) => {
   const my = String(myId.value || '')
   const other =
-    participants.find(p => typeof p === 'object' && p && String(p._id) !== my) ||
+    participants.find(
+      (p) => typeof p === 'object' && p && String(p._id) !== my,
+    ) ||
     (Array.isArray(participants) && participants.length === 2
-      ? (typeof participants[0] === 'object' ? participants.find(p => String(p._id) !== my) : null)
+      ? typeof participants[0] === 'object'
+        ? participants.find((p) => String(p._id) !== my)
+        : null
       : null)
-  return (other && typeof other === 'object') ? other : null
+  return other && typeof other === 'object' ? other : null
 }
 
 const getPartnerNickname = (participants = []) => {
@@ -139,16 +223,20 @@ const getPreview = (room) => {
   return '메시지가 없습니다.'
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
 // API: 내 정보 + 채팅방 목록
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const loadMeAndRooms = async () => {
   console.time('[LOAD] /me + /chatrooms')
   try {
     const meRes = await api.get('/api/me')
     myId.value = meRes.data?.user?._id || meRes.data?._id || ''
   } catch (err) {
-    console.error('❌ /me 실패:', err?.response?.status, err?.response?.data || err?.message)
+    console.error(
+      '❌ /me 실패:',
+      err?.response?.status,
+      err?.response?.data || err?.message,
+    )
   } finally {
     await loadChatRooms()
     console.timeEnd('[LOAD] /me + /chatrooms')
@@ -160,33 +248,64 @@ const loadChatRooms = async () => {
   try {
     const roomRes = await api.get('/api/chatrooms')
     const raw = normalizeRooms(roomRes.data)
-    const mapped = raw.map(r => ({
+    const mapped = raw.map((r) => ({
       ...r,
       unreadCount: Number(r.unreadCount || 0),
       lastMessage: r.lastMessage || null,
     }))
     chatRooms.value = sortRoomsDesc(mapped)
   } catch (err) {
-    console.error('❌ 채팅방 목록 불러오기 실패:', err?.response?.status, err?.response?.data || err?.message)
+    console.error(
+      '❌ 채팅방 목록 불러오기 실패:',
+      err?.response?.status,
+      err?.response?.data || err?.message,
+    )
     chatRooms.value = []
   } finally {
     console.timeEnd('[LOAD] /chatrooms')
   }
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
+// 삭제
+// - 엔드포인트는 프로젝트 규칙에 맞춰 조정 가능
+//   (여기서는 GET /api/chatrooms를 쓰므로 DELETE /api/chatrooms/:roomId 가정)
+// ─────────────────────────────────────────────
+const confirmAndDelete = async (roomId) => {
+  try {
+    const ok = window.confirm('이 채팅방을 삭제하시겠습니까?')
+    if (!ok) return
+
+    // 서버 삭제
+    await api.delete(`/api/chatrooms/${roomId}`)
+
+    // 클라이언트 목록에서 제거
+    chatRooms.value = chatRooms.value.filter((r) => r._id !== roomId)
+
+    hideActions()
+  } catch (err) {
+    console.error(
+      '❌ 채팅방 삭제 실패:',
+      err?.response?.status,
+      err?.response?.data || err?.message,
+    )
+    alert('삭제에 실패했습니다.')
+  }
+}
+
+// ─────────────────────────────────────────────
 // 이동 (채팅 상세 라우팅은 유지)
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const goToChat = (roomId) => {
   if (!roomId) return console.warn('⚠️ roomId 없음')
-  const room = chatRooms.value.find(r => r._id === roomId)
+  const room = chatRooms.value.find((r) => r._id === roomId)
   if (room) room.unreadCount = 0 // 낙관적 UI 초기화
   router.push(`/home/chat/${roomId}`)
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
 // 소켓 초기화
-// -------------------------------------------
+// ─────────────────────────────────────────────
 const initSocket = () => {
   const socket = connectSocket()
 
@@ -196,7 +315,9 @@ const initSocket = () => {
     }
   })
 
-  const reload = async () => { await loadChatRooms() }
+  const reload = async () => {
+    await loadChatRooms()
+  }
   socket.on('chatrooms:badge', reload)
   socket.on('chatrooms:updated', reload)
   socket.on('chatMessage', reload)
@@ -209,12 +330,15 @@ const initSocket = () => {
   })
 }
 
-// -------------------------------------------
+// ─────────────────────────────────────────────
 // 라이프사이클
-// -------------------------------------------
+// ─────────────────────────────────────────────
 onMounted(async () => {
   await loadMeAndRooms()
   initSocket()
+
+  // 화면 아무데나 탭하면 액션 닫히도록
+  window.addEventListener('click', onBackdropClick, { passive: true })
 })
 
 onBeforeUnmount(() => {
@@ -229,7 +353,19 @@ onBeforeUnmount(() => {
       console.warn('⚠️ 소켓 해제 중 오류:', e)
     }
   }
+  window.removeEventListener('click', onBackdropClick)
 })
+
+const onBackdropClick = (e) => {
+  // 아이템 내부의 액션 영역 외부를 클릭하면 닫기
+  const el = e.target
+  if (!el) return
+  // 액션 영역/버튼은 data-role로 식별
+  const role = el.getAttribute?.('data-role')
+  if (role !== 'item-action') {
+    hideActions()
+  }
+}
 </script>
 
 <style scoped>
@@ -254,7 +390,7 @@ ion-list {
 ion-item {
   --background: var(--panel);
   --color: var(--text);
-  --padding-start: 18px;         /* 회원목록과 동일 패딩 */
+  --padding-start: 18px;
   --inner-padding-end: 10px;
   --min-height: 64px;
   --inner-border-width: 0 0 1px 0;
@@ -262,18 +398,16 @@ ion-item {
   color: var(--text);
 }
 ion-item:last-of-type {
-   --inner-border-width: 0;   /* ← 아래 chat-item가 있으면 없어도 되지만 안전하게 */
+  --inner-border-width: 0;
 }
 
 .chat-item {
-  margin: 0px 0px 20px 0px;                  /* ← 간격(상하/좌우) */
-  border-radius: 12px;               /* 둥근 모서리 */
-  --background: var(--row, #1b1b1b); /* 행 배경색 (테마 변수 없으면 #1b1b1b) */
-  --inner-border-width: 0;           /* 구분선 끔 */
+  margin: 0 0 20px 0;
+  border-radius: 12px;
+  --background: var(--row, #1b1b1b);
+  --inner-border-width: 0;
+  position: relative; /* 액션 버튼 포지셔닝 기준 */
 }
-
-
-
 
 /* 오른쪽 날짜 메모 */
 .date-note {
@@ -295,8 +429,8 @@ ion-item:last-of-type {
   justify-content: center;
   border-radius: 10%;
   overflow: hidden;
-  border: 1px solid rgba(212,175,55,0.18);
-  background: rgba(212,175,55,0.08);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  background: rgba(212, 175, 55, 0.08);
 }
 .fallback-avatar {
   width: 100%;
@@ -317,11 +451,13 @@ ion-item:last-of-type {
   object-fit: cover;
   border-radius: 0 !important;
   box-shadow: none !important;
-  pointer-events: none; /* 리스트에서는 클릭(라이트박스) 비활성화 */
+  pointer-events: none;
 }
 
 /* 텍스트 */
-.black-text { color: var(--text); }
+.black-text {
+  color: var(--text);
+}
 .title {
   color: var(--text);
   font-size: clamp(15px, 2.6vw, 16px);
@@ -332,8 +468,10 @@ ion-item:last-of-type {
   align-items: center;
   gap: 6px;
 }
-.nickname { font-weight: 800; letter-spacing: 0.2px; }
-
+.nickname {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
 .meta {
   color: var(--text-dim);
   font-size: clamp(14px, 2.4vw, 15px);
@@ -348,8 +486,59 @@ ion-item:last-of-type {
   font-weight: bold;
 }
 
+/* ──────────────────────────────
+   길게누름 액션 버튼 (삭제/취소)
+   아이템 우상단에 떠서 겹치기
+────────────────────────────── */
+.item-actions {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+  pointer-events: auto;
+}
 
+.btn-delete,
+.btn-cancel {
+  appearance: none;
+  border: 1px solid var(--panel-border, #333);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  height: 40px;
+  width : 70px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
 
+.btn-delete {
+  background: linear-gradient(180deg, #dc3545, #b02a37);
+  color: #fff;
+  border-color: #b02a37;
+}
+.btn-delete:active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
 
+.btn-cancel {
+  background: var(--row, #1b1b1b);
+  color: var(--text, #eee);
+}
+.btn-cancel:active {
+  transform: translateY(1px);
+  filter: brightness(1.05);
+}
 
+/* 작은 화면 대응 */
+@media (max-width: 380px) {
+  .btn-delete,
+  .btn-cancel {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+}
 </style>

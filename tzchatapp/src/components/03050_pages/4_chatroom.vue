@@ -1,7 +1,7 @@
 <template>
   <!-- ✅ Ionic 정석 구조: ion-page > ion-header > ion-content -->
   <ion-page class="friends-page dark-scope">
-    <!-- 상단 고정 탭을 header/toolbar 안으로 이동 -->
+    <!-- 상단 고정 탭을 header/toolbar 안으로 이동 
     <ion-header translucent="true">
       <ion-toolbar class="top-tabs" role="tablist" aria-label="목록 전환">
         <IonSegment :value="currentTab" @ionChange="onTabChange">
@@ -15,7 +15,7 @@
         </IonSegment>
       </ion-toolbar>
     </ion-header>
-
+    -->
     <!-- 본문 -->
     <ion-content fullscreen="true">
       <div class="page-container fl-scope" role="region" aria-label="탭 페이지 영역">
@@ -65,7 +65,7 @@ import AaaView from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
    탭 하이라이트는 currentTab,
    실제 표시할 뷰는 activeViewKey로 분리
 ────────────────────────────── */
-const currentTab = ref('premiumchat')   // 'premiumchat' | 'normalchat'
+const currentTab = ref('normalchat')   // 'premiumchat' | 'normalchat'
 const activeViewKey = ref(currentTab.value) // 초기에는 탭과 동일
 
 const onTabChange = (ev) => {

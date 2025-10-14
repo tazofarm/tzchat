@@ -16,7 +16,7 @@
         @click="goAdmin"
       >
         <ion-icon :icon="icons.settingsOutline" slot="start" />
-        관리
+        Set
       </ion-button>
     </div>
 
@@ -106,8 +106,8 @@ const goPage = (path: string) => {
 
 /** 관리자 이동 */
 const goAdmin = () => {
-  console.log('[SettingsSections] goAdmin → /home/admin')
-  router.push('/home/admin')
+  console.log('[SettingsSections] goAdmin → /home/7page')
+  router.push('/home/7page')
 }
 
 /** 로그아웃 */

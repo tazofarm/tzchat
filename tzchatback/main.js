@@ -317,6 +317,7 @@ safeMountRouter('/api', './routes/userRouter');
 // 3) Socket.IO 설정
 // =======================================
 const { Server } = require('socket.io');
+const { sendPushToUser } = require('./push/sender'); // ✅ 추가
 const io = new Server(server, {
   path: '/socket.io',
   cors: {
@@ -404,12 +405,25 @@ app.set('emit', {
     if (!userId) return;
     io.to(userRoom(userId)).emit(event, payload);
   },
+
+  // ✅ 받은 친구신청 대상자(toId)에게 FCM 푸시 추가
   friendRequestCreated(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
-    const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
+    const toId   = typeof reqObj.to   === 'object' ? reqObj.to._id   : reqObj.to;
+
     if (fromId) io.to(userRoom(fromId)).emit('friendRequest:created', reqObj);
-    if (toId) io.to(userRoom(toId)).emit('friendRequest:created', reqObj);
+    if (toId) {
+      io.to(userRoom(toId)).emit('friendRequest:created', reqObj);
+      // ✅ fire-and-forget (로그/지연 방지)
+      void sendPushToUser(toId, {
+        type: 'friend_request',
+        title: '새 친구 신청',
+        body: '받은 친구 신청이 도착했습니다.',
+        fromUserId: String(fromId || ''),
+      });
+    }
   },
+
   friendRequestAccepted(reqObj) {
     const fromId = typeof reqObj.from === 'object' ? reqObj.from._id : reqObj.from;
     const toId = typeof reqObj.to === 'object' ? reqObj.to._id : reqObj.to;
@@ -433,21 +447,50 @@ app.set('emit', {
     if (blockerId) io.to(userRoom(blockerId)).emit('block:created', blockObj);
     if (blockedId) io.to(userRoom(blockedId)).emit('block:created', blockObj);
   },
+
+  // ✅ 채팅 메시지 수신자들에게 FCM 푸시 추가(보낸 사람 제외)
   async chatMessageNew(roomId, message) {
     try {
       io.to(roomId).emit('chatMessage', message);
-      await notifyRoomParticipantsForList(roomId, {
+
+      const lastPayload = {
         _id: message?._id,
         content: message?.content || '',
         imageUrl: message?.imageUrl || '',
         sender: message?.sender || null,
         createdAt: message?.createdAt || new Date(),
-      });
+      };
+      await notifyRoomParticipantsForList(roomId, lastPayload);
+
+      // 푸시 전송: 참여자 조회 후 보낸 사람 제외하고 일괄 전송
+      try {
+        const room = await ChatRoom.findById(roomId).select('participants').lean();
+        const senderId = typeof message?.sender === 'object' ? message.sender?._id : message?.sender;
+        const targets = (room?.participants || [])
+          .map(String)
+          .filter(uid => uid && String(uid) !== String(senderId));
+
+        await Promise.allSettled(
+          targets.map(uid =>
+            sendPushToUser(uid, {
+              type: 'chat',
+              title: '새 메시지',
+              body: lastPayload.content || '새 메시지가 도착했습니다.',
+              roomId: String(roomId),
+              fromUserId: String(senderId || ''),
+            })
+          )
+        );
+      } catch (e) {
+        console.warn('[emit.chatMessageNew][push] skip:', e?.message || e);
+      }
+
       console.log('[emit.chatMessageNew] ✅ room=', roomId);
     } catch (err) {
       console.error('[emit.chatMessageNew] ❌', err);
     }
   },
+
   async chatMessagesRead(roomId, readerId, messageIds) {
     try {
       io.to(roomId).emit('messagesRead', { roomId, readerId, messageIds });
@@ -468,7 +511,6 @@ io.on('connection', (socket) => {
 
     console.log('[SOCKET][CONN]', { sid: socket.id, userId: userId || '(anon)', via: jwtUserId ? 'jwt' : (sessUserId ? 'session' : 'anonymous') });
 
-    const userRoom = (uid) => `user:${uid}`;
     if (userId) {
       onlineUsers.add(userId);
       socket.join(userRoom(userId));
@@ -557,8 +599,6 @@ io.on('connection', (socket) => {
 //    경로는 엔트리 파일 기준 상대경로입니다.
 //    엔트리 파일이 /server 폴더에 있다면 '../jobs/retentionWorker' 로 조정하세요.
 require('./jobs/retentionWorker');
-
-
 
 
 

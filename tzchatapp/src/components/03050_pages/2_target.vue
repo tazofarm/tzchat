@@ -3,6 +3,8 @@
   <UserList
     :users="users"
     :isLoading="isLoading"
+    :viewer-level="viewerLevel"
+    :is-premium="isPremium"
     emptyText="조건에 맞는 사용자가 없습니다."
     @select="u => goToUserProfile(u._id)"
   />
@@ -10,18 +12,17 @@
 
 <script setup>
 /* -----------------------------------------------------------
-   Target: 공통 UserList 컴포넌트 사용 버전
-   - 기존 데이터 로직/소켓/필터는 그대로
-   - 리스트 렌더링은 UserList로 교체
+   Target: 공통 UserList + Normal Total Filter
+   - 기존 데이터 로직/소켓/정렬 유지
+   - 필터 체인을 applyTotalFilterNormal로 교체
+   - excludeIds(친구/차단/대기중)는 외부에서 AND 적용
    - ✅ 언마운트 시 socket.disconnect() 금지 → 리스너만 off()
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
-//필터
-import { applyTotalFilter } from '@/components/04210_Page2_target/total/Filter_total'
-import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
+import { applyTotalFilterNormal } from '@/components/04210_Page2_target/Filter/Total_Filter_normal'
 import { connectSocket, getSocket } from '@/lib/socket'
 
 /** 상태 */
@@ -31,6 +32,10 @@ const currentUser = ref({})
 const isLoading = ref(true)
 const excludeIds = ref(new Set())
 const socket = ref(null)
+
+/** ✅ Premium 가림 로직용: 뷰어 레벨/프리미엄 여부를 명시 전달 */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium = ref(false) // true면 실제 값 노출, false면 Premium 전용
 
 /** 이 컴포넌트에서 등록한 소켓 핸들러 보관용 */
 const sockHandlers = {
@@ -63,6 +68,30 @@ function debounce(fn, delay = 120) {
   let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay) }
 }
 
+/** 유틸: 제외 ID Set 생성 (friends/blocks/pendingSent/Recv) */
+function toIdList(src) {
+  const arr = Array.isArray(src) ? src : []
+  return arr
+    .map(v => {
+      if (!v) return null
+      if (typeof v === 'string' || typeof v === 'number') return String(v)
+      return String(v._id || v.id || v.userId || v.user_id || '')
+    })
+    .filter(Boolean)
+}
+function buildExcludeIdsSet({ friends = [], blocks = [], pendingSent = [], pendingRecv = [] } = {}) {
+  const set = new Set()
+  for (const id of toIdList(friends)) set.add(id)
+  for (const id of toIdList(blocks)) set.add(id)
+  for (const id of toIdList(pendingSent)) set.add(id)
+  for (const id of toIdList(pendingRecv)) set.add(id)
+  return set
+}
+
+/** 유틸: 제외목록 필터 (friends/blocks/pendingSent/Recv) */
+const filterByExcludeIds = (list, set) =>
+  Array.isArray(list) ? list.filter(u => u && u._id && !(set instanceof Set ? set.has(String(u._id)) : false)) : []
+
 /** 라우팅 */
 const goToUserProfile = (userId) => {
   if (!userId) return
@@ -94,21 +123,23 @@ async function fetchRelations() {
   }
 }
 
-/** 서버 검색 + 필터 + 정렬 */
+/** 서버 검색 + (제외목록) + Normal 필터 + 정렬 */
 const applyFilterAndSort = (rawList, me) => {
-  const filtered = applyTotalFilter(rawList, me, { excludeIds: excludeIds.value })
+  // 1) 제외목록 제거
+  const afterExclude = filterByExcludeIds(rawList, excludeIds.value)
+  // 2) Normal Total Filter 적용 (내 설정/상호조건/프리미엄 노출/신청제한)
+  const filtered = applyTotalFilterNormal(afterExclude, me, { log: false })
   if (LOG.filter) console.log(`[Users] 필터 결과: ${filtered.length}/${rawList?.length ?? 0}`)
+  // 3) 정렬
   users.value = sortByLastLoginDesc(filtered)
 }
 const scheduleRender = debounce(() => { users.value = sortByLastLoginDesc(users.value) }, 100)
 
 /** Socket.IO */
 function initUsersSocket(me) {
-  // 이미 연결되어 있으면 재사용
   const s = connectSocket()
   socket.value = s
 
-  // ✅ 이벤트 핸들러를 별도 함수로 저장해두었다가 언마운트 시 off()
   sockHandlers.connect = () => {
     if (LOG.socket) console.log('✅ [Socket] connected:', s.id)
     try { s.emit('users:join', { scope: 'list' }) } catch {}
@@ -125,13 +156,20 @@ function initUsersSocket(me) {
     try {
       if (!u || !u._id) return
       if (excludeIds.value instanceof Set && excludeIds.value.has(String(u._id))) return
+
       const idx = users.value.findIndex(x => x._id === u._id)
-      if (idx >= 0) users.value[idx] = { ...users.value[idx], ...u }
-      else {
-        const once = applyTotalFilter([u], me, { excludeIds: excludeIds.value })
-        if (once.length) users.value.push(once[0])
+      if (idx >= 0) {
+        users.value[idx] = { ...users.value[idx], ...u }
+        scheduleRender()
+      } else {
+        const afterExclude = filterByExcludeIds([u], excludeIds.value)
+        if (!afterExclude.length) return
+        const once = applyTotalFilterNormal(afterExclude, me, { log: false })
+        if (once.length) {
+          users.value.push(once[0])
+          scheduleRender()
+        }
       }
-      scheduleRender()
     } catch (e) { console.error('❌ patch 처리 오류:', e) }
   }
   sockHandlers.users_last_login = ({ userId, last_login }) => {
@@ -139,7 +177,6 @@ function initUsersSocket(me) {
     if (idx >= 0) { users.value[idx] = { ...users.value[idx], last_login }; scheduleRender() }
   }
 
-  // 바인딩
   s.on('connect', sockHandlers.connect)
   s.on('disconnect', sockHandlers.disconnect)
   s.on('connect_error', sockHandlers.connect_error)
@@ -157,8 +194,25 @@ onMounted(async () => {
     nickname.value = me?.nickname || ''
     if (LOG.init) console.log('✅ me:', me)
 
+    // ✅ 등급/프리미엄 여부 설정 (여러 백엔드 필드명 대응)
+    const levelFromApi =
+      me?.level ||
+      me?.user_level ||
+      me?.membership ||
+      ''
+
+    viewerLevel.value = String(levelFromApi || '').trim()
+
+    const premiumBool =
+      me?.isPremium ??
+      me?.premium ??
+      (String(levelFromApi || '').trim() === '프리미엄')
+
+    isPremium.value = Boolean(premiumBool)
+
     await fetchRelations()
 
+    // 초기 검색 (예: 지역 기반)
     const regionFilter = me.search_regions || []
     const res = await api.post('/api/search/users', { regions: regionFilter })
     applyFilterAndSort(res.data || [], me)
@@ -173,19 +227,17 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  // ✅ 전역 소켓 연결은 유지하고, 이 컴포넌트에서 등록한 리스너만 정리
   try {
     const s = getSocket()
     if (s) {
       if (typeof s.emit === 'function') {
-        // 선택: 서버가 방 개념을 쓴다면 leave 신호만 보내고 유지
         try { s.emit('users:leave', { scope: 'list' }) } catch {}
       }
-      if (sockHandlers.connect)        s.off('connect', sockHandlers.connect)
-      if (sockHandlers.disconnect)     s.off('disconnect', sockHandlers.disconnect)
-      if (sockHandlers.connect_error)  s.off('connect_error', sockHandlers.connect_error)
-      if (sockHandlers.users_refresh)  s.off('users:refresh', sockHandlers.users_refresh)
-      if (sockHandlers.users_patch)    s.off('users:patch', sockHandlers.users_patch)
+      if (sockHandlers.connect)          s.off('connect', sockHandlers.connect)
+      if (sockHandlers.disconnect)       s.off('disconnect', sockHandlers.disconnect)
+      if (sockHandlers.connect_error)    s.off('connect_error', sockHandlers.connect_error)
+      if (sockHandlers.users_refresh)    s.off('users:refresh', sockHandlers.users_refresh)
+      if (sockHandlers.users_patch)      s.off('users:patch', sockHandlers.users_patch)
       if (sockHandlers.users_last_login) s.off('users:last_login', sockHandlers.users_last_login)
     }
     socket.value = null

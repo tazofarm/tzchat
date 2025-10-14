@@ -1,13 +1,18 @@
 <template> 
   <div class="chatroom-container">
-    <!-- 상단바 -->
-    <div class="chatroom-header">
+    <!-- 상단바 (전역 헤더 아래 sticky) -->
+    <div class="chatroom-header" @click="closeEmojiIfOpen">
       <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화</span>
       <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">←뒤로</ion-button>
     </div>
 
     <!-- 메시지 리스트 -->
-    <div class="chat-messages" ref="chatScroll" @scroll.passive="scheduleMarkAsRead(250)">
+    <div
+      class="chat-messages"
+      ref="chatScroll"
+      @scroll.passive="scheduleMarkAsRead(250)"
+      @click="closeEmojiIfOpen"
+    >
       <div
         v-for="item in displayItems"
         :key="item._id"
@@ -25,13 +30,12 @@
         <template v-else-if="isMine(item)">
           <div class="my-message">
             <div class="bubble-row mine-row">
-                            
               <span
                 v-if="item._meta?.showTime && !isReadByPartner(item)"
                 class="read-flag"
                 aria-label="상대가 아직 읽지 않음"
               >안읽음</span>
- 
+
               <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
               
               <div class="bubble my-bubble">
@@ -42,7 +46,6 @@
                   {{ item.content }}
                 </template>
               </div>
-
             </div>
           </div>
         </template>
@@ -90,14 +93,20 @@
 
     <!-- 입력창 -->
     <div class="chat-input-wrapper">
-      <div v-if="showEmoji" class="emoji-picker-wrapper">
+      <div v-if="showEmoji" class="emoji-picker-wrapper" @click.stop>
         <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
       </div>
 
-      <div class="chat-input">
+      <div class="chat-input" @click.stop>
         <ion-button size="small" fill="outline" class="icon-btn" @click="triggerFileInput" aria-label="파일 첨부">📎</ion-button>
         <input type="file" accept="image/*" ref="fileInput" style="display: none" @change="uploadImage" />
-        <ion-button size="small" fill="outline" class="icon-btn" @click="toggleEmoji" aria-label="이모지 선택">😊</ion-button>
+        <ion-button
+          size="small"
+          fill="outline"
+          class="icon-btn"
+          @click="toggleEmoji"
+          aria-label="이모지 선택"
+        >😊</ion-button>
 
         <textarea
           ref="textareaRef"
@@ -105,15 +114,34 @@
           placeholder="메시지를 입력하세요"
           @keydown="handleKeydown"
           rows="1"
+          autocomplete="off"
+          autocorrect="on"
+          spellcheck="true"
         ></textarea>
 
-        <ion-button size="small" color="primary" @click="sendMessage" aria-label="전송">전송</ion-button>
+        <ion-button
+          size="small"
+          color="primary"
+          aria-label="전송"
+          @mousedown.prevent
+          @touchstart.prevent
+          @click="sendMessage"
+        >전송</ion-button>
       </div>
     </div>
 
-    <!-- 이미지 확대 팝업 -->
+    <!-- 이미지 확대 팝업 (화면 중앙 고정, 입력바 위로 뜸) -->
     <transition name="fade">
-      <div v-if="enlargedImage" class="image-modal" role="dialog" aria-modal="true" aria-label="이미지 보기">
+      <div
+        v-if="enlargedImage"
+        class="image-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="이미지 보기"
+        tabindex="-1"
+        @click.self="closeImageModal"
+        @keyup.esc="closeImageModal"
+      >
         <div class="image-wrapper">
           <button class="close-button" @click="closeImageModal" aria-label="닫기">×</button>
           <img :src="enlargedImage" class="modal-image" @click.stop />
@@ -152,12 +180,25 @@ const showEmoji = ref(false)
 const fileInput = ref(null)
 const enlargedImage = ref('')
 
-/* ===== 그룹 키 유틸 ===== */
+/* ===== 유틸 ===== */
 const pad2 = (n)=> String(n).padStart(2,'0')
 const minuteKey = (d) => { const t=new Date(d); return `${t.getFullYear()}-${pad2(t.getMonth()+1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}` }
 const toLocalYMD = (d) => { const t=new Date(d); return `${t.getFullYear()}-${pad2(t.getMonth()+1)}-${pad2(t.getDate())}` }
 const formatKDate = (d) => new Date(d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', weekday: 'long' })
 const formatTime=(iso)=> new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
+
+/** 포커스 헬퍼: 모바일에서 전송/토글 뒤 키보드 유지 */
+const focusComposer = async (delay = 0) => {
+  await nextTick()
+  window.setTimeout(() => {
+    const el = textareaRef.value
+    if (el) {
+      el.focus()
+      const len = el.value?.length ?? 0
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(len, len)
+    }
+  }, delay)
+}
 
 /* 판별 */
 const isMine = (msg)=> !!(msg?.sender && (msg.sender._id===myId.value || msg.sender===myId.value))
@@ -168,7 +209,6 @@ const displayItems = computed(() => {
   const out = []
   let lastYmd = null
   const list = messages.value
-
   const sameMinute = (a,b)=> a && b && (minuteKey(a.createdAt||a._id)===minuteKey(b.createdAt||b._id))
 
   for (let i=0; i<list.length; i++){
@@ -188,14 +228,14 @@ const displayItems = computed(() => {
     if (isMine(m)) {
       const nextMine = next && isMine(next)
       const groupWithNext = nextMine && sameMinute(m,next)
-      meta.showTime = !groupWithNext           // 내 메시지: 마지막만 시간/안읽음
+      meta.showTime = !groupWithNext
     } else {
       const prevOther = prev && !isMine(prev)
       const nextOther = next && !isMine(next)
       const groupWithPrev = prevOther && sameMinute(prev,m)
       const groupWithNext = nextOther && sameMinute(m,next)
-      meta.showAvatarName = !groupWithPrev     // 상대: 첫 메시지에만 아바타/닉네임
-      meta.showTime = !groupWithNext           // 마지막만 시간
+      meta.showAvatarName = !groupWithPrev
+      meta.showTime = !groupWithNext
     }
 
     out.push({ ...m, type:'message', _meta: meta })
@@ -204,7 +244,7 @@ const displayItems = computed(() => {
 })
 
 /* 이미지/모달 */
-const openImage = (url)=>{ enlargedImage.value=url }
+const openImage = (url)=>{ enlargedImage.value=url; requestAnimationFrame(()=>document.querySelector('.image-modal')?.focus()) }
 const closeImageModal = ()=>{ enlargedImage.value='' }
 const getImageUrl = (path)=>{
   if(!path) return ''
@@ -235,6 +275,8 @@ const sendMessage = async ()=>{
   getSocket()?.emit('chatMessage',{roomId,message:res.data})
   pushMessageSafe({...res.data,createdAt:res.data.createdAt||new Date().toISOString()})
   scrollToBottom()
+  showEmoji.value = false         // 전송 후 이모지 닫기
+  await focusComposer(0)          // 전송 후 즉시 입력창 포커스(키보드 유지)
 }
 
 /* 업로드 */
@@ -251,6 +293,8 @@ const uploadImage=async(e)=>{
   getSocket()?.emit('chatMessage',{roomId,message:msg.data})
   pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
   scrollToBottom(); e.target.value=''
+  showEmoji.value = false
+  await focusComposer(0)          // 이미지 전송 뒤에도 포커스 유지
 }
 
 /* 붙여넣기 */
@@ -266,16 +310,41 @@ const onPaste=async(e)=>{
         const msg=await axios.post(`/api/chatrooms/${roomId}/message`,{content:relativePath,type:'image'},{withCredentials:true})
         getSocket()?.emit('chatMessage',{roomId,message:msg.data})
         pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
-        scrollToBottom(); e.preventDefault(); break
+        scrollToBottom(); e.preventDefault()
+        showEmoji.value = false
+        await focusComposer(0)
+        break
       }
     }
   }
 }
 
-const handleKeydown=(e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage() } }
+/* 채팅 화면 클릭 시 이모지 접기 */
+const closeEmojiIfOpen = async ()=>{
+  if(showEmoji.value){
+    showEmoji.value=false
+    await focusComposer(0) // 화면을 탭해 접어도 포커스 복구 → 키보드 유지
+  }
+}
+
+const handleKeydown=(e)=>{
+  if(e.key==='Enter' && !e.shiftKey){
+    e.preventDefault()
+    sendMessage()
+  }
+}
 const triggerFileInput=()=>fileInput.value?.click()
-const insertEmoji=(ev)=>{ const emoji=ev?.detail?.unicode||''; if(emoji){ newMessage.value+=emoji; requestAnimationFrame(()=>textareaRef.value?.focus()) } }
-const toggleEmoji=()=>{ showEmoji.value=!showEmoji.value; if(!showEmoji.value) requestAnimationFrame(()=>textareaRef.value?.focus()) }
+const insertEmoji=(ev)=>{
+  const emoji=ev?.detail?.unicode||''
+  if(emoji){
+    newMessage.value+=emoji
+    requestAnimationFrame(()=>textareaRef.value?.focus())
+  }
+}
+const toggleEmoji=async ()=>{
+  showEmoji.value=!showEmoji.value
+  if(!showEmoji.value) await focusComposer(0)
+}
 const scrollToBottom=async()=>{ await nextTick(); const el=chatScroll.value; if(el) el.scrollTop=el.scrollHeight }
 
 /* 읽음 처리 */
@@ -321,8 +390,9 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 
 <style scoped>
 /* ───────── Theme & avatar variables ───────── */
+
 .chatroom-container{
-  display:flex; flex-direction:column; height:100%; min-height:0; width:100%;
+  display:flex; flex-direction:column; height:100svh; min-height:0; width:100%;
   --gold-500:#d4af37; --gold-400:#e0be53; --black-900:#0b0b0b;
   --color-text:#000; --color-muted:#9aa0a6;
   --page-bg:#0b0b0b; --section-bg:#0b0b0b;
@@ -335,18 +405,37 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   --avatar-size: 40px;
   --avatar-radius: 50%;
   --avatar-offset-y: 8px;
+
+  /* 전역 상단바(메인 헤더) 높이 — 필요시 페이지 레이아웃에서 재정의 */
+  --main-header-height: -10px;
 }
 
-/* 상단바 */
-.chatroom-header{ display:flex; grid-template-columns:auto 1fr;
-   align-items:center; gap:var(--gap-sm); height:44px; padding:0 var(--gap-md);
-    background:#0b0b0b; border-bottom:1px solid rgba(255,255,255,.06); box-sizing:border-box; }
-.chatroom-header ion-button{ --padding-start:86px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500); --background:transparent; --border-color:transparent;
-   min-height:30px; font-size:13px;   margin-right: 6px;}
-.chat-title{ font-weight:800; letter-spacing:.2px; color:var(--gold-500); font-size:var(--fz-title); line-height:2.15; cursor:pointer;  margin-left: 8px; /* 왼쪽에서 조금 더 떨어짐 */}
+/* 상단바: 전역 상단바 아래에서만 고정 */
+.chatroom-header {
+  position: sticky;
+  top: var(--main-header-height);
+  z-index: 5;
+
+  display:flex; align-items:center; gap:var(--gap-sm);
+  height:44px; padding:0 var(--gap-md);
+  background:#0b0b0b; border-bottom:1px solid rgba(255,255,255,.06);
+  box-sizing:border-box;
+}
+.chatroom-header ion-button{
+  --padding-start:116px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500);
+  --background:transparent; --border-color:transparent;
+  min-height:30px; font-size:13px; margin-right: 6px;
+}
+.chat-title{ font-weight:800; letter-spacing:.2px; color:var(--gold-500); font-size:var(--fz-title); line-height:2.15; cursor:pointer;  margin-left: 8px; }
 
 /* 메시지 리스트 */
-.chat-messages{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:var(--gap-md); background:var(--section-bg); scrollbar-gutter:stable; }
+.chat-messages{
+  flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding: var(--gap-md);
+  /* fixed 헤더가 아니므로 상단 패딩 불필요 */
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); /* 입력창 높이 + 세이프에어리어 */
+  background:var(--section-bg); scrollbar-gutter:stable;
+}
 .chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
 .chat-messages::-webkit-scrollbar-thumb{ background:#333; border-radius:8px; }
 .message-row{ margin-bottom:var(--gap-xs); }
@@ -354,20 +443,15 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 /* 공통 행 */
 .other-message,.my-message{ display:flex; gap:var(--gap-xxs); }
 .my-message{
-  width:100%;                 /* ⬅ 전체 너비 차지 → 우측 정렬이 확실 */
-  justify-content:flex-end;
-  align-items:flex-end;
+  width:100%; justify-content:flex-end; align-items:flex-end;
 }
 
 /* 상대방 */
 .other-message{ justify-content:flex-start; align-items:flex-start; }
 .avatar-col,
 .avatar-spacer{
-  width:var(--avatar-size);
-  min-width:var(--avatar-size);
-  height:var(--avatar-size);
-  margin-right:6px;
-  margin-top:var(--avatar-offset-y);
+  width:var(--avatar-size); min-width:var(--avatar-size); height:var(--avatar-size);
+  margin-right:6px; margin-top:var(--avatar-offset-y);
 }
 .avatar-col{
   display:flex; align-items:center; justify-content:center;
@@ -385,11 +469,9 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 
 /* 말풍선 + 시간 */
 .bubble-row{ display:flex; align-items:flex-end; gap:6px; }
-.bubble-row.mine-row{ justify-content:flex-end; } /* 내 메시지 우측 정렬 */
+.bubble-row.mine-row{ justify-content:flex-end; }
 .bubble{
-  max-width:100%;
-  padding:6px 10px;
-  border-radius:var(--radius);
+  max-width:100%; padding:6px 10px; border-radius:var(--radius);
   background-color:#fff; color:var(--color-text);
   word-break:break-word; white-space:pre-wrap;
   font-size:var(--fz-base); line-height:1.4;
@@ -411,11 +493,7 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 
 /* 날짜 구분선 — ⬅ 왼쪽 정렬 */
 .date-divider{
-  display:flex;
-  align-items:center;
-  justify-content:flex-start;   /* ⬅ 왼쪽 */
-  gap:60px;
-  margin:10px 0;
+  display:flex; align-items:center; justify-content:flex-start; gap:60px; margin:10px 0;
 }
 .date-divider::before{ content:""; flex:0 0 36px; } /* 아바타 폭만큼 여백 */
 .date-chip{
@@ -424,17 +502,52 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 }
 
 /* 입력 영역 */
-.chat-input-wrapper{ position:relative; background:var(--page-bg); padding-bottom:env(safe-area-inset-bottom,0px); border-top:1px solid rgba(255,255,255,.06); }
-.chat-input{ display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm); padding:var(--gap-sm) var(--gap-md); background:var(--page-bg); box-sizing:border-box; }
+.chat-input-wrapper{ 
+  position: fixed; bottom:0; left:0; right:0; z-index: 9;
+  background:var(--page-bg); border-top:1px solid rgba(255,255,255,.06); 
+}
+.chat-input{
+  display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm);
+  padding:var(--gap-sm) var(--gap-md); background:var(--page-bg); box-sizing:border-box;
+}
 .chat-input ion-button.icon-btn{ --padding-start:4px; --padding-end:4px; width:34px; min-width:34px; font-size:16px; --border-color:var(--gold-500); --background:transparent; --background-hover:#1a1a1a; }
 .chat-input ion-button[fill="outline"]{ --border-color:var(--gold-500); --color:#fff; --background:transparent; --background-hover:#1a1a1a; --border-radius:9px; min-height:26px; font-size:13px; border:1px solid var(--gold-500); }
-.chat-input ion-button[color="primary"]{ --background:var(--gold-500); --color:#111; --border-radius:10px; min-height:26px; font-size:13px; }
+.chat-input ion-button[color="primary"]{ --background:var(--gold-500); --color:#111; --border-radius:10px; min-height:26px; }
 
 /* textarea */
-.chat-input textarea{ flex:1 1 auto; padding:6px 8px; border:1.5px solid #333; border-radius:9px; margin:0; font-size:var(--fz-base); background:#ffffff; color:#000000; resize:none; line-height:1.4; min-height:32px; max-height:110px; box-shadow:0 0 0 2px rgba(212,175,55,0.08); }
+.chat-input textarea{
+  flex:1 1 auto; padding:6px 8px; border:1.5px solid #333; border-radius:9px; margin:0;
+  font-size:var(--fz-base); background:#ffffff; color:#000000; resize:none; line-height:1.4;
+  min-height:32px; max-height:110px; box-shadow:0 0 0 2px rgba(212,175,55,0.08);
+}
 .chat-input textarea::placeholder{ color:#7a7a7a; }
 .chat-input textarea:focus{ outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500); }
 
-/* 이모지/모달 */
-.emoji-picker-wrapper{ position:absolute; left:var(--gap-md); bottom:calc(46px + env(safe-area-inset-bottom,0px)); z-index:999; background:#111; border:1px solid var(--gold-500); border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5); }
+/* 이모지 */
+.emoji-picker-wrapper{
+  position:absolute; left:var(--gap-md);
+  bottom:calc(46px + env(safe-area-inset-bottom,0px));
+  z-index:999; background:#111; border:1px solid var(--gold-500);
+  border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5);
+}
+
+/* 이미지 모달: 화면 중앙, 입력바 위로 */
+.image-modal{
+  position: fixed; inset: 0; z-index: 9999;
+  display:flex; align-items:center; justify-content:center;
+  background: rgba(0,0,0,.72);
+}
+.image-wrapper{
+  position: relative; max-width: 92vw; max-height: 82vh;
+  display:flex; align-items:center; justify-content:center;
+}
+.modal-image{
+  max-width: 100%; max-height: 100%; border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+.close-button{
+  position:absolute; top:-10px; right:-10px; width:32px; height:32px;
+  border:none; border-radius:50%; background:#000; color:#fff; font-size:20px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
 </style>

@@ -1,11 +1,11 @@
 <template>
   <div class="receive-only-wrapper">
-    <!-- ✅ 상단 헤더: 받은 친구 신청 (N / 20) -->
+    <!-- ✅ 상단 헤더: 받은 친구 신청 (N / X) -->
     <div class="section-header" role="heading" aria-level="2">
       <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
       <h3 class="section-title">
         받은 친구 신청
-        <span class="count">({{ pendingCount }} / 20)</span>
+        <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
       </h3>
     </div>
 
@@ -14,6 +14,8 @@
       :key="usersKey"
       :users="users"
       :isLoading="isLoading"
+      :viewer-level="viewerLevel"
+      :is-premium="isPremium"
       emptyText="받은 친구 신청이 없습니다."
       @select="u => goToUserProfile(u._id)"
     >
@@ -103,10 +105,10 @@
 <script setup>
 /* -----------------------------------------------------------
    Received Only: 나에게 친구 신청한 사람 전용 페이지
-   - 즉시 반응 개선: UserList 강제 재렌더(:key), per-request busy, IonToast 알림
-   - 인사말: 요청 객체의 intro/message/note 필드 표시 모달
+   - 배지 동기화, per-request busy, 토스트 알림
+   - ✅ UserList에 viewerLevel / isPremium 전달(특징·결혼 Premium 전용 처리)
 ----------------------------------------------------------- */
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
@@ -115,6 +117,8 @@ import {
 } from '@ionic/vue'
 import { mailOpenOutline } from 'ionicons/icons'
 
+const receiveLimit = ref(20)
+
 const router = useRouter()
 const icons = { mailOpenOutline }
 
@@ -122,6 +126,21 @@ const icons = { mailOpenOutline }
 const users = ref([])                 // 화면 표시용 사용자 (받은신청 보낸 사람만)
 const isLoading = ref(true)
 const receivedRequests = ref([])      // [{ _id, from, intro/message, status:'pending', ... }]
+
+/* ✅ 프리미엄 가림 전달용 (서버 우선 → 로컬 폴백) */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium   = ref(false)
+
+/* ===== 배지 동기화 방송/응답 ===== */
+function updateBadge() {
+  const hasNew = (receivedRequests.value?.length || 0) > 0
+  try {
+    window.dispatchEvent(new CustomEvent('friends:state', { detail: { hasNew } }))
+  } catch {}
+}
+function onRequestState() {
+  updateBadge()
+}
 
 /* ===== 인사말(모달) ===== */
 const introModal = ref({ open: false, req: null })
@@ -247,20 +266,19 @@ async function withBusy(reqId, fn) {
     busy.value = next
   }
 }
+
 /* ===== 공통 후처리(수락/거절/차단 후 즉시 반영) ===== */
 function removeRequestLocally(id) {
   if (!id) return
-  // 1) 현재 매핑에서 userId를 먼저 찾아둔다
   const mapping = reqByUserId.value
   const uid = Object.keys(mapping).find(k => mapping[k]?._id === id)
 
-  // 2) 사용자 리스트에서 해당 유저 제거
   if (uid) {
     users.value = users.value.filter(u => String(u._id) !== String(uid))
   }
 
-  // 3) 마지막에 요청 목록에서 제거 (매핑 유지가 필요했기 때문)
   receivedRequests.value = receivedRequests.value.filter(x => x._id !== id)
+  updateBadge()
 }
 
 /* ===== IonToast 상태 + 도우미 ===== */
@@ -316,8 +334,33 @@ function blockFromIntro()  { if (introModal.value.req) onBlockClick(introModal.v
 
 /* ===== 초기 로딩 ===== */
 onMounted(async () => {
+  window.addEventListener('friends:requestState', onRequestState)
+
   try {
     isLoading.value = true
+
+    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
+    try {
+      const me = (await api.get('/api/me')).data?.user || {}
+      const levelFromApi =
+        me?.level ||
+        me?.user_level ||
+        me?.membership ||
+        ''
+      viewerLevel.value = String(levelFromApi || '').trim()
+      const premiumBool =
+        me?.isPremium ??
+        me?.premium ??
+        (String(levelFromApi || '').trim() === '프리미엄')
+      isPremium.value = Boolean(premiumBool)
+    } catch {
+      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+      viewerLevel.value = lv
+      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+                        ['true','1','yes','y'].includes(boolish)
+    }
+
     const res = await api.get('/api/friend-requests/received')
     const pendingReqs = extractPendingRequests(res?.data)
     receivedRequests.value = pendingReqs
@@ -325,6 +368,7 @@ onMounted(async () => {
     const senderIds = extractSenderIdsFromAny(res?.data)
     if (!senderIds.length) {
       users.value = []
+      updateBadge()
       return
     }
     const raw = await fetchUsersByIdsStrict(senderIds)
@@ -338,8 +382,16 @@ onMounted(async () => {
     toast('받은 친구 신청을 불러오지 못했습니다.', 'danger')
   } finally {
     isLoading.value = false
+    updateBadge()
   }
 })
+
+onUnmounted(() => {
+  window.removeEventListener('friends:requestState', onRequestState)
+})
+
+/* ===== 감시: 목록 변화가 생기면 배지 최신화(보조용) ===== */
+watch(() => receivedRequests.value.length, () => updateBadge())
 </script>
 
 <style scoped>

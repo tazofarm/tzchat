@@ -1,6 +1,6 @@
+// src/main.ts
 console.log('[main] env?', import.meta.env.MODE, import.meta.env.VITE_API_BASE_URL)
 
-// src/main.ts
 import { createApp, nextTick } from 'vue'
 import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
@@ -18,6 +18,7 @@ import { connectSocket, getSocket } from '@/lib/socket'
 // ✅ (추가) 안드로이드 권한 유틸
 import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app' // ✅ 딥링크 수신
 
 /* Ionicons */
 import { addIcons } from 'ionicons'
@@ -72,9 +73,6 @@ async function killServiceWorkersInDev() {
     }
   }
 }
-
-// ❌ (기존) Top-level await
-// await killServiceWorkersInDev()
 
 // ✅ 즉시실행 async 함수(IIFE)로 감싸 Top-level await 제거
 ;(async () => {
@@ -269,6 +267,28 @@ router.isReady()
     } catch (e: any) {
       console.warn('⚠️ 권한 요청 중 오류:', e?.message)
     }
+
+    // ✅ tzchat:// 딥링크 처리 (알림 클릭/외부 링크)
+    // 예: tzchat://chat/<roomId> → '/home/chat/<roomId>'
+    CapApp.addListener('appUrlOpen', async ({ url }) => {
+      try {
+        if (!url || !url.startsWith('tzchat://')) return
+        const path = url.replace('tzchat://', '').replace(/^\/+/, '')
+        // 간단 라우팅 매핑
+        if (path.startsWith('chat/')) {
+          await router.push(`/home/chat/${path.split('/')[1]}`)
+        } else if (path === 'friends/received') {
+          await router.push('/home/3page') // 친구 탭
+          // 하위에 받은신청 탭을 기본으로 여는 커스텀 이벤트
+          window.dispatchEvent(new CustomEvent('friends:openTab', { detail: { tab: 'received' } }))
+        } else {
+          await router.push('/' + path)
+        }
+        console.log('[DEEPLINK] handled:', url, '→', path)
+      } catch (e: any) {
+        console.warn('[DEEPLINK] handle error:', e?.message)
+      }
+    })
 
     await bootstrapSocketOnce()
 

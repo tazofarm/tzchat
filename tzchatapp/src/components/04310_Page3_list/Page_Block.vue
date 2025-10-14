@@ -13,6 +13,8 @@
     <UserList
       :users="users"
       :isLoading="isLoading"
+      :viewer-level="viewerLevel"
+      :is-premium="isPremium"
       emptyText="차단한 친구가 없습니다."
       @select="u => goToUserProfile(u._id)"
     >
@@ -34,6 +36,7 @@
    ✅ 항상 id를 추출해 재조회하여 전체 필드를 확보
    ✅ 백엔드(friendRouter) 경로에 맞게 차단 해제 API 수정:
       - DELETE /api/block/:id (단수 'block')
+   ✅ Premium 가림을 위해 viewerLevel/isPremium을 UserList로 전달
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -47,6 +50,10 @@ const icons = { closeCircleOutline }
 /* 상태 */
 const users = ref([])      // 화면 표시용: 차단한 유저 객체들
 const isLoading = ref(true)
+
+/* ✅ 프리미엄 가림 로직 전달용 */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium   = ref(false)
 
 /* 유틸 */
 const uniq = (arr = []) => Array.from(new Set(arr.map(String)))
@@ -129,6 +136,29 @@ const onUnblockClick = (userId) => unblock(userId)
 onMounted(async ()=>{
   try{
     isLoading.value=true
+
+    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
+    try {
+      const me = (await api.get('/api/me')).data?.user || {}
+      const levelFromApi =
+        me?.level ||
+        me?.user_level ||
+        me?.membership ||
+        ''
+      viewerLevel.value = String(levelFromApi || '').trim()
+      const premiumBool =
+        me?.isPremium ??
+        me?.premium ??
+        (String(levelFromApi || '').trim() === '프리미엄')
+      isPremium.value = Boolean(premiumBool)
+    } catch {
+      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+      viewerLevel.value = lv
+      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+                        ['true','1','yes','y'].includes(boolish)
+    }
+
     const res=await api.get('/api/blocks')
 
     // ✅ 항상 ids를 추출해 정식 조회로 전체 필드 확보

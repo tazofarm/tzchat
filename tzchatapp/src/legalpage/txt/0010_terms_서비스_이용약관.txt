@@ -38,11 +38,11 @@
   <p>
     <strong>상호</strong>: TAZOCODE<br>
     <strong>대표자</strong>: 김영주<br>
-    <strong>주소</strong>: 서울특별시 광진구 자양강변길 251, 502호<br>
-    <strong>사업자등록번호</strong>: 399-10-03041<br>
-    <strong>통신판매업 신고번호</strong>: T.B.D<br>
-    <strong>연락처</strong>: T.B.D<br>
-    <strong>이메일</strong>:
+    <strong>주소</strong>: 서울특별시 광진구 광나루로56길 85, 5층 비007호3 (구의동,테크노마트21) <br>
+    <strong>사업자등록번호</strong>: 399-10-03041 <br>
+    <strong>통신판매업 신고번호</strong>: TBD <br>
+    <strong>연락처</strong>: 010-9367-7708 <br>
+    <strong>이메일</strong>: 
     <a href="mailto:tazocode@gmail.com">tazocode@gmail.com</a>
   </p>
 

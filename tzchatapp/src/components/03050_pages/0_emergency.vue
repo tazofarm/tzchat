@@ -18,10 +18,12 @@
           @toggle="onHeaderToggle"
         />
 
-        <!-- ===== 공통 리스트 컴포넌트 ===== -->
+        <!-- ===== 공통 리스트 컴포넌트 (프리미엄 판정 전달) ===== -->
         <UserList
           :users="emergencyUsers"
           :isLoading="isLoading"
+          :viewer-level="viewerLevel"
+          :is-premium="isPremium"
           emptyText="현재 긴급 사용자 없음"
           @select="u => goToUserProfile(u._id)"
         />
@@ -33,6 +35,8 @@
 <script setup>
 /* -----------------------------------------------------------
    Emergency (= Target 공통 리스트 + EmergencySwitch 헤더)
+   - UserList에 viewer-level / is-premium 전달로
+     특징/결혼 항목을 등급별로 가림
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -40,9 +44,8 @@ import { api } from '@/lib/api'
 import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
 import EmergencySwitch from '@/components/02010_minipage/mini_emergency/emergencySwitch.vue'
-//필터
-import { applyTotalFilter } from '@/components/04210_Page2_target/total/Filter_total'
-import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
+import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/Total_Filter_premium'
+
 import { connectSocket as connectSharedSocket } from '@/lib/socket'
 
 import { IonPage, IonContent, IonModal } from '@ionic/vue'
@@ -57,6 +60,36 @@ const showAdvModal = ref(false)
 const router = useRouter()
 const socket = ref(null)
 const excludeIds = ref(new Set())
+
+/* ✅ UserList 프리미엄 판정 전달용 */
+const viewerLevel = ref('')   // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium = ref(false)  // 프리미엄이면 true → 실제값 노출, 아니면 가림
+
+/* ===== 유틸: 제외목록 필터 ===== */
+const filterByExcludeIds = (list, set) =>
+  Array.isArray(list)
+    ? list.filter(u => u && u._id && !(set instanceof Set ? set.has(String(u._id)) : false))
+    : []
+
+/* ===== (누락되어 있던) 제외목록 Set 구성 유틸 ===== */
+function toIdList(src) {
+  const arr = Array.isArray(src) ? src : []
+  return arr
+    .map(v => {
+      if (!v) return null
+      if (typeof v === 'string' || typeof v === 'number') return String(v)
+      return String(v._id || v.id || v.userId || v.user_id || '')
+    })
+    .filter(Boolean)
+}
+function buildExcludeIdsSet({ friends = [], blocks = [], pendingSent = [], pendingRecv = [] } = {}) {
+  const set = new Set()
+  for (const id of toIdList(friends)) set.add(id)
+  for (const id of toIdList(blocks)) set.add(id)
+  for (const id of toIdList(pendingSent)) set.add(id)
+  for (const id of toIdList(pendingRecv)) set.add(id)
+  return set
+}
 
 /* ===== 타이머 포맷 ===== */
 const formattedTime = computed(() => {
@@ -144,7 +177,8 @@ const updateEmergencyState = async (newState) => {
           let me = { ...currentUser.value }
           let pass = true
           if (APPLY_FILTERS_TO_ME) {
-            const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+            const selfPremium = applyTotalFilterPremium([me], me, { log: false })
+            const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
             pass = selfFiltered.length > 0
           }
           if (pass) upsertMeToTop(me)
@@ -198,15 +232,19 @@ const fetchEmergencyUsers = async () => {
     const me = currentUser.value
     if (!me || !me._id) return
 
+    // ✅ Emergency 활성 → 제외목록 제거 → Premium 체인 → 정렬
     list = list.filter(isEmergencyActive)
-    list = applyTotalFilter(list, me, { excludeIds: excludeIds.value })
+    list = filterByExcludeIds(list, excludeIds.value)
+    list = applyTotalFilterPremium(list, me, { log: false })
     list = sortByLastAccessDesc(list)
 
+    // ✅ 나 자신 포함 로직 (옵션)
     const iAmActive = isEmergencyActive(me)
     if (INCLUDE_ME_WHEN_ON && iAmActive) {
       let addMe = true
       if (APPLY_FILTERS_TO_ME) {
-        const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+        const selfPremium = applyTotalFilterPremium([me], me, { log: false })
+        const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
         addMe = selfFiltered.length > 0
       }
       if (addMe) {
@@ -277,6 +315,20 @@ onMounted(async () => {
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
     emergencyOn.value = me?.emergency?.isActive === true
+
+    /* ✅ 등급/프리미엄 여부 설정 (여러 백엔드 필드명 대응) */
+    const levelFromApi =
+      me?.level ||
+      me?.user_level ||
+      me?.membership ||
+      ''
+    viewerLevel.value = String(levelFromApi || '').trim()
+
+    const premiumBool =
+      me?.isPremium ??
+      me?.premium ??
+      (String(levelFromApi || '').trim() === '프리미엄')
+    isPremium.value = Boolean(premiumBool)
 
     await fetchRelations()
 

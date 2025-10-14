@@ -9,6 +9,7 @@
 // - 이미지 업로드: 정적 경로(/uploads)와 확장자/콘텐츠 타입 일치 보장
 // - ✅ 응답 시 미디어 URL을 "백엔드 절대경로"로 정규화하여 반환(혼합콘텐츠 방지)
 // - ✅ 업로드 저장 경로: /uploads/chat/YYYY/MM/DD/<roomId>/<uuid>.(jpg|png|webp|gif)
+// - 🗑️ 삭제: 참여자 본인만 삭제 가능(메시지 포함 하드 삭제)
 // -------------------------------------------------------------
 const express = require('express');
 const path = require('path');
@@ -726,6 +727,55 @@ router.post('/chatrooms/:id/upload-image', requireLogin, upload.single('image'),
   } catch (err) {
     console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
     return res.status(500).json({ message: '이미지 업로드 실패' });
+  }
+});
+
+/* ===========================================
+ * [6] 채팅방 삭제 (하드 삭제: 메시지 포함)
+ *  - DELETE /api/chatrooms/:id
+ *  - 참여자 본인만 삭제 가능
+ *  - 관련 메시지 Message 모두 삭제 후 ChatRoom 삭제
+ *  - 소켓으로 배지/목록 갱신, 선택적으로 'deleted' 이벤트 송신
+ * =========================================== */
+router.delete('/chatrooms/:id', requireLogin, async (req, res) => {
+  console.log('[API][REQ]', { path: req.baseUrl + req.path, method: 'DELETE', params: req.params, userId: getMyId(req) });
+  try {
+    const myId = getMyId(req);
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    const { id: roomId } = req.params;
+
+    // 방 확인 + 참여자 검증
+    console.log('[DB][QRY]', { model: 'ChatRoom', op: 'findById', criteria: roomId });
+    const room = await ChatRoom.findById(roomId).select('_id participants');
+    if (!room) return res.status(404).json({ message: '채팅방이 존재하지 않습니다.' });
+
+    const isParticipant = (room.participants || []).some(p => String(p) === String(myId));
+    if (!isParticipant) return res.status(403).json({ message: '삭제 권한이 없습니다.' });
+
+    // 메시지 삭제
+    console.log('[DB][QRY]', { model: 'Message', op: 'deleteMany', criteria: { chatRoom: roomId } });
+    await Message.deleteMany({ chatRoom: roomId });
+
+    // 채팅방 삭제
+    console.log('[DB][QRY]', { model: 'ChatRoom', op: 'deleteOne', criteria: { _id: roomId } });
+    await ChatRoom.deleteOne({ _id: roomId });
+
+    // 소켓 전파
+    const io = getIO(req);
+    if (io) {
+      (room.participants || []).forEach((uid) => {
+        const ch = `user:${String(uid)}`;
+        io.to(ch).emit('chatrooms:badge', { changedRoomId: String(roomId) });
+        io.to(ch).emit('chatrooms:updated', { deletedRoomId: String(roomId) });
+        io.to(ch).emit('chatrooms:deleted', { roomId: String(roomId) }); // (선택) 클라이언트에서 사용 시
+      });
+    }
+
+    console.log('🗑️ [DELETE]/chatrooms OK:', roomId, 'by', String(myId));
+    return res.json({ message: '채팅방 삭제 완료', roomId });
+  } catch (err) {
+    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    return res.status(500).json({ message: '채팅방 삭제 실패' });
   }
 });
 

@@ -1,11 +1,20 @@
+<!-- src/components/03050_pages/2_target.vue -->
 <template>
   <ion-page>
-    <ion-content>
-      <!-- 스와이프 리스트 (공유 컴포넌트) -->
+    <ion-content fullscreen class="no-gutter">
+      <!-- 에러 -->
+      <ion-text v-if="errorMessage" color="danger">
+        <p class="ion-text-center">{{ errorMessage }}</p>
+      </ion-text>
+
+      <!-- ✅ SwapeList로 변경 -->
       <SwapeList
+        v-else
         :users="users"
-        :is-loading="isLoading"
-        @userClick="goToUserProfile"
+        :is-loading="loading"
+        :viewer-level="viewerLevel"
+        :is-premium="isPremium"
+        @userClick="onCardTapById"
       />
     </ion-content>
   </ion-page>
@@ -13,145 +22,112 @@
 
 <script setup>
 /* -----------------------------------------------------------
-   Users List 페이지 (swapeList 컴포넌트 사용)
+   Target: SwapeList (스와이프 카드형 리스트)
+   - 기존 UserList → SwapeList 교체
+   - 로딩 및 필터, 관계 데이터 유지
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
-import { IonPage, IonContent } from '@ionic/vue'
-
+import { IonPage, IonContent, IonText } from '@ionic/vue'
 import SwapeList from '@/components/02010_minipage/mini_list/swapeList.vue'
-
-import { applyTotalFilter } from '@/components/04210_Page2_target/total/Filter_total'
-import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
+import { applyTotalFilterNormal } from '@/components/04210_Page2_target/Filter/Total_Filter_normal'
 import { connectSocket, getSocket } from '@/lib/socket'
 
-/** =========================================================
- *  상태
- * ======================================================= */
+/* -----------------------------------------------------------
+   상태 정의
+----------------------------------------------------------- */
 const users = ref([])
 const nickname = ref('')
 const currentUser = ref({})
-const isLoading = ref(true)
+const loading = ref(true)
+const errorMessage = ref('')
 const excludeIds = ref(new Set())
 const socket = ref(null)
+const viewerLevel = ref('')
+const isPremium = ref(false)
 
-const LOG = { init: true, socket: true, patch: true, sort: true, filter: true, relation: true }
-
+/* -----------------------------------------------------------
+   유틸 / 라우터
+----------------------------------------------------------- */
 const router = useRouter()
-
-/** =========================================================
- *  유틸: 시간/정렬
- * ======================================================= */
-function toTS(v) {
-  if (!v) return 0
-  try { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0 } catch { return 0 }
-}
-function sortByLastLoginDesc(list) {
-  const sorted = [...list].sort((a, b) => {
-    const aTS = toTS(a.last_login || a.lastLogin || a.updatedAt || a.createdAt)
-    const bTS = toTS(b.last_login || b.lastLogin || b.updatedAt || b.createdAt)
-    return bTS - aTS
-  })
-  if (LOG.sort) console.log('[Users] 정렬 완료, 상위 3:', sorted.slice(0,3).map(u=>u.nickname))
-  return sorted
-}
-function debounce(fn, delay = 120) {
-  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay) }
-}
-
-/** =========================================================
- *  라우팅
- * ======================================================= */
 const goToUserProfile = (userId) => {
   if (!userId) return
-  if (LOG.init) console.log('➡️ 유저 프로필 이동:', userId)
   router.push(`/home/user/${userId}`)
 }
+const onCardTapById = (userId) => goToUserProfile(userId)
 
-/** =========================================================
- *  관계 데이터 로딩
- * ======================================================= */
+const toIdList = (src) => (Array.isArray(src) ? src : []).map(v =>
+  typeof v === 'string' ? v : String(v._id || v.id || v.userId || v.user_id || '')
+).filter(Boolean)
+
+const buildExcludeIdsSet = ({ friends = [], blocks = [], pendingSent = [], pendingRecv = [] } = {}) => {
+  const set = new Set()
+  for (const id of toIdList(friends)) set.add(id)
+  for (const id of toIdList(blocks)) set.add(id)
+  for (const id of toIdList(pendingSent)) set.add(id)
+  for (const id of toIdList(pendingRecv)) set.add(id)
+  return set
+}
+
+const filterByExcludeIds = (list, set) =>
+  Array.isArray(list) ? list.filter(u => u && u._id && !(set instanceof Set ? set.has(String(u._id)) : false)) : []
+
+const toTS = (v) => (v ? new Date(v).getTime() || 0 : 0)
+const sortByLastLoginDesc = (list) => [...list].sort((a, b) => toTS(b.last_login || b.updatedAt) - toTS(a.last_login || a.updatedAt))
+
+/* -----------------------------------------------------------
+   관계/데이터 로딩
+----------------------------------------------------------- */
 async function fetchRelations() {
   try {
-    console.time('[Users] relations')
     const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
       api.get('/api/friends'),
       api.get('/api/blocks'),
       api.get('/api/friend-requests/sent'),
       api.get('/api/friend-requests/received'),
     ])
-    const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
-    const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
+    const friends = friendsRes?.data?.ids ?? friendsRes?.data ?? []
+    const blocks = blocksRes?.data?.ids ?? blocksRes?.data ?? []
     const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
     const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []
-    excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
-    if (LOG.relation) console.log('[Users] excludeIds size:', excludeIds.value.size)
+    excludeIds.value = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
   } catch (e) {
     console.error('❌ 관계 데이터 로딩 실패:', e)
     excludeIds.value = new Set()
-  } finally {
-    console.timeEnd('[Users] relations')
   }
 }
 
-/** =========================================================
- *  서버 검색 + 필터 + 정렬
- * ======================================================= */
 const applyFilterAndSort = (rawList, me) => {
-  const filtered = applyTotalFilter(rawList, me, { excludeIds: excludeIds.value })
-  if (LOG.filter) console.log(`[Users] 필터 결과: ${filtered.length}/${rawList?.length ?? 0}`)
+  const afterExclude = filterByExcludeIds(rawList, excludeIds.value)
+  const filtered = applyTotalFilterNormal(afterExclude, me, { log: false })
   users.value = sortByLastLoginDesc(filtered)
 }
-const scheduleRender = debounce(() => { users.value = sortByLastLoginDesc(users.value) }, 100)
 
-/** =========================================================
- *  Socket.IO
- * ======================================================= */
+/* -----------------------------------------------------------
+   Socket.IO (선택)
+----------------------------------------------------------- */
 function initUsersSocket(me) {
-  if (socket.value && socket.value.connected) return
   const s = connectSocket()
   socket.value = s
-  s.on('connect', () => { if (LOG.socket) console.log('✅ [Socket] connected:', s.id); try { s.emit('users:join', { scope: 'list' }) } catch {} })
-  s.on('disconnect', (reason) => console.warn('⚠️ [Socket] disconnected:', reason))
-  s.on('connect_error', (err) => console.error('❌ [Socket] connect_error:', err?.message || err))
-
-  s.on('users:refresh', (payload) => {
-    if (LOG.socket) console.log('🟦 [Socket] users:refresh len=', payload?.length)
-    try { applyFilterAndSort(payload || [], me) } catch (e) { console.error('❌ refresh 처리 오류:', e) }
-  })
-
-  s.on('users:patch', (u) => {
-    if (LOG.patch) console.log('🟨 [Socket] users:patch:', u?._id, u?.nickname)
-    try {
-      if (!u || !u._id) return
-      if (excludeIds.value instanceof Set && excludeIds.value.has(String(u._id))) return
-      const idx = users.value.findIndex(x => x._id === u._id)
-      if (idx >= 0) users.value[idx] = { ...users.value[idx], ...u }
-      else {
-        const once = applyTotalFilter([u], me, { excludeIds: excludeIds.value })
-        if (once.length) users.value.push(once[0])
-      }
-      scheduleRender()
-    } catch (e) { console.error('❌ patch 처리 오류:', e) }
-  })
-
-  s.on('users:last_login', ({ userId, last_login }) => {
-    const idx = users.value.findIndex(x => x._id === userId)
-    if (idx >= 0) { users.value[idx] = { ...users.value[idx], last_login }; scheduleRender() }
-  })
+  s.on('connect', () => s.emit('users:join', { scope: 'swipe' }))
+  s.on('users:refresh', (payload) => applyFilterAndSort(payload || [], me))
 }
 
-/** =========================================================
- *  라이프사이클
- * ======================================================= */
+/* -----------------------------------------------------------
+   Mount
+----------------------------------------------------------- */
 onMounted(async () => {
   try {
-    console.time('[Users] init')
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
     nickname.value = me?.nickname || ''
-    if (LOG.init) console.log('✅ me:', me)
+
+    const levelFromApi = me?.level || me?.user_level || me?.membership || ''
+    viewerLevel.value = String(levelFromApi || '').trim()
+    const premiumBool =
+      me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄')
+    isPremium.value = Boolean(premiumBool)
 
     await fetchRelations()
 
@@ -162,30 +138,42 @@ onMounted(async () => {
     initUsersSocket(me)
   } catch (e) {
     console.error('❌ 초기 로딩 실패:', e)
+    errorMessage.value = '유저 목록을 불러오지 못했습니다.'
   } finally {
-    isLoading.value = false
-    console.timeEnd('[Users] init')
+    loading.value = false
   }
 })
 
 onBeforeUnmount(() => {
-  try {
-    const s = getSocket()
-    if (s) { if (LOG.socket) console.log('🔌 [Socket] disconnect()'); s.disconnect() }
-    socket.value = null
-  } catch (e) {
-    console.error('❌ 소켓 정리 실패:', e)
+  const s = getSocket()
+  if (s) {
+    try { s.emit('users:leave', { scope: 'swipe' }) } catch {}
   }
 })
-
-/** (옵션) 로그아웃 예시 */
-const logout = async () => {
-  try { await api.post('/api/logout'); router.push('/login') }
-  catch (e) { console.error('❌ 로그아웃 실패:', e) }
-}
 </script>
 
 <style scoped>
-/* 페이지 고유 스타일이 필요하면 여기에 추가하세요.
-   스와이프 UI 관련 스타일은 swapeList.vue 내부로 이동했습니다. */
+/* ✅ ion-content 여백 제거 */
+.no-gutter {
+  --background: #000;
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  --ion-safe-area-top: 0;
+  --ion-safe-area-bottom: 0;
+  --ion-safe-area-left: 0;
+  --ion-safe-area-right: 0;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #fff;
+  overscroll-behavior: none;
+}
+
+.no-gutter :deep(.inner-scroll),
+.no-gutter :deep(.scroll-content),
+.no-gutter :deep(.content-scroll) {
+  padding: 0 !important;
+  margin: 0 !important;
+}
 </style>

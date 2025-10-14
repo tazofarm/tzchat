@@ -54,7 +54,7 @@ const onToggle = (ev) => {
 .speed-title{ display:inline-flex; align-items:center; gap:8px; }
 .title-icon{ font-size:18px; color: var(--gold, #d4af37); }
 .black-text{ color: var(--text-strong, #f3f3f3); }
-.inline-timer{ display:inline-flex; align-items:center; gap:6px; font-weight:800; font-size:14px; color:var(--text-strong, #f3f3f3); white-space:nowrap; }
+.inline-timer{ display:inline-flex; align-items:center; gap:8px; font-weight:800; font-size:14px; color:var(--text-strong, #f3f3f3); white-space:nowrap; }
 .inline-icon{ margin-right:0; vertical-align:-2px; color:var(--gold, #d4af37); }
 
 /* IonToggle OFF 상태 가시성 강화 */

@@ -1,3 +1,5 @@
+<!-- src/components/02010_minipage/mini_list/UserList.vue -->
+
 <template>
   <!-- 회원 목록 -->
   <ion-list v-if="!isLoading && users.length" class="users-list fl-scope">
@@ -37,7 +39,7 @@
 
           <p class="meta">
             <ion-icon :icon="icons.calendarOutline" class="row-icon" aria-hidden="true" />
-            출생년도 : {{ user.birthyear }}
+            나이 : {{ user.birthyear }}
           </p>
           <p class="meta">
             <ion-icon :icon="user.gender === 'man' ? icons.maleOutline : icons.femaleOutline" class="row-icon" aria-hidden="true" />
@@ -47,14 +49,19 @@
             <ion-icon :icon="icons.locationOutline" class="row-icon" aria-hidden="true" />
             지역 : {{ user.region1 }} / {{ user.region2 }}
           </p>
+
+          <!-- ✅ 특징: 프리미엄 전용 노출 -->
           <p class="meta">
             <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
-            특징 : {{ user.preference }}
+            특징 : {{ viewerIsPremium ? (user.preference || '-') : 'Premium 전용' }}
           </p>
+
+          <!-- ✅ 결혼: 프리미엄 전용 노출 -->
           <p class="meta">
-            <ion-icon :icon="icons.timeOutline" class="row-icon" aria-hidden="true" />
-            최근 접속 : 회원전용
+            <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
+            결혼 : {{ viewerIsPremium ? (user.marriage || '-') : 'Premium 전용' }}
           </p>
+
           <p class="meta">
             <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
             멘션 : {{ (user.selfintro ?? user.selfIntro ?? '').trim() || '미입력' }}
@@ -92,6 +99,7 @@
 <script setup>
 import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
 import { IonList, IonItem, IonLabel, IonText, IonIcon } from '@ionic/vue'
+import { computed } from 'vue'
 import {
   calendarOutline,
   maleOutline,
@@ -101,10 +109,16 @@ import {
   timeOutline
 } from 'ionicons/icons'
 
-defineProps({
+const props = defineProps({
   users: { type: Array, default: () => [] },
   isLoading: { type: Boolean, default: false },
   emptyText: { type: String, default: '조건에 맞는 사용자가 없습니다.' },
+  /** ✅ 뷰어(현재 로그인 사용자) 등급: '일반회원' | '여성회원' | '프리미엄'
+   *    - 부모가 전달하지 않으면 로컬스토리지에서 폴백 시도
+   */
+  viewerLevel: { type: String, default: '' },
+  /** ✅ 선택: 명시적 프리미엄 여부 전달(불리언/문자) */
+  isPremium: { type: [Boolean, String], default: undefined },
 })
 defineEmits(['select'])
 
@@ -116,6 +130,30 @@ const icons = {
   chatbubblesOutline,
   timeOutline
 }
+
+/** ✅ 프리미엄 여부 통합 판정 (prop 우선 → 로컬스토리지 폴백) */
+const viewerIsPremium = computed(() => {
+  // 1) 불리언/문자 prop 직접 전달 시 최우선
+  if (typeof props.isPremium === 'boolean') return props.isPremium === true
+  if (typeof props.isPremium === 'string') {
+    const s = props.isPremium.toLowerCase().trim()
+    if (['true', '1', 'yes', 'y'].includes(s)) return true
+    if (['false', '0', 'no', 'n'].includes(s)) return false
+  }
+
+  // 2) 레벨 문자열 판정 (ko/en 혼용 허용)
+  const level = (props.viewerLevel || '').trim().toLowerCase()
+  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(level)) return true
+
+  // 3) 로컬 스토리지 폴백 (여러 키 허용)
+  const lvLS = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(lvLS)) return true
+
+  const boolish = (localStorage.getItem('isPremium') || '').toLowerCase().trim()
+  if (['true', '1', 'yes', 'y'].includes(boolish)) return true
+
+  return false
+})
 </script>
 
 <style scoped>
@@ -167,7 +205,7 @@ const icons = {
 
 /* 아바타 */
 .list-avatar{
-  width:100px; height:100px; min-width:64px; margin-right:30px;
+  width:110px; height:110px; min-width:64px; margin-right:20px;
   display:flex; align-items:center; justify-content:center;
   border-radius:10%; overflow:hidden;
   border:1px solid rgba(212,175,55,.18);

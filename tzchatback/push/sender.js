@@ -5,6 +5,7 @@
 // - 대량 토큰(>500) 분할 전송, 중복 제거
 // - 성공 토큰 lastSeenAt 갱신
 // - 실패코드(Invalid/NotRegistered)인 토큰만 정리
+// - 🔄 딥링크(data.deeplink) 지원: payload.deeplink 없으면 type/roomId로 생성
 // -------------------------------------------------------------
 const { DeviceToken } = require('@/models'); // 경로 일관화
 const { admin, isInitialized } = require('./firebase');
@@ -30,7 +31,17 @@ function uniq(arr) {
   return Array.from(new Set(arr));
 }
 
-async function sendPushToUser(userId, payload) {
+// ❇️ 딥링크 유틸: payload.deeplink > type/roomId 기반 자동 생성
+function computeDeeplink(payload = {}) {
+  if (payload.deeplink) return String(payload.deeplink);
+  const type = String(payload.type || '');
+  const roomId = String(payload.roomId || '');
+  if (type === 'chat' && roomId) return `tzchat://chat/${roomId}`;
+  if (type === 'friend_request') return 'tzchat://friends/received';
+  return 'tzchat://home';
+}
+
+async function sendPushToUser(userId, payload = {}) {
   try {
     if (!isInitialized() || !admin) {
       console.warn('[push] FCM 미초기화 상태 - 발송 생략:', payload?.title);
@@ -52,19 +63,32 @@ async function sendPushToUser(userId, payload) {
     }
 
     // 공통 메시지 구성
+    const title = payload.title || '알림';
+    const body  = payload.body || '';
+
+    // ❇️ 딥링크 계산
+    const deeplink = computeDeeplink(payload);
+
     const baseMessage = {
       notification: {
-        title: payload.title || '알림',
-        body: payload.body || '',
+        title,
+        body,
       },
       data: {
+        // 포그라운드 수신 시 알림 구성/라우팅에 활용할 수 있도록 title/body도 함께 보냄
+        title: String(title),
+        body: String(body),
+
         type: String(payload.type || ''),           // 'chat' | 'friend_request' ...
         roomId: String(payload.roomId || ''),
         fromUserId: String(payload.fromUserId || ''),
+        deeplink: String(deeplink),                 // ❇️ 추가
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
       },
       android: {
+        // 채널은 진동-only로 OS 설정(앱 최초 실행 시 채널 생성 코드와 일치해야 함)
         notification: { channelId: 'chat_messages' },
+        // priority: 'high', // 필요시 주석 해제
       },
       apns: {
         payload: {

@@ -5,7 +5,7 @@
     
     <!-- 상단 메뉴 -->
     <TopMenu />
-    <USpace height="6vh" /> <!-- ← 원하는 높이로 조절 --> 
+    <!--<USpace height="6vh" />  ← 원하는 높이로 조절 --> 
 
     <!-- 가운데 스크롤 영역 -->
     <MainPage />

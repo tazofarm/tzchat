@@ -12,6 +12,8 @@
         v-else
         :users="users"
         :is-loading="loading"
+        :viewer-level="viewerLevel"
+        :is-premium="isPremium"
         @userClick="onCardTapById"
       />
     </ion-content>
@@ -31,25 +33,52 @@ const router = useRouter()
 
 const users = ref([])
 const nickname = ref('')
+const viewerLevel = ref('')   // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium = ref(false)   // 명시적으로 전달
 const loading = ref(true)
 const errorMessage = ref('')
 
 onMounted(async () => {
   try {
-    const resUsers = await api.get('/api/users')
-    users.value = Array.isArray(resUsers.data?.users) ? resUsers.data.users : []
-  } catch (e) {
-    errorMessage.value = '유저 목록을 불러오지 못했습니다.'
-  }
-
-  try {
+    // 1) 내 정보 조회
     const resMe = await api.get('/api/me')
-    nickname.value = resMe.data?.user?.nickname || ''
-  } catch (e) {
-    /* no-op */
-  }
+    const me = resMe.data?.user || {}
+    nickname.value = me?.nickname || ''
 
-  loading.value = false
+    // 등급/프리미엄 여부 설정 (백엔드 필드 다양성 대응)
+    const levelFromApi =
+      me?.level ||
+      me?.user_level ||
+      me?.membership ||
+      ''
+
+    viewerLevel.value = String(levelFromApi || '').trim()
+
+    const premiumBool =
+      me?.isPremium ??
+      me?.premium ??
+      (String(levelFromApi || '').trim() === '프리미엄')
+
+    isPremium.value = Boolean(premiumBool)
+
+    // 2) 타겟 검색 라우터 사용 (target과 동일한 기준)
+    const regions = Array.isArray(me?.search_regions) ? me.search_regions : []
+    const resUsers = await api.post('/api/search/users', { regions })
+
+    // 응답 형태: [] 또는 { users: [] } 모두 대응
+    const list = Array.isArray(resUsers.data)
+      ? resUsers.data
+      : Array.isArray(resUsers.data?.users)
+        ? resUsers.data.users
+        : []
+
+    users.value = list
+  } catch (e) {
+    console.error('❌ 유저 목록 로딩 실패:', e)
+    errorMessage.value = '유저 목록을 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
 })
 
 const onCardTapById = (userId) => {

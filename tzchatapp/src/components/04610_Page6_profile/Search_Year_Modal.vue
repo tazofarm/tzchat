@@ -67,7 +67,7 @@
           expand="block"
           class="btn-submit"
           @click="submit"
-          :disabled="submitting || invalidRange"
+          :disabled="Boolean(submitting || invalidRange)"
         >
           {{ submitting ? '수정 중…' : '수정' }}
         </ion-button>
@@ -77,7 +77,6 @@
 </template>
 
 <script setup>
-// ✅ DB에서 받은 초기값을 정확히 반영 + 접근성/에러로그 강화
 import { ref, computed, onMounted, watch } from 'vue'
 import { IonButton, IonSelect, IonSelectOption } from '@ionic/vue'
 import axios from '@/lib/api'
@@ -88,22 +87,26 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'updated'])
 
-const from = ref('')  // '' = 전체
-const to   = ref('')  // '' = 전체
+const from = ref('')
+const to   = ref('')
 const errorMsg = ref('')
 const successMsg = ref('')
 const submitting = ref(false)
 
-// 📅 최신년도 기준: 만 19세 이상만 허용
 const thisYear = new Date().getFullYear()
 const maxYear = thisYear - 19
 const years = Array.from({ length: maxYear - 1950 + 1 }, (_, i) => maxYear - i)
 
-// 🔍 선택값에 맞춘 필터
 const filteredFromYears = computed(() => (to.value ? years.filter(y => y <= parseInt(to.value)) : years))
 const filteredToYears   = computed(() => (from.value ? years.filter(y => y >= parseInt(from.value)) : years))
 
-const invalidRange = computed(() => from.value && to.value && parseInt(from.value) > parseInt(to.value))
+// ✅ 항상 boolean을 반환하도록 수정 (전체 선택 시에도 버튼 활성화)
+const invalidRange = computed(() => {
+  const f = from.value
+  const t = to.value
+  if (!f || !t) return false
+  return parseInt(f) > parseInt(t)
+})
 
 function syncFromProps() {
   const pf = props.initialFrom ?? ''
@@ -121,7 +124,6 @@ function syncFromProps() {
 onMounted(syncFromProps)
 watch(() => [props.initialFrom, props.initialTo], syncFromProps)
 
-// 🟦 저장
 const submit = async () => {
   errorMsg.value = ''
   successMsg.value = ''
@@ -157,13 +159,6 @@ const submit = async () => {
 </script>
 
 <style scoped>
-/* ===========================================================
-   Search_Year_Modal - 기준 템플릿 + 버튼 선명 색상
-   - dim+blur 오버레이, safe-area 패딩
-   - 카드: 화이트, 검정 텍스트, 폭 min(92vw, 420px)
-   - 버튼: 항상 가로 2분할 (닫기=회색, 수정=노랑)
-=========================================================== */
-
 .popup-overlay {
   position: fixed;
   inset: 0;
@@ -193,7 +188,6 @@ const submit = async () => {
   transform-origin: center;
 }
 
-/* 제목 */
 .popup-content h3 {
   margin: 0 0 12px;
   font-size: clamp(16px, 3.4vw, 18px);
@@ -202,7 +196,6 @@ const submit = async () => {
   color: #000;
 }
 
-/* 선택 그룹 */
 .select-group {
   display: flex;
   justify-content: center;
@@ -223,7 +216,6 @@ const submit = async () => {
   color: #000;
 }
 
-/* Ion Select */
 .year-select {
   --background: #f9f9f9;
   --color: #000;
@@ -237,7 +229,6 @@ const submit = async () => {
 ion-select::part(text) { color: #000 !important; }
 ion-select-option { color: #000 !important; }
 
-/* 버튼: 항상 가로 2분할 (좌 닫기 / 우 수정) */
 .button-group {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -245,24 +236,22 @@ ion-select-option { color: #000 !important; }
   margin-top: 12px;
 }
 
-/* ▶ 명확한 색상 지정 */
 .button-group .btn-close {
-  --background: #b5b5bb;                 /* 진한 회색 */
+  --background: #b5b5bb;
   --background-hover: #a6a6ad;
   --background-focused: #a6a6ad;
   --background-activated: #9a9aa1;
-  --color: #ffffff;                       /* 흰 글씨 */
+  --color: #ffffff;
   font-weight: 700;
 }
 .button-group .btn-submit {
-  --background: #f8d146;                 /* 선명한 노랑 */
+  --background: #f8d146;
   --background-hover: #f6c600;
   --background-focused: #f6c600;
   --background-activated: #efbd00;
-  --color: #000000;                       /* 검정 글씨 */
+  --color: #000000;
   font-weight: 700;
 }
-/* disabled 시 톤 다운 */
 .button-group .btn-submit.button-disabled,
 .button-group .btn-close.button-disabled {
   opacity: .6;
@@ -278,7 +267,6 @@ ion-select-option { color: #000 !important; }
   min-height: 44px;
 }
 
-/* 메시지 */
 .error-msg,
 .success-msg {
   margin-top: 6px;
@@ -287,25 +275,21 @@ ion-select-option { color: #000 !important; }
 .error-msg { color: #c0392b; }
 .success-msg { color: #2d7a33; }
 
-/* 접근성 */
 :focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(59,130,246,.35);
   border-radius: 10px;
 }
 
-/* 초소형 화면 */
 @media (max-width: 360px) {
   .popup-content { padding: 14px; width: 94vw; }
   .select-group { gap: 10px; }
 }
 
-/* 모션 최소화 */
 @media (prefers-reduced-motion: reduce) {
   .popup-content { animation: none !important; }
 }
 
-/* 등장 애니메이션 */
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(6px) scale(.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

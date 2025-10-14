@@ -9,10 +9,13 @@
       </h3>
     </div>
 
-    <!-- ✅ 공통 리스트 + 하단 액션(대화하기/친구삭제/차단하기) -->
+    <!-- ✅ 공통 리스트 + 하단 액션(대화하기/친구삭제/차단하기)
+         ✅ 프리미엄 가림을 위해 viewer-level / is-premium 전달 -->
     <UserList
       :users="users"
       :isLoading="isLoading"
+      :viewer-level="viewerLevel"
+      :is-premium="isPremium"
       emptyText="아직 친구가 없습니다."
       @select="u => goToUserProfile(u._id)"
     >
@@ -47,6 +50,7 @@
    Friends List (헤더 카운트 + 공통 UserList + 하단 액션)
    - 항상 id로 재조회하여 전체 필드 확보
    - 액션: 대화하기 / 친구삭제 / 차단하기
+   - ✅ Premium 가림: viewerLevel / isPremium을 UserList로 전달
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -61,6 +65,10 @@ const icons = { peopleOutline }
 /* 상태 */
 const users = ref([])
 const isLoading = ref(true)
+
+/* ✅ 프리미엄 가림 로직 전달용 */
+const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const isPremium   = ref(false)
 
 /* 유틸 */
 const uniq = (arr = []) => Array.from(new Set(arr.map(String)))
@@ -151,6 +159,30 @@ const friendsCount = computed(()=> users.value.length)
 onMounted(async ()=>{
   try{
     isLoading.value=true
+
+    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
+    try {
+      const me = (await api.get('/api/me')).data?.user || {}
+      const levelFromApi =
+        me?.level ||
+        me?.user_level ||
+        me?.membership ||
+        ''
+      viewerLevel.value = String(levelFromApi || '').trim()
+
+      const premiumBool =
+        me?.isPremium ??
+        me?.premium ??
+        (String(levelFromApi || '').trim() === '프리미엄')
+      isPremium.value = Boolean(premiumBool)
+    } catch {
+      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+      viewerLevel.value = lv
+      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+                        ['true','1','yes','y'].includes(boolish)
+    }
+
     const res=await api.get('/api/friends')
 
     // ✅ 항상 ids를 추출하고, 정식 조회로 전체 필드를 확보

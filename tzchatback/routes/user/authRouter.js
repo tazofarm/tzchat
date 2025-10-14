@@ -49,6 +49,28 @@ function maskPassword(obj) {
 // ===== 유틸: 안전 트림 =====
 function s(v) { return (v || '').toString().trim(); }
 
+// ===== 유틸: 관리자 판별 =====
+function resolveRole(u) {
+  if (!u) return '';
+  if (u.role) return String(u.role);
+  if (Array.isArray(u.roles)) {
+    if (u.roles.includes('master')) return 'master';
+    if (u.roles.includes('admin')) return 'admin';
+    if (u.roles.length > 0) return String(u.roles[0]);
+  }
+  if (u.username === 'master') return 'master'; // 폴백 규칙(옵션)
+  return 'user';
+}
+function resolveIsAdmin(u) {
+  if (!u) return false;
+  if (u.isAdmin === true) return true; // 서버 저장 필드가 이미 있을 수 있음
+  const role = resolveRole(u);
+  if (role === 'master' || role === 'admin') return true;
+  if (Array.isArray(u.roles) && (u.roles.includes('master') || u.roles.includes('admin'))) return true;
+  if (u.username === 'master') return true;
+  return false;
+}
+
 // ===== 유틸: JWT 발급 & 쿠키 설정 =====
 function signToken(user) {
   return jwt.sign(
@@ -129,20 +151,12 @@ async function authFromJwtOrSession(req, res, next) {
 // ======================================================
 // 회원가입
 // ======================================================
-/**
- * ✅ 회원가입 API (로그인 불필요)
- * - region1, region2 저장 포함
- * - birthyear 숫자 변환
- * - 중복/필수값 검증 & 상세 로그
- * - ⬇️ 변경: consents는 선택 입력(검증 강제 X). 로그인 후 pending으로 처리
- * - ⬆️ 변경: User.create 예외(E11000/Validation/Cast) 세분화 → 4xx로 응답
- */
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
 
   let {
     username, password, nickname, gender, birthyear, region1, region2,
-    consents = [], // [{ slug, version, optedIn? }] (선택)
+    consents = [],
   } = req.body || {};
   try {
     username = s(username);
@@ -157,7 +171,6 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
-    // 사전 중복 점검(경쟁조건 대비 후단에서도 E11000 처리)
     const [userExists, nicknameExists] = await Promise.all([
       User.findOne({ username }).select('_id').lean(),
       User.findOne({ nickname }).select('_id').lean(),
@@ -171,7 +184,6 @@ router.post('/signup', async (req, res) => {
       return res.status(409).json({ ok: false, message: '닉네임 중복' });
     }
 
-    // ----- 사용자 생성 (예외 세분화) -----
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
@@ -204,7 +216,7 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ ok: false, message: '서버 오류' });
     }
 
-    // ----- consents 저장(있을 때만). 실패해도 가입 성공은 유지 -----
+    // consents 저장(있을 때만)
     if (Array.isArray(consents) && consents.length > 0) {
       try {
         const activeConsents = await Terms.find({ isActive: true, kind: 'consent' })
@@ -273,7 +285,7 @@ router.post('/login', async (req, res) => {
   });
 
   try {
-    const user = await User.findOne({ username: safeUsername }).select('+password');
+    const user = await User.findOne({ username: safeUsername }).select('+password role roles username nickname');
     if (!user) {
       console.log('[AUTH][ERR]', { step: 'login', code: 'NO_USER', username: safeUsername });
       return res.status(401).json({ ok: false, message: '아이디 없음' });
@@ -309,9 +321,22 @@ router.post('/login', async (req, res) => {
       console.log('[AUTH][SESSION] regenerated + saved', { sid: req.sessionID, userId: String(user._id) });
     }
 
-    console.log('[API][RES] /login 200', { username: safeUsername, userId: String(user._id) });
+    const role = resolveRole(user);
+    const roles = Array.isArray(user.roles) ? user.roles : (role ? [role] : []);
+    const isAdmin = resolveIsAdmin(user);
+
+    console.log('[API][RES] /login 200', { username: safeUsername, userId: String(user._id), role, isAdmin });
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ ok: true, message: '로그인 성공', nickname: user.nickname, token });
+    return res.status(200).json({
+      ok: true,
+      message: '로그인 성공',
+      nickname: user.nickname,
+      username: user.username,
+      role,
+      roles,
+      isAdmin,
+      token
+    });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'login', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류' });
@@ -351,17 +376,36 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
   const userId = req.auth.userId;
 
   try {
+    // ✅ 필터/화면에 필요한 필드를 명시적으로 포함 (role/roles 추가)
     const user = await User.findById(userId)
+      .select([
+        'username', 'nickname', 'birthyear', 'gender',
+        'region1', 'region2', 'preference', 'selfintro',
+        'profileImages', 'profileMain', 'profileImage', 'last_login',
+        'user_level', 'refundCountTotal',
+        'search_birthyear1', 'search_birthyear2',
+        'search_region1', 'search_region2', 'search_regions',
+        'search_preference',
+        'search_disconnectLocalContacts', 'search_allowFriendRequests',
+        'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
+        'marriage', 'search_marriage',
+        'friendlist', 'blocklist',
+        'emergency',
+        'role', 'roles', // 🔹 추가
+        'createdAt', 'updatedAt'
+      ])
       .populate('friendlist', 'username nickname birthyear gender')
       .populate('blocklist', 'username nickname birthyear gender')
       .lean();
 
     if (!user) {
-      console.timeEnd('[API][TIMING] GET /api/me'); 
+      console.timeEnd('[API][TIMING] GET /api/me');
       console.log('[AUTH][ERR]', { step: 'me', code: 'NO_USER', userId });
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
 
+    // ✅ Emergency 남은 시간 계산 + 자동 꺼짐
     const remaining = computeRemaining(user?.emergency?.activatedAt);
     let isActive = user?.emergency?.isActive === true;
     let activatedAt = user?.emergency?.activatedAt || null;
@@ -375,21 +419,48 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       console.log('[AUTH][DBG]', { step: 'me', message: 'emergency auto-off' });
     }
 
+    // 🔹 관리자 정보 계산
+    const role = resolveRole(user);
+    const roles = Array.isArray(user.roles) ? user.roles : (role ? [role] : []);
+    const isAdmin = resolveIsAdmin(user);
+
+    // ✅ 응답 보강: snake/camel 동시 지원, 누락시 기본값 보정
+    const searchRegions = Array.isArray(user.search_regions) ? user.search_regions : [];
     const modifiedUser = {
       ...user,
+      role,
+      roles,
+      isAdmin, // 🔹 프론트에서 바로 사용 가능
+      // 캐멀 케이스도 동시에 제공(프론트 하위호환)
+      searchRegions,
       emergency: {
         ...(user.emergency || {}),
         isActive,
         activatedAt,
         remainingSeconds: isActive ? computeRemaining(activatedAt) : 0,
       },
+      // null/undefined 안전가드 (프론트의 toAll/가드와 중복되지만 안전망)
+      search_birthyear1: user.search_birthyear1 ?? null,
+      search_birthyear2: user.search_birthyear2 ?? null,
+      search_region1: user.search_region1 ?? '전체',
+      search_region2: user.search_region2 ?? '전체',
+      search_preference: user.search_preference ?? '이성친구 - 전체',
+      search_disconnectLocalContacts: user.search_disconnectLocalContacts ?? 'OFF',
+      search_allowFriendRequests: user.search_allowFriendRequests ?? 'OFF',
+      search_allowNotifications: user.search_allowNotifications ?? 'OFF',
+      search_onlyWithPhoto: user.search_onlyWithPhoto ?? 'OFF',
+      search_matchPremiumOnly: user.search_matchPremiumOnly ?? 'OFF',
+      marriage: user.marriage ?? '미혼',
+      search_marriage: user.search_marriage ?? '전체',
     };
 
     console.timeEnd('[API][TIMING] GET /api/me');
+    res.setHeader('Cache-Control', 'no-store');
     return res.json({ ok: true, user: modifiedUser, durationSeconds: EMERGENCY_DURATION_SECONDS });
   } catch (err) {
     console.timeEnd('[API][TIMING] GET /api/me');
     console.log('[AUTH][ERR]', { step: 'me', message: err?.message });
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
@@ -482,7 +553,7 @@ router.get('/userinfo', async (req, res) => {
           const decoded = jwt.verify(token, JWT_SECRET);
           via = 'jwt';
           uid = String(decoded.sub || '');
-          const u = await User.findById(uid).select('nickname').lean();
+          const u = await User.findById(uid).select('nickname');
           nickname = u?.nickname || null;
         } catch (e) {
           // ignore
@@ -501,4 +572,3 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
- 

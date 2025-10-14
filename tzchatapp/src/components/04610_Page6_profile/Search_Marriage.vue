@@ -6,7 +6,7 @@
       <!-- ✅ DB값(현재 저장값) 우선 선택 -->
       <!-- ✅ 비활성 옵션도 "현재 값"일 때는 선택 허용 -->
       <select v-model="marriage" class="select-box" aria-label="상대 결혼 유무 선택">
-        <option value="">선택</option>
+        <!--<option value="">선택</option>-->
         <option
           v-for="opt in OPTIONS"
           :key="opt.value"

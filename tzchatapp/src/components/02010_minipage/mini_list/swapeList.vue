@@ -1,5 +1,4 @@
-
-
+<!-- src/components/02010_minipage/mini_list/swapeList.vue -->
 <template>
   <!-- 스와이프 카드 -->
   <div v-if="!isLoading && users.length" class="swiper-area">
@@ -9,6 +8,8 @@
       effect="cards"
       :grab-cursor="true"
       :loop="false"
+      :preload-images="false"
+      :watch-slides-progress="true"
       @swiper="onSwiperReady"
       @slideChange="onSlideChange"
     >
@@ -18,13 +19,15 @@
         @click="emitUserClick(user._id)"
       >
         <div class="card" aria-label="사용자 카드">
-          <!-- 사진 -->
+          <!-- 사진: 현재 인덱스 ±1만 실제 렌더 -->
           <div class="photo" :aria-label="`${user.nickname}의 대표 이미지`">
             <ProfilePhotoViewer
+              v-if="Math.abs(idx - currentIndex) <= 1"
               :userId="user._id"
               :gender="user.gender"
               :size="800"
             />
+            <div v-else class="photo-skeleton"></div>
           </div>
 
           <!-- 정보 -->
@@ -32,7 +35,7 @@
             <h3 class="name"><span class="nick">{{ user.nickname }}</span></h3>
 
             <p class="meta">
-              출생년도: {{ user.birthyear || '미입력' }} ·
+              나이: {{ user.birthyear || '미입력' }} ·
               성별: {{ user.gender === 'man' ? '남자' : '여자' }}
             </p>
 
@@ -40,14 +43,21 @@
               지역: {{ user.region1 || '미입력' }} / {{ user.region2 || '미입력' }}
             </p>
 
+            <!-- ✅ 프리미엄 전용 노출 -->
             <p class="meta">
-              성향: {{ user.preference || '미입력' }}
+              특징:
+              {{ viewerIsPremium ? (user.preference || '-') : 'Premium 전용' }}
             </p>
 
-            <p class="meta">최근접속: 회원전용</p>
+            <!-- ✅ 프리미엄 전용 노출 -->
+            <p class="meta">
+              결혼:
+              {{ viewerIsPremium ? (user.marriage || '-') : 'Premium 전용' }}
+            </p>
 
             <p class="meta">
-              멘션: {{ ((user.selfintro ?? user.selfIntro ?? '') + '').trim() || '미입력' }}
+              멘션:
+              {{ ((user.selfintro ?? user.selfIntro ?? '') + '').trim() || '미입력' }}
             </p>
           </div>
         </div>
@@ -69,10 +79,10 @@
 <script setup>
 /* -----------------------------------------------------------
    공용 스와이프 리스트 컴포넌트 (swapeList)
-   - props: users, isLoading
+   - props: users, isLoading, viewerLevel?, isPremium?
    - emits: userClick(userId)
 ----------------------------------------------------------- */
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { IonText } from '@ionic/vue'
 import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
 
@@ -86,9 +96,37 @@ import 'swiper/css/effect-cards'
 const props = defineProps({
   users: { type: Array, default: () => [] },
   isLoading: { type: Boolean, default: false },
+  /** 선택: 부모가 넘기는 회원 레벨(문자열) */
+  viewerLevel: { type: String, default: '' },
+  /** 선택: 부모가 넘기는 프리미엄 여부(불리언) */
+  isPremium: { type: [Boolean, String], default: undefined },
 })
 
 const emit = defineEmits(['userClick'])
+
+/** ✅ 프리미엄 여부 통합 판정 (prop 우선 → 로컬스토리지 폴백) */
+const viewerIsPremium = computed(() => {
+  // 1) 불리언/문자 prop 직접 전달 시 최우선
+  if (typeof props.isPremium === 'boolean') return props.isPremium === true
+  if (typeof props.isPremium === 'string') {
+    const s = props.isPremium.toLowerCase().trim()
+    if (['true', '1', 'yes', 'y'].includes(s)) return true
+    if (['false', '0', 'no', 'n'].includes(s)) return false
+  }
+
+  // 2) 레벨 문자열 판정 (ko/en 혼용 허용)
+  const level = (props.viewerLevel || '').trim().toLowerCase()
+  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(level)) return true
+
+  // 3) 로컬 스토리지 폴백 (여러 키 허용)
+  const lvLS = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(lvLS)) return true
+
+  const boolish = (localStorage.getItem('isPremium') || '').toLowerCase().trim()
+  if (['true', '1', 'yes', 'y'].includes(boolish)) return true
+
+  return false
+})
 
 /* Swiper 상태 */
 const swiperModules = [EffectCards]
@@ -148,6 +186,9 @@ ion-content{
   width:100%;
   height:100%;
   overflow:hidden;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* Swiper 내부도 100%로 */
@@ -163,13 +204,17 @@ ion-content{
   width:100%; height:100%;
   display:flex; flex-direction:column;
   background:#000;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: layout paint size style;
 }
 
 /* 사진 박스 */
 .photo{
   width:100%;
   max-width:100%;
-  aspect-ratio: 4 / 4;       /* 사진 높이 비율 조절 포인트 */
+  aspect-ratio: 4 / 4;
   margin:0 auto;
   overflow:hidden;
   background:#000;
@@ -185,6 +230,13 @@ ion-content{
   border-radius:0 !important;
   box-shadow:none !important;
   pointer-events:none;
+}
+
+/* lazy용 플레이스홀더(간단한 배경만) */
+.photo-skeleton{
+  width:100%;
+  height:100%;
+  background: #0f0f11;
 }
 
 /* 정보 영역 */

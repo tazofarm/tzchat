@@ -1,27 +1,22 @@
 // routes/user/userRouter.js
 // base: /api
 // -------------------------------------------------------------
-// 👤 사용자 프로필/설정 라우터
+// 👤 사용자 프로필/설정 라우터  (등급 규칙 가드 적용)
 // - index.js 에서 app.use('/api', ...)로 마운트됨 → 내부 경로에 /api 금지
-// - 공통 로깅: req.baseUrl + req.path 로 실제 호출 경로 출력
-// - 미사용 의존성 제거
 // -------------------------------------------------------------
 const express = require('express');
-
-// models/index.js 가 모든 모델을 export 한다는 가정
 const { User } = require('@/models');
-
-// ✅ 공통 인증 미들웨어(OPTIONS 통과 + Bearer/X-Auth-Token/쿠키/쿼리 지원)
 const requireLogin = require('@/middlewares/authMiddleware');
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
+
+// 🔹 등급 규칙 헬퍼
+const { SELF_EDIT, canEditSelf } = require('@/shared/levelRules');
+const { sanitizeProfileUpdate, isAllowedPreference } = require('@/middlewares/levelGuard');
 
 const router = express.Router();
 router.use(requireLogin, blockIfPendingDeletion); // 전역 차단
 
-/* -----------------------------------------------------------
- * 공통: 내 사용자 ID 추출 (JWT 우선, 세션 백업)
- *  - authMiddleware가 req.user / req.session.user 를 맞춰줍니다.
- * ---------------------------------------------------------*/
+// 공통: 내 사용자 ID
 function getMyId(req) {
   const jwtId = req?.user?._id;
   const sessId = req?.session?.user?._id;
@@ -29,9 +24,13 @@ function getMyId(req) {
   if (sessId) return String(sessId);
   return null;
 }
+// 공통: 내 등급
+function getMyLevel(req) {
+  return req?.user?.user_level || req?.session?.user?.user_level || '일반회원';
+}
 
 /* -----------------------------------------------------------
- * ✅ 공통 요청/응답 로깅 미들웨어 (이 라우터 전용)
+ * 라우터 전용 로깅
  * ---------------------------------------------------------*/
 router.use((req, res, next) => {
   const started = Date.now();
@@ -48,44 +47,29 @@ router.use((req, res, next) => {
     const ms = Date.now() - started;
     const status = res.statusCode;
     const size = typeof body === 'string' ? body.length : Buffer.byteLength(JSON.stringify(body || {}));
-    console.log('[API][RES]', {
-      path: req.baseUrl + req.path,
-      status,
-      ms,
-      size,
-    });
+    console.log('[API][RES]', { path: req.baseUrl + req.path, status, ms, size });
     return originalJson(body);
   };
   next();
 });
 
 /**
- * 🔧 닉네임 업데이트 API (로그인 필요)
+ * 🔧 닉네임 업데이트 (등급 가드)
  */
 router.put('/update-nickname', requireLogin, async (req, res) => {
   const userId = getMyId(req);
+  const level  = getMyLevel(req);
 
   try {
-    if (!userId) {
-      console.warn('[AUTH][ERR]', { path: req.baseUrl + req.path, message: 'Unauthorized' });
-      return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
-    }
+    if (!userId) return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
+    if (!canEditSelf('nickname', level)) return res.status(403).json({ success: false, message: '해당 등급에서 닉네임 변경 불가' });
 
     const { nickname } = req.body || {};
     const trimmedNickname = String(nickname || '').trim();
+    if (!trimmedNickname) return res.status(400).json({ success: false, message: '닉네임이 비어있습니다.' });
 
-    if (!trimmedNickname) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '닉네임이 비어있습니다.' });
-      return res.status(400).json({ success: false, message: '닉네임이 비어있습니다.' });
-    }
-
-    // (선택) 길이/문자 규칙 적용 가능
-    // if (trimmedNickname.length < 2) ...
-
-    // ✅ 본인 제외 중복 검사
     const existing = await User.findOne({ nickname: trimmedNickname }).select('_id').lean();
     if (existing && String(existing._id) !== String(userId)) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '중복된 닉네임입니다.' });
       return res.status(409).json({ success: false, message: '중복된 닉네임입니다.' });
     }
 
@@ -98,22 +82,18 @@ router.put('/update-nickname', requireLogin, async (req, res) => {
 });
 
 /**
- * 🔧 지역 정보 업데이트 API (로그인 필요)
+ * 🔧 지역 정보 업데이트 (등급 가드)
  */
 router.patch('/user/region', requireLogin, async (req, res) => {
   const userId = getMyId(req);
+  const level  = getMyLevel(req);
 
   try {
-    if (!userId) {
-      console.warn('[AUTH][ERR]', { path: req.baseUrl + req.path, message: 'Unauthorized' });
-      return res.status(401).json({ message: '로그인이 필요합니다.' });
-    }
+    if (!userId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    if (!canEditSelf('region', level)) return res.status(403).json({ message: '해당 등급에서 지역 변경 불가' });
 
     const { region1, region2 } = req.body || {};
-    if (!region1 || !region2) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '잘못된 요청: region1, region2가 필요합니다.' });
-      return res.status(400).json({ message: '잘못된 요청: region1, region2가 필요합니다.' });
-    }
+    if (!region1 || !region2) return res.status(400).json({ message: '잘못된 요청: region1, region2가 필요합니다.' });
 
     await User.findByIdAndUpdate(userId, { region1, region2 });
     res.json({ message: '지역 정보가 업데이트되었습니다.' });
@@ -124,24 +104,21 @@ router.patch('/user/region', requireLogin, async (req, res) => {
 });
 
 /**
- * 🔧 자기소개 업데이트 (로그인 필요)
+ * 🔧 자기소개 업데이트 (등급/길이 제한 가드)
  */
 router.put('/update-selfintro', requireLogin, async (req, res) => {
   const userId = getMyId(req);
+  const level  = getMyLevel(req);
 
   try {
-    if (!userId) {
-      console.warn('[AUTH][ERR]', { path: req.baseUrl + req.path, message: 'Unauthorized' });
-      return res.status(401).json({ message: '로그인이 필요합니다.' });
-    }
+    if (!userId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    if (!canEditSelf('selfintro', level)) return res.status(403).json({ message: '해당 등급에서 소개 변경 불가' });
 
-    const newIntro = (req.body || {}).selfintro ?? '';
-    const user = await User.findByIdAndUpdate(userId, { selfintro: newIntro }, { new: true });
+    const safe = sanitizeProfileUpdate(level, { selfintro: (req.body || {}).selfintro ?? '' });
+    if (!('selfintro' in safe)) return res.status(400).json({ message: '입력값이 허용되지 않습니다.' });
 
-    if (!user) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '사용자 없음', userId });
-      return res.status(404).json({ message: '사용자 없음' });
-    }
+    const user = await User.findByIdAndUpdate(userId, { selfintro: safe.selfintro }, { new: true });
+    if (!user) return res.status(404).json({ message: '사용자 없음' });
 
     res.json({ success: true, selfintro: user.selfintro });
   } catch (error) {
@@ -151,34 +128,67 @@ router.put('/update-selfintro', requireLogin, async (req, res) => {
 });
 
 /**
- * 🔧 특징(내 정보) 업데이트 (로그인 필요)
+ * 🔧 특징(내 정보) 업데이트 (등급 가드 + 동기화 규칙 유지)
  */
 router.patch('/user/preference', requireLogin, async (req, res) => {
   const userId = getMyId(req);
+  const level  = getMyLevel(req);
 
   try {
-    if (!userId) {
-      console.warn('[AUTH][ERR]', { path: req.baseUrl + req.path, message: 'Unauthorized' });
-      return res.status(401).json({ message: '로그인이 필요합니다.' });
+    if (!userId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+
+    const prefStr = String((req.body || {}).preference ?? '').trim();
+    if (!prefStr) return res.status(400).json({ message: '값이 부족합니다.' });
+    if (!canEditSelf('preference', level)) return res.status(403).json({ message: '해당 등급에서 특징 변경 불가' });
+    if (!isAllowedPreference(level, prefStr)) return res.status(403).json({ message: '해당 등급에서 허용되지 않은 특징 값' });
+
+    const updateDoc = { preference: prefStr };
+    // 기존 동기화 규칙 유지
+    if (prefStr.startsWith('이성친구')) {
+      updateDoc.search_preference = '이성친구 - 전체';
+    } else if (prefStr.startsWith('동성친구')) {
+      updateDoc.search_preference = '동성친구 - 전체';
     }
 
-    const { preference } = req.body || {};
-    if (typeof preference === 'undefined' || preference === null) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '값이 부족합니다.' });
-      return res.status(400).json({ message: '값이 부족합니다.' });
-    }
+    const user = await User.findByIdAndUpdate(userId, updateDoc, { new: true });
+    if (!user) return res.status(404).json({ message: '사용자 없음' });
 
-    const user = await User.findByIdAndUpdate(userId, { preference }, { new: true });
-
-    if (!user) {
-      console.warn('[API][ERR]', { path: req.baseUrl + req.path, message: '사용자 없음', userId });
-      return res.status(404).json({ message: '사용자 없음' });
-    }
-
-    res.json({ success: true, preference: user.preference });
+    res.json({
+      success: true,
+      preference: user.preference,
+      search_preference: user.search_preference,
+    });
   } catch (err) {
     console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message, name: err?.name });
     res.status(500).json({ message: '서버 에러' });
+  }
+});
+
+/**
+ * 🔧 결혼유무 변경 (등급 가드)
+ */
+router.patch('/user/marriage', async (req, res) => {
+  const userId = getMyId(req);
+  const level  = getMyLevel(req);
+  if (!userId) return res.status(401).json({ success: false, error: '로그인이 필요합니다.' });
+  if (!canEditSelf('marriage', level)) return res.status(403).json({ success: false, error: '해당 등급에서 결혼유무 변경 불가' });
+
+  const raw = (req.body?.marriage || '').toString().trim();
+  const ALLOWED = ['미혼', '기혼', '돌싱'];
+  if (!ALLOWED.includes(raw)) {
+    return res.status(400).json({ success: false, error: 'marriage must be one of 미혼/기혼/돌싱' });
+  }
+
+  try {
+    const updated = await User.findByIdAndUpdate(userId, { marriage: raw }, { new: true })
+      .select('marriage updatedAt')
+      .lean();
+
+    if (!updated) return res.status(404).json({ success: false, error: '사용자 없음' });
+    return res.json({ success: true, marriage: updated.marriage, updatedAt: updated.updatedAt });
+  } catch (err) {
+    console.error('[API][ERR] /user/marriage', { message: err?.message });
+    return res.status(500).json({ success: false, error: '결혼유무 업데이트 실패' });
   }
 });
 

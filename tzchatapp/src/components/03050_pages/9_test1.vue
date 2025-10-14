@@ -1,7 +1,7 @@
-<!-- src/components/03050_pages/0_emergency.vue -->
+<!-- src/components/04010_Page0_emergency/Emergency_swape.vue (기존 파일을 교체하려면 원래 경로/파일명으로 저장하세요) -->
 <template>
   <ion-page>
-    <ion-content>
+    <ion-content fullscreen class="no-gutter">
       <!-- 보상형 광고 모달 -->
       <ion-modal
         :is-open="showAdvModal"
@@ -11,82 +11,84 @@
         <ModalAdv @close="closeAdv" />
       </ion-modal>
 
-      <div class="ion-padding">
-        <!-- ===== 상단 토글: 공용 컴포넌트 사용 ===== -->
+      <!-- 상단 스위치 헤더 (패딩/마진 제거) -->
+      <div class="em-header">
         <EmergencySwitch
-          :emergency-on="emergencyOn"
-          :formatted-time="formattedTime"
-          :icons="icons"
-          :pill-vars="pillVars"
-          @toggle="onPillToggleClick"
-        />
-
-        <!-- ===== 스와이프 카드: 공용 컴포넌트 사용 ===== -->
-        <SwapeList
-          :users="emergencyUsers"
-          :is-loading="isLoading"
-          @userClick="goToUserProfile"
+          :emergencyOn="emergencyOn"
+          :formattedTime="formattedTime"
+          @toggle="onHeaderToggle"
         />
       </div>
+
+      <!-- ✅ 공용 스와이프 리스트 (SwapeList) -->
+      <SwapeList
+        :users="emergencyUsers"
+        :is-loading="isLoading"
+        :viewer-level="viewerLevel"
+        :is-premium="isPremium"
+        @userClick="u => goToUserProfile(u)"
+      />
     </ion-content>
   </ion-page>
 </template>
 
 <script setup>
+/* -----------------------------------------------------------
+   Emergency (스와이프 카드형)
+   - UserList → SwapeList로 변경
+   - 프리미엄 판정/필터/소켓/카운트다운 로직 유지
+----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
-import { IonPage, IonContent, IonModal } from '@ionic/vue'
-
-/* 공용 컴포넌트 */
+import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
 import EmergencySwitch from '@/components/02010_minipage/mini_emergency/emergencySwitch.vue'
 import SwapeList from '@/components/02010_minipage/mini_list/swapeList.vue'
-
-/* 기타 의존성 */
-import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
-import {
-  flameOutline,
-  calendarOutline,
-  maleOutline,
-  femaleOutline,
-  locationOutline,
-  chatbubblesOutline,
-  timeOutline,
-  timerOutline,
-  shieldCheckmarkOutline
-} from 'ionicons/icons'
-
-import { applyTotalFilter } from '@/components/04210_Page2_target/total/Filter_total'
-import { buildExcludeIdsSet } from '@/components/04210_Page2_target/Filter_List'
+import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/Total_Filter_premium'
 import { connectSocket as connectSharedSocket } from '@/lib/socket'
+import { IonPage, IonContent, IonModal } from '@ionic/vue'
 
-/* ===== 상태/로직 ===== */
-const router = useRouter()
-
-const nickname = ref('')
-const emergencyOn = ref(false)
+/* ===== 상태 ===== */
 const emergencyUsers = ref([])
 const isLoading = ref(true)
+const emergencyOn = ref(false)
 const remainingSeconds = ref(0)
 const currentUser = ref({})
-
-let countdownInterval = null
 const showAdvModal = ref(false)
+const router = useRouter()
 const socket = ref(null)
 const excludeIds = ref(new Set())
 
-const icons = {
-  flameOutline,
-  calendarOutline,
-  maleOutline,
-  femaleOutline,
-  locationOutline,
-  chatbubblesOutline,
-  timeOutline,
-  timerOutline,
-  shieldCheckmarkOutline,
+/* ✅ SwapeList 프리미엄 판정 전달용 */
+const viewerLevel = ref('')
+const isPremium = ref(false)
+
+/* ===== 유틸: 제외목록 필터/구성 ===== */
+const filterByExcludeIds = (list, set) =>
+  Array.isArray(list)
+    ? list.filter(u => u && u._id && !(set instanceof Set ? set.has(String(u._id)) : false))
+    : []
+
+function toIdList(src) {
+  const arr = Array.isArray(src) ? src : []
+  return arr
+    .map(v => {
+      if (!v) return null
+      if (typeof v === 'string' || typeof v === 'number') return String(v)
+      return String(v._id || v.id || v.userId || v.user_id || '')
+    })
+    .filter(Boolean)
+}
+function buildExcludeIdsSet({ friends = [], blocks = [], pendingSent = [], pendingRecv = [] } = {}) {
+  const set = new Set()
+  for (const id of toIdList(friends)) set.add(id)
+  for (const id of toIdList(blocks)) set.add(id)
+  for (const id of toIdList(pendingSent)) set.add(id)
+  for (const id of toIdList(pendingRecv)) set.add(id)
+  return set
 }
 
+/* ===== 타이머 포맷 ===== */
 const formattedTime = computed(() => {
   const sec = remainingSeconds.value
   const h = Math.floor(sec / 3600)
@@ -98,21 +100,22 @@ const formattedTime = computed(() => {
   return `${s}초`
 })
 
-const goToUserProfile = (userId) => {
-  if (!userId) return
-  router.push(`/home/user/${userId}`)
+/* ===== 내비 ===== */
+const goToUserProfile = (u) => {
+  const id = typeof u === 'string' ? u : u?._id
+  if (!id) return
+  router.push(`/home/user/${id}`)
 }
 
-/* ✅ 커스텀 스위치 토글 */
-const onPillToggleClick = async () => {
-  const newState = !emergencyOn.value
-  if (newState) showAdvModal.value = true
-  await updateEmergencyState(newState)
+/* ===== 헤더 토글 ===== */
+const onHeaderToggle = async (next) => {
+  if (next) showAdvModal.value = true
+  await updateEmergencyState(next)
 }
 const closeAdv = () => { showAdvModal.value = false }
 const onAdvDidDismiss = () => { showAdvModal.value = false }
 
-/* ===== (나머지 기존 로직 동일) ===== */
+/* ===== Emergency 상태 판정/정렬 ===== */
 function isEmergencyActive(u) {
   try {
     const em = u?.emergency || {}
@@ -120,15 +123,12 @@ function isEmergencyActive(u) {
       return em.isActive === true && em.remainingSeconds > 0
     }
     if (em.isActive && em.activatedAt) {
-      const activatedAt = new Date(em.activatedAt).getTime()
-      const now = Date.now()
       const ONE_HOUR = 60 * 60 * 1000
-      return now - activatedAt < ONE_HOUR
+      return Date.now() - new Date(em.activatedAt).getTime() < ONE_HOUR
     }
     return false
   } catch { return false }
 }
-
 const INCLUDE_ME_WHEN_ON = true
 const APPLY_FILTERS_TO_ME = false
 
@@ -168,20 +168,21 @@ const updateEmergencyState = async (newState) => {
             ...(currentUser.value.emergency || {}),
             isActive: true,
             remainingSeconds: remaining,
-            activatedAt: new Date().toISOString()
+            activatedAt: new Date().toISOString(),
           }
         }
         if (INCLUDE_ME_WHEN_ON) {
           let me = { ...currentUser.value }
           let pass = true
           if (APPLY_FILTERS_TO_ME) {
-            const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+            const selfPremium = applyTotalFilterPremium([me], me, { log: false })
+            const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
             pass = selfFiltered.length > 0
           }
           if (pass) upsertMeToTop(me)
         }
         await nextTick()
-        setTimeout(() => startCountdown(remaining), 80)
+        startCountdown(remaining)
       } else {
         await updateEmergencyState(false)
       }
@@ -193,7 +194,6 @@ const updateEmergencyState = async (newState) => {
         emergency: { ...(currentUser.value.emergency || {}), isActive: false, remainingSeconds: 0 }
       }
     }
-
     await fetchEmergencyUsers()
   } catch (err) {
     console.error('❌ 상태 변경 실패:', err)
@@ -202,6 +202,7 @@ const updateEmergencyState = async (newState) => {
   }
 }
 
+/* ===== 관계/목록 ===== */
 async function fetchRelations() {
   try {
     const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
@@ -210,16 +211,12 @@ async function fetchRelations() {
       api.get('/api/friend-requests/sent'),
       api.get('/api/friend-requests/received'),
     ])
-
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
     const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
     const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
     const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []
-
-    excludeIds.value = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
-  } catch {
-    excludeIds.value = new Set()
-  }
+    excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
+  } catch { excludeIds.value = new Set() }
 }
 
 const fetchEmergencyUsers = async () => {
@@ -230,14 +227,16 @@ const fetchEmergencyUsers = async () => {
     if (!me || !me._id) return
 
     list = list.filter(isEmergencyActive)
-    list = applyTotalFilter(list, me, { excludeIds: excludeIds.value })
+    list = filterByExcludeIds(list, excludeIds.value)
+    list = applyTotalFilterPremium(list, me, { log: false })
     list = sortByLastAccessDesc(list)
 
     const iAmActive = isEmergencyActive(me)
     if (INCLUDE_ME_WHEN_ON && iAmActive) {
       let addMe = true
       if (APPLY_FILTERS_TO_ME) {
-        const selfFiltered = applyTotalFilter([me], me, { excludeIds: excludeIds.value })
+        const selfPremium = applyTotalFilterPremium([me], me, { log: false })
+        const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
         addMe = selfFiltered.length > 0
       }
       if (addMe) {
@@ -251,13 +250,43 @@ const fetchEmergencyUsers = async () => {
   }
 }
 
+/* ===== 소켓 ===== */
+function initSocket() {
+  try {
+    const s = connectSharedSocket()
+    socket.value = s
+    s.on('connect', () => { try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {} })
+    s.on('emergency:refresh', fetchEmergencyUsers)
+    s.on('emergency:userOn', fetchEmergencyUsers)
+    s.on('emergency:userOff', fetchEmergencyUsers)
+    s.on('user:lastLogin', async ({ userId, last_login }) => {
+      let found = false
+      emergencyUsers.value = emergencyUsers.value.map(u => {
+        if (u._id === userId) { found = true; return { ...u, last_login } }
+        return u
+      })
+      if (!found) await fetchEmergencyUsers()
+    })
+  } catch (e) { console.error('❌ [socket] 초기화 실패:', e) }
+}
+function cleanupSocket() {
+  try {
+    if (socket.value) {
+      try { socket.value.emit('unsubscribe', { room: 'emergency' }) } catch (_) {}
+      socket.value.disconnect()
+    }
+  } finally { socket.value = null }
+}
+
+/* ===== 타이머 ===== */
+let countdownInterval = null
 const startCountdown = (initial) => {
   clearCountdown()
-  let localRemaining = initial
+  let left = initial
   countdownInterval = setInterval(async () => {
-    if (localRemaining > 0) {
-      localRemaining--
-      remainingSeconds.value = localRemaining
+    if (left > 0) {
+      left--
+      remainingSeconds.value = left
     } else {
       clearCountdown()
       await updateEmergencyState(false)
@@ -270,58 +299,24 @@ const clearCountdown = () => {
   remainingSeconds.value = 0
 }
 
-function initSocket() {
-  try {
-    const s = connectSharedSocket()
-    socket.value = s
-
-    s.on('connect', () => {
-      try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {}
-    })
-
-    s.on('emergency:refresh', fetchEmergencyUsers)
-    s.on('emergency:userOn', fetchEmergencyUsers)
-    s.on('emergency:userOff', fetchEmergencyUsers)
-
-    s.on('user:lastLogin', async ({ userId, last_login }) => {
-      let found = false
-      emergencyUsers.value = emergencyUsers.value.map(u => {
-        if (u._id === userId) { found = true; return { ...u, last_login } }
-        return u
-      })
-      if (!found) await fetchEmergencyUsers()
-    })
-
-    s.on('disconnect', () => {})
-    s.on('connect_error', (err) => console.error('❌ [socket] connect_error:', err?.message))
-  } catch (e) {
-    console.error('❌ [socket] 초기화 실패:', e)
-  }
-}
-function cleanupSocket() {
-  try {
-    if (socket.value) {
-      try { socket.value.emit('unsubscribe', { room: 'emergency' }) } catch (_) {}
-      socket.value.disconnect()
-    }
-  } finally {
-    socket.value = null
-  }
-}
-
+/* ===== 라이프사이클 ===== */
 onMounted(async () => {
   try {
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
-    nickname.value = me?.nickname || ''
     emergencyOn.value = me?.emergency?.isActive === true
+
+    const levelFromApi = me?.level || me?.user_level || me?.membership || ''
+    viewerLevel.value = String(levelFromApi || '').trim()
+    const premiumBool =
+      me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄')
+    isPremium.value = Boolean(premiumBool)
 
     await fetchRelations()
 
     if (emergencyOn.value && me?.emergency?.remainingSeconds > 0) {
       remainingSeconds.value = me.emergency.remainingSeconds
-      await nextTick()
-      setTimeout(() => startCountdown(remainingSeconds.value), 80)
+      startCountdown(remainingSeconds.value)
     } else if (emergencyOn.value) {
       await updateEmergencyState(false)
     }
@@ -339,40 +334,36 @@ onBeforeUnmount(() => {
   clearCountdown()
   cleanupSocket()
 })
-
-/* ✅ 스위치 크기/여백/글씨크기: inline CSS 변수 */
-const pillVars = {
-  '--pill-w': '86px',
-  '--pill-h': '36px',
-  '--knob': '28px',
-  '--gap': '4px',
-  '--side-pad': 'calc(var(--knob) + var(--gap) * 2)',
-  '--pill-font': '14px',
-}
 </script>
 
 <style scoped>
-:root,
-:host {
+/* =========================================================
+   Black + Gold Theme (스와이프 전용 여백 제거)
+========================================================= */
+:root, :host {
   --bg: #0b0b0d;
-  --panel: #121214;
-  --panel-2: #17171a;
-  --text-strong: #f3f3f3;
   --text: #d7d7d9;
-  --text-dim: #a9a9ad;
-  --divider: #26262a;
-  --gold: #d4af37;
-  --gold-2: #f1cf5a;
-  --focus: rgba(212, 175, 55, 0.45);
 }
 
-ion-content {
+/* ion-content 여백/세이프에어리어 제거 */
+.no-gutter {
   --background: var(--bg);
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  --ion-safe-area-top: 0;
+  --ion-safe-area-bottom: 0;
+  --ion-safe-area-left: 0;
+  --ion-safe-area-right: 0;
+  padding: 0 !important;
+  margin: 0 !important;
   color: var(--text);
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
 }
 
-:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); border-radius: 10px; }
+/* 상단 스위치 헤더: 좌우·상하 여백 제거 */
+.em-header { padding: 0; margin: 0; }
+
+/* (참고) SwapeList 내부에서 슬라이드/카드 여백 제거 스타일을 이미 설정해두는 것이 가장 확실합니다. */
 </style>

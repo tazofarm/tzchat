@@ -7,6 +7,8 @@
 // - [보강] 응답 변환 시 password 제거
 // - [보강] 탈퇴 호환 필드 추가 (isDeleted, deletedAt) + 메서드 + 정합성 훅
 // - [신규] 휴대폰 E.164 정규화 + phoneHash 자동 생성, 조회 최소화(select:false)
+// - [개정] phone 유니크 인덱스: partial index로 변경(값 있을 때만 유니크)
+// - [개정] 필드 단위 unique/index 제거 → 스키마 하단에서 일괄 index 정의(중복 인덱스 경고 해소)
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -31,9 +33,9 @@ const ProfileImageSchema = new mongoose.Schema(
 );
 
 // ────────────────────────────────────────────────────────────
-// [유틸] 한국 기본 E.164 정규화 (+ 국제번호면 그대로)
-// ※ 실제 서비스에선 libphonenumber-js 사용 권장
-// ────────────────────────────────────────────────────────────
+/** [유틸] 한국 기본 E.164 정규화 (+ 국제번호면 그대로)
+ *  ※ 실제 서비스에선 libphonenumber-js 사용 권장
+ */
 function normalizePhoneKR(raw = '') {
   const clean = String(raw).replace(/[^\d+]/g, '');
   if (!clean) return '';
@@ -41,7 +43,6 @@ function normalizePhoneKR(raw = '') {
   if (clean.startsWith('0')) return '+82' + clean.slice(1);
   return '+82' + clean;
 }
-
 function sha256Hex(text = '') {
   return crypto.createHash('sha256').update(String(text)).digest('hex');
 }
@@ -54,7 +55,7 @@ const userSchema = new mongoose.Schema(
 
     // [1] 기본 정보
     username: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String, required: true, select: true },
     nickname: { type: String, required: true, unique: true },
     birthyear: Number,
     gender: String,
@@ -115,17 +116,19 @@ const userSchema = new mongoose.Schema(
     // ────────────────────────────────────────────────────────
     // [신규] 내 전화번호/해시/주소록 해시
     // ────────────────────────────────────────────────────────
+    /** phone: 선택 입력(옵션).
+     *  - 필드 레벨에서 unique/sparse 지정하지 않음(중복 인덱스 경고 방지).
+     *  - 인덱스는 스키마 하단에서 partial index로 정의(값 있을 때만 유니크).
+     */
     phone: {
       type: String,
-      required: false,   // ← 필수 해제
-      default: null,
-      unique: true,
-      sparse: true,      // ← unique + optional 조합에 반드시 필요
+      required: false,
+      default: undefined, // ← null 대신 undefined로 두어 "미입력"시 수정 이벤트/검증 회피
+      trim: true,
     },
+    /** phoneHash: 응답 기본 제외, 인덱스는 하단에서 정의 */
     phoneHash: {
       type: String,
-      unique: true,
-      index: true,
       select: false, // 기본 응답에서 제외
     },  // SHA-256(E.164)
 
@@ -178,11 +181,20 @@ function removeSensitive(doc, ret) {
 userSchema.set('toJSON',  { transform: (_, ret) => removeSensitive(_, ret) });
 userSchema.set('toObject', { transform: (_, ret) => removeSensitive(_, ret) });
 
-// ===== 인덱스 (탈퇴 만기 스캔 최적화 + phoneHash)
-// - phoneHash는 기존 데이터에 null/undefined가 있을 수 있으므로 sparse 권장
+// ===== 인덱스 (탈퇴 만기 스캔 최적화 + phone/phoneHash)
+// - phone: 값이 "존재할 때만" 유니크 적용(partial index)
+// - phoneHash: 기존 데이터에 null/undefined가 있을 수 있으므로 sparse 권장
 userSchema.index({ status: 1, deletionDueAt: 1 });
 userSchema.index({ isDeleted: 1, deletionDueAt: 1 });
-userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true });
+userSchema.index(
+  { phone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phone: { $type: 'string', $ne: '' } },
+    name: 'phone_1',
+  }
+);
+userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
 
 // ===== 인스턴스 메서드: 탈퇴 신청/취소
 userSchema.methods.requestDeletion = function() {
@@ -233,7 +245,16 @@ userSchema.pre('save', function(next) {
 userSchema.pre('save', function(next) {
   try {
     if (this.isModified('phone')) {
-      const normalized = normalizePhoneKR(this.phone);
+      const raw = this.phone;
+
+      // 값이 비었으면(삭제/미입력) 필드 제거로 처리
+      if (raw === undefined || raw === null || String(raw).trim() === '') {
+        this.phone = undefined;
+        this.phoneHash = undefined;
+        return next();
+      }
+
+      const normalized = normalizePhoneKR(raw);
       if (!normalized) {
         return next(new Error('유효한 휴대폰 번호가 아닙니다.'));
       }
@@ -242,8 +263,13 @@ userSchema.pre('save', function(next) {
     } else if (!this.phoneHash && this.phone) {
       // 기존 문서 백필
       const normalized = normalizePhoneKR(this.phone);
-      this.phone = normalized;
-      this.phoneHash = sha256Hex(normalized);
+      if (normalized) {
+        this.phone = normalized;
+        this.phoneHash = sha256Hex(normalized);
+      } else {
+        this.phone = undefined;
+        this.phoneHash = undefined;
+      }
     }
     next();
   } catch (e) {
@@ -254,10 +280,18 @@ userSchema.pre('save', function(next) {
 
 // ===== 스태틱: 기존 데이터 일괄 백필용(옵션)
 userSchema.statics.backfillPhoneHash = async function() {
-  const batch = await this.find({ $or: [ { phoneHash: { $exists: false } }, { phoneHash: null } ] }).select('_id phone phoneHash');
+  const batch = await this.find({
+    $or: [ { phoneHash: { $exists: false } }, { phoneHash: null } ]
+  }).select('_id phone phoneHash');
+
   for (const doc of batch) {
     const normalized = normalizePhoneKR(doc.phone || '');
-    if (!normalized) continue;
+    if (!normalized) {
+      doc.phone = undefined;
+      doc.phoneHash = undefined;
+      await doc.save();
+      continue;
+    }
     doc.phone = normalized;
     doc.phoneHash = sha256Hex(normalized);
     await doc.save();
