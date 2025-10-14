@@ -61,7 +61,7 @@ const DEFAULT_WOMAN = '/img/woman.jpg'
 const isFemale = (g?: string) => (g || '').toLowerCase().includes('여') || /(woman|female|^f$)/i.test(g || '')
 
 /** API 베이스: 상대경로를 절대경로로 보정할 때 사용 */
-const API_BASE = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '')
+const API_BASE = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || window.location.origin || '')
   .toString()
   .replace(/\/$/, '')
 
