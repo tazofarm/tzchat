@@ -71,7 +71,7 @@
             <tr class="editable-row" tabindex="-1">
               <td class="pf-th">
                 <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
-                <strong class="label">{{ user.phone || '010-1234-1234' }}</strong>
+                <strong class="label">{{ user.phone || '010-1234-1234(Test)' }}</strong>
               </td>
               <td class="pf-td editable-text">
                 <IonButton

@@ -9,7 +9,6 @@
       loading="lazy"
       @click="openViewerAt(0)"
       @error="onMainError"
-      referrerpolicy="no-referrer"
     />
 
     <!-- 풀스크린 라이트박스 -->
@@ -34,7 +33,7 @@
       >
         <div class="track" :style="trackStyle">
           <div class="slide" v-for="(u, i) in viewerImages" :key="i">
-            <img class="slide-img" :src="u" :alt="`확대 이미지 ${i+1}`" @error="onViewerImgError(i)" />
+            <img class="slide-img" :src="u" :alt="`확대 이미지 ${i+1}`" @error="onViewerError(i)" />
           </div>
         </div>
       </div>
@@ -49,98 +48,33 @@ import { ref, computed, watch } from 'vue'
 import api from '@/lib/api'
 
 const props = defineProps<{
-  userId: string
+  userId: string              // ← 반드시 상대방의 ID
   gender?: string
-  size?: number
+  size?: number               // 썸네일 한 변(px)
 }>()
 
+/* ========= 환경/기본값 ========= */
 const size = computed(() => props.size ?? 170)
+/** 기본 이미지(퍼블릭 /img 아래에 배치되어 있어야 함) */
 const DEFAULT_MAN = '/img/man.jpg'
 const DEFAULT_WOMAN = '/img/woman.jpg'
-const isFemale = (g?: string) =>
-  (g || '').toLowerCase().includes('여') || /(woman|female|^f$)/i.test(g || '')
+const isFemale = (g?: string) => (g || '').toLowerCase().includes('여') || /(woman|female|^f$)/i.test(g || '')
 
-/* ----------------------------------------------------------
-   ✅ API BASE 계산 (혼합콘텐츠/도메인 보정)
-   - 우선순위: VITE_API_FILE_BASE > VITE_API_BASE_URL > axios baseURL > window.origin
----------------------------------------------------------- */
-function getApiOrigin(): URL {
-  const envBase = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '').toString().trim()
-  const candidate = envBase || (api as any)?.defaults?.baseURL || window.location.origin
-  let u: URL
-  try { u = new URL(candidate, window.location.origin) } catch { u = new URL(window.location.origin) }
+/** API 베이스: 상대경로를 절대경로로 보정할 때 사용 */
+const API_BASE = (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '')
+  .toString()
+  .replace(/\/$/, '')
 
-  // https 페이지에서 http면 먼저 https로 승격
-  if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-    try { u = new URL(`https://${u.host}`) } catch {}
-  }
-  return u
-}
-const API_ORIGIN = getApiOrigin()
-
-/* ----------------------------------------------------------
-   ✅ URL 절대화 + 로컬호스트 교체 + 프로토콜 승격
-   - 절대 URL에 'localhost', '127.0.0.1', '*.local' 등이 오면
-     => 호스트를 API_ORIGIN으로 교체하고 경로는 유지
-   - https 페이지에서 http면 가능하면 https로 승격
----------------------------------------------------------- */
-const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
-function isLikelyLocalHost(h: string) {
-  if (LOCAL_HOSTNAMES.has(h)) return true
-  if (h.endsWith('.local')) return true
-  // 개발 포트 패턴(예: :2000, :3000, :5173 등)
-  return /(^|:)(1|2|3|4|5)\d{3}$/.test(h.split(':').slice(1).join(':')) // 포트 존재시 대략 감지
-}
-
-function remapToApiOrigin(parsed: URL): string {
-  // 업로드/정적 경로만 교체 (안전)
-  const path = parsed.pathname || '/'
-  // 일반적으로 /uploads, /files, /img 등을 사용
-  if (/^\/(uploads|files|img|images|static)\b/i.test(path)) {
-    return `${API_ORIGIN.origin}${path}${parsed.search}${parsed.hash}`
-  }
-  // 그 외도 강제 교체 (필요 시)
-  return `${API_ORIGIN.origin}${path}${parsed.search}${parsed.hash}`
-}
-
+/** 상대경로 → 절대경로 보정 유틸 */
 function toAbsolute(u?: string): string {
   if (!u) return ''
-
-  // 절대 URL/데이터/블롭 처리
-  if (/^(https?:|data:|blob:)/i.test(u)) {
-    try {
-      const parsed = new URL(u)
-      // 1) 로컬호스트/개발호스트라면 -> 프로덕션 API_ORIGIN으로 교체
-      if (isLikelyLocalHost(parsed.hostname)) {
-        return remapToApiOrigin(parsed)
-      }
-      // 2) https 페이지에서 http면 -> 가능하면 https 또는 API_ORIGIN으로 교체
-      if (window.location.protocol === 'https:' && parsed.protocol === 'http:') {
-        // 호스트가 API_ORIGIN과 같다면 https 승격
-        if (parsed.hostname === API_ORIGIN.hostname) {
-          parsed.protocol = 'https:'
-          return parsed.toString()
-        }
-        // 다르면 안전하게 API_ORIGIN으로 교체(경로 유지)
-        return remapToApiOrigin(parsed)
-      }
-      return parsed.toString()
-    } catch {
-      // URL 파싱 실패시 하단 상대경로 처리로 폴백
-    }
-  }
-
-  // 프로토콜 상대 //host/path
-  if (u.startsWith('//')) return `${API_ORIGIN.protocol}${u}`
-  // 루트 시작 경로
-  if (u.startsWith('/')) return `${API_ORIGIN.origin}${u}`
-  // 일반 상대경로
-  return `${API_ORIGIN.origin}/${u}`
+  if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('data:') || u.startsWith('blob:')) return u
+  // '/uploads/..' 등 서버 상대경로라면 API_BASE를 접두
+  if (u.startsWith('/')) return API_BASE ? `${API_BASE}${u}` : u
+  // 'uploads/..' 처럼 앞에 슬래시가 없는 상대경로도 방어
+  return API_BASE ? `${API_BASE}/${u}` : `/${u}`
 }
 
-/* ----------------------------------------------------------
-   🔹 이미지 리스트 로딩
----------------------------------------------------------- */
 type ImgItem = { id?: string; thumb?: string; medium?: string; full?: string }
 const list = ref<ImgItem[]>([])
 const mainId = ref<string>('')
@@ -155,7 +89,10 @@ function normalizeList(data: any): { items: ImgItem[]; main?: string } {
 
   const A = data?.profileImages
   if (Array.isArray(A) && A.length) {
-    return { items: A.map(mapObj), main: data?.profileMain }
+    return {
+      items: A.map(mapObj),
+      main: data?.profileMain
+    }
   }
   const B = data?.images
   if (Array.isArray(B) && B.length && typeof B[0] === 'string') {
@@ -172,8 +109,10 @@ function normalizeList(data: any): { items: ImgItem[]; main?: string } {
   return { items: [] }
 }
 
+/** 🔒 상대방만 보는 전용: ‘내 사진’ 엔드포인트는 절대 호출하지 않음 */
 async function loadImagesOfUser(uid: string) {
   if (!uid) return
+
   const candidates = [
     `/api/users/${uid}/profile/images`,
     `/api/users/${uid}/images`,
@@ -184,7 +123,7 @@ async function loadImagesOfUser(uid: string) {
 
   for (const url of candidates) {
     try {
-      const { data } = await api.get(url, { withCredentials: true })
+      const { data } = await api.get(url)
       const norm = normalizeList(data)
       if (norm.items.length) {
         list.value = norm.items
@@ -194,51 +133,51 @@ async function loadImagesOfUser(uid: string) {
         }
         return
       }
-    } catch {}
+    } catch {
+      /* 다음 후보 시도 */
+    }
   }
 
-  console.warn('[ProfilePhotoViewer] 상대방 이미지 데이터를 받지 못했습니다.')
+  // 서버에 상대방용 엔드포인트가 아직 없거나 비어있는 경우
+  console.warn('[ProfilePhotoViewer] 상대방 이미지 엔드포인트에서 데이터를 받지 못했습니다. 기본이미지로 대체.')
   list.value = []
   mainId.value = ''
 }
 
-watch(() => props.userId, (uid) => loadImagesOfUser(uid), { immediate: true })
+/* props.userId가 나중에 준비될 수 있으므로 watch + immediate */
+watch(
+  () => props.userId,
+  (uid) => loadImagesOfUser(uid),
+  { immediate: true }
+)
 
-/* ----------------------------------------------------------
-   🔹 대표 썸네일
----------------------------------------------------------- */
+/* 대표 썸네일 URL */
 const mainDisplayUrl = computed(() => {
   const first = list.value[0]
-  if (first?.medium || first?.full || first?.thumb)
+  if (first?.medium || first?.full || first?.thumb) {
     return first.medium || first.full || first.thumb!
+  }
   return isFemale(props.gender) ? DEFAULT_WOMAN : DEFAULT_MAN
 })
 
 function onMainError(e: Event) {
   const el = e.target as HTMLImageElement
-  const fallback = isFemale(props.gender) ? toAbsolute(DEFAULT_WOMAN) : toAbsolute(DEFAULT_MAN)
+  // 한 번만 기본이미지로 치환
+  const fallback = isFemale(props.gender) ? DEFAULT_WOMAN : DEFAULT_MAN
   if (el && el.src !== fallback) el.src = fallback
 }
 
-/* ----------------------------------------------------------
-   🔹 라이트박스 보기 기능
----------------------------------------------------------- */
+/* ====== 라이트박스(보기 전용) ====== */
 const viewerOpen = ref(false)
 const viewerIndex = ref(0)
 const viewerImages = computed(() =>
   list.value.map(i => i.full || i.medium || i.thumb!).map(toAbsolute).filter(Boolean)
 )
 
-function onViewerImgError(i: number) {
-  const target = viewerImages.value[i]
-  if (!target) return
-  const idxInList = list.value.findIndex(li =>
-    (li.full || li.medium || li.thumb) && toAbsolute(li.full || li.medium || li.thumb) === target
-  )
-  if (idxInList >= 0) list.value.splice(idxInList, 1)
-  if (viewerIndex.value >= viewerImages.value.length - 1) {
-    viewerIndex.value = Math.max(0, viewerImages.value.length - 2)
-  }
+function onViewerError(i: number) {
+  // 보기용 이미지가 깨지면 해당 슬라이드를 제거(선택)
+  viewerImages.value.splice(i, 1)
+  if (viewerIndex.value >= viewerImages.value.length) viewerIndex.value = Math.max(0, viewerImages.value.length - 1)
 }
 
 function openViewerAt(idx = 0) {
@@ -250,9 +189,7 @@ function closeViewer() { viewerOpen.value = false }
 function prev() { viewerIndex.value = Math.max(0, viewerIndex.value - 1) }
 function next() { viewerIndex.value = Math.min(viewerImages.value.length - 1, viewerIndex.value + 1) }
 
-/* ----------------------------------------------------------
-   🔹 터치 스와이프 제스처
----------------------------------------------------------- */
+/* 스와이프 */
 const dragging = ref(false)
 const startX = ref(0)
 const deltaX = ref(0)
@@ -271,9 +208,7 @@ const trackStyle = computed(() => {
   return { transform: `translateX(${shift}vw)`, transition: dragging.value ? 'none' : 'transform 300ms ease' }
 })
 
-/* ----------------------------------------------------------
-   🔹 썸네일 스타일
----------------------------------------------------------- */
+/* 썸네일 크기 */
 const avatarStyle = computed(() => ({
   width: `${size.value}px`,
   height: `${size.value}px`
@@ -287,6 +222,8 @@ const avatarStyle = computed(() => ({
   border-radius: 14px; background: #111; cursor: pointer;
   box-shadow: 0 6px 20px rgba(0,0,0,.35);
 }
+
+/* 라이트박스 */
 .lightbox {
   position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1400;
   display: flex; align-items: center; justify-content: center; flex-direction: column;

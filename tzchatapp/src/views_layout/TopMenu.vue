@@ -64,7 +64,6 @@ const menuItems = [
   { name: 't-all', path: '/home/93page', icon: warningOutline },
   { name: 'Premium', path: '/home/0page', icon: diamondOutline },
   { name: 'Search', path: '/home/2page', icon: locateOutline },
-  { name: 'all', path: '/home/1page', icon: warningOutline },
   { name: 'List', path: '/home/3page', icon: peopleOutline },
   { name: 'Chat', path: '/home/4page', icon: chatbubblesOutline },
   { name: 'Profile', path: '/home/6page', icon: personCircleOutline },
