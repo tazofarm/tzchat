@@ -4,7 +4,7 @@
     <string name="app_name">네네챗</string>
 
     <!-- 📌 메인 액티비티 타이틀 -->
-    <string name="title_activity_main">tzchat</string>
+    <string name="title_activity_main">네네챗</string>
 
     <!-- 📌 패키지명 -->
     <string name="package_name">com.tazocode.tzchat</string>

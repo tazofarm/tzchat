@@ -50,8 +50,12 @@ import '@ionic/vue/css/text-alignment.css'
 import '@ionic/vue/css/text-transformation.css'
 import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
+
+/* ✅ 프로젝트 공통 스타일: 변수 → 유틸 → 테마(마지막) 순서 */
 import '@/theme/variables.css'
 import '@/theme/mobile-utilities.css'
+import '@/theme/theme-gold.css'
+
 import 'emoji-picker-element'
 
 /* ====== 🔥 DEV에서 SW 캐시/등록 강제 해제 ====== */
@@ -240,7 +244,9 @@ async function checkIonicHydrationSafe() {
  * 앱 부트
  * ===================== */
 const app = createApp(App)
-app.use(IonicVue)
+
+/* ✅ 플랫폼별 시각 차이 제거: md 모드 고정 */
+app.use(IonicVue, { mode: 'md' })
 app.use(router)
 
 registerWebPush()
@@ -304,8 +310,8 @@ router.isReady()
     console.error('💥 router.isReady() 실패:', err)
   })
 
-// 기본 글자색 보정
-document.documentElement.style.setProperty('--base-text-color', '#000')
-document.addEventListener('DOMContentLoaded', () => {
-  document.body.style.color = 'black'
-})
+/* ⚠️ 전역 글자색 강제는 제거 (테마에 위임) */
+// document.documentElement.style.setProperty('--base-text-color', '#000')
+// document.addEventListener('DOMContentLoaded', () => {
+//   document.body.style.color = 'black'
+// })
