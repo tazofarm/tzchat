@@ -1,102 +1,31 @@
-/// <reference types="vitest" />
+/// <reference types="node" />
+import type { CapacitorConfig } from '@capacitor/cli'
 
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { fileURLToPath, URL } from 'node:url'
+const isDebug = process.env.CAP_ENV === 'debug'
 
-/**
- * 운영 원칙
- * - 모든 모드에서 API/Socket 목적지는 .env.* 값으로만 결정
- * - Vite dev 서버 프록시(/api, /socket.io) 완전 제거
- * - 프론트 자산 경로(base)와 outDir은 서버(Nginx) 설정과 일치
- * - 레이아웃 디버깅을 위해 dev sourcemap 활성화
- */
-export default defineConfig(({ command, mode }) => {
-  const isDev = command === 'serve'                    // npm run dev / dev:remote
-  const outDir = 'dist'                                // 🔒 Nginx root와 동일 (/tzchatapp/dist)
-  const useHttps = String(process.env.VITE_DEV_HTTPS || '').toLowerCase() === 'true'
+const config: CapacitorConfig = {
+  appId: 'com.tazocode.tzchat',
+  appName: '네네챗',
+  webDir: 'dist',
 
-  // === 모드 플래그(로깅용) ===
-  const isDevLocal     = isDev && mode === 'development'   // npm run dev
-  const isDevRemote    = isDev && mode === 'dev-remote'    // npm run dev:remote
-  const isWebBuild     = !isDev && mode === 'web'          // npm run build:web
-  const isAppBuild     = !isDev && mode === 'app'          // npm run build:app
-  const isProdWebBuild = !isDev && mode === 'production'   // npm run build:production
-
-  // ===== 콘솔 로그(동작 확인용) =====
-  console.log('================= Vite Config =================')
-  console.log('command:', command, '| mode:', mode)
-  console.log('flags:', { isDevLocal, isDevRemote, isWebBuild, isAppBuild, isProdWebBuild })
-  console.log('base:', '/')
-  console.log('outDir:', outDir)
-  console.log('dev port:', 8081, '| preview port:', 4173, '| https:', useHttps)
-  console.log('API/WS -> 프록시 미사용 (항상 .env.* 의 절대 URL 사용)')
-  console.log('✅ Vue template will treat <emoji-picker> as custom element (build-time)')
-  console.log('================================================')
-
-  return {
-    // 🔒 dev/build 동일 경로 기준
-    base: '/',
-
-    plugins: [
-      vue({
-        // ✅ SFC 템플릿 컴파일 단계에서 커스텀 엘리먼트로 인식
-        template: {
-          compilerOptions: {
-            isCustomElement: (tag) => tag === 'emoji-picker',
-          },
-        },
-      }),
-    ],
-
-    // 경로 별칭: @ -> src (tsconfig.paths와 일치)
-    resolve: {
-      alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url)),
+  server: isDebug
+    ? {
+        url: 'https://tzchat.tazocode.com',
+        cleartext: false,
+      }
+    : {
+        androidScheme: 'https',
+        iosScheme: 'https',
+        cleartext: false,
       },
-    },
 
-    // ✅ 프록시 완전 제거: .env의 절대 URL만 사용
-    server: {
-      host: true,
-      port: 8081,
-      strictPort: true,
-      https: useHttps || false,        // 필요 시: VITE_DEV_HTTPS=true 로 개발 HTTPS
-      // proxy: 없음
+  plugins: {
+    Keyboard: {
+      resize: 'body',               // 키보드가 나올 때 body만 리사이즈 (상단 고정 유지)
+      resizeOnFullScreen: false,    // 전체화면일 때 리사이즈 비활성화
+      style: 'dark',                // (선택) 다크 배경 키보드에서 자연스러운 전환
     },
+  },
+}
 
-    // ✅ build 결과 미리보기
-    preview: {
-      port: 4173,
-      strictPort: true,
-      https: false,                    // 미리보기는 일반적으로 HTTP로
-    },
-
-    // 🔒 빌드 산출물: 서버 nginx root와 일치
-    build: {
-      outDir,
-      sourcemap: false,
-      cssCodeSplit: true,
-      chunkSizeWarningLimit: 1000,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            vendor: ['vue', 'vue-router', '@ionic/vue', '@vueuse/core', 'axios'],
-          },
-        },
-      },
-      target: 'es2019',
-    },
-
-    // 🔎 레이아웃/스타일 디버깅 편의(DEV)
-    css: {
-      devSourcemap: true,
-    },
-
-    // (선택) Vitest 사용 시
-    test: {
-      globals: true,
-      environment: 'jsdom',
-    },
-  }
-})
+export default config
