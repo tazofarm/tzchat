@@ -2,6 +2,7 @@
 console.log('[main] env?', import.meta.env.MODE, import.meta.env.VITE_API_BASE_URL)
 
 import { createApp, nextTick } from 'vue'
+import { createPinia } from 'pinia'                 // ✅ Pinia 추가
 import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
@@ -244,9 +245,11 @@ async function checkIonicHydrationSafe() {
  * 앱 부트
  * ===================== */
 const app = createApp(App)
+const pinia = createPinia()             // ✅ Pinia 인스턴스 생성
 
 /* ✅ 플랫폼별 시각 차이 제거: md 모드 고정 */
 app.use(IonicVue, { mode: 'md' })
+app.use(pinia)                          // ✅ Pinia 등록
 app.use(router)
 
 registerWebPush()

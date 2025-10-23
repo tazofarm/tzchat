@@ -33,7 +33,7 @@ const router = useRouter()
 
 const users = ref([])
 const nickname = ref('')
-const viewerLevel = ref('')   // '일반회원' | '여성회원' | '프리미엄' 등
+const viewerLevel = ref('')   // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium = ref(false)   // 명시적으로 전달
 const loading = ref(true)
 const errorMessage = ref('')
@@ -192,7 +192,7 @@ onMounted(async () => {
     const premiumBool =
       me?.isPremium ??
       me?.premium ??
-      (String(levelFromApi || '').trim() === '프리미엄')
+      (String(levelFromApi || '').trim() === '프리미엄회원')
 
     isPremium.value = Boolean(premiumBool)
 

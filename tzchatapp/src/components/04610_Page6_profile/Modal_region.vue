@@ -7,13 +7,17 @@
         <label for="region1">지역1 (시/도)</label>
         <select id="region1" v-model="selectedRegion1" @change="onRegion1Change">
           <option disabled value="">시/도 선택</option>
-          <option v-for="(districts, province) in regions" :key="province">{{ province }}</option>
+          <option v-for="(districts, province) in regions" :key="province" :value="province">
+            {{ province }}
+          </option>
         </select>
 
         <label for="region2">지역2 (시/군/구)</label>
         <select id="region2" v-model="selectedRegion2">
           <option disabled value="">시/군/구 선택</option>
-          <option v-for="district in region2Options" :key="district">{{ district }}</option>
+          <option v-for="district in region2Options" :key="district" :value="district">
+            {{ district }}
+          </option>
         </select>
       </div>
 
@@ -41,39 +45,55 @@ import { IonButton } from '@ionic/vue'
 import axios from '@/lib/api'
 import { regions } from '@/data/regions.js'
 
-// props 및 emit 정의
 const props = defineProps({
-  // 예: '서울 강남구' 또는 '서울특별시 강남구'
+  // 예: '서울 강남구' (한 칸 공백 구분) — 부모에서 전달
   message: { type: String, default: '' }
 })
 const emit = defineEmits(['close', 'updated'])
 
-// 상태 변수
 const selectedRegion1 = ref('')
 const selectedRegion2 = ref('')
-const region2Options = ref([])
+const region2Options  = ref([])
 
-const errorMsg = ref('')
+const errorMsg   = ref('')
 const successMsg = ref('')
 const isSubmitting = ref(false)
 
-// 초기 세팅: message를 기반으로 selectedRegion1/2 설정
-onMounted(() => {
-  applyInitialMessage(props.message)
-})
-
-watch(
-  () => props.message,
-  (val) => applyInitialMessage(val),
-  { immediate: false }
-)
-
+/** 초기 세팅: message 기반으로 선택값 복구 */
 function applyInitialMessage(msg = '') {
   try {
-    const [r1, r2] = (msg || '').split(' ')
+    const raw = (msg || '').trim().replace(/\s+/g, ' ')
+    if (!raw) {
+      selectedRegion1.value = ''
+      selectedRegion2.value = ''
+      region2Options.value = []
+      return
+    }
+
+    // 앞 단어를 region1으로, 나머지를 region2로 간주 (공백 포함 district 명 방어)
+    const firstSpace = raw.indexOf(' ')
+    let r1 = '', r2 = ''
+    if (firstSpace === -1) {
+      r1 = raw
+      r2 = ''
+    } else {
+      r1 = raw.slice(0, firstSpace)
+      r2 = raw.slice(firstSpace + 1)
+    }
+
+    // 존재하는 region1 키로만 세팅
+    if (!regions[r1]) {
+      // 키가 '서울특별시'인데 '서울'이 넘어오는 등의 경우 보정 시도
+      const guess = Object.keys(regions).find(k => raw.startsWith(k + ' '))
+      if (guess) {
+        r1 = guess
+        r2 = raw.slice(guess.length + 1)
+      }
+    }
+
     selectedRegion1.value = r1 || ''
-    selectedRegion2.value = r2 || ''
     region2Options.value = regions[r1] || []
+    selectedRegion2.value = r2 || ''
   } catch {
     selectedRegion1.value = ''
     selectedRegion2.value = ''
@@ -81,14 +101,17 @@ function applyInitialMessage(msg = '') {
   }
 }
 
-// 지역1 변경 시 하위 옵션 재설정
-const onRegion1Change = () => {
+onMounted(() => applyInitialMessage(props.message))
+watch(() => props.message, v => applyInitialMessage(v))
+
+/** 지역1 변경 시 하위 옵션 재설정 */
+function onRegion1Change() {
   region2Options.value = regions[selectedRegion1.value] || []
   selectedRegion2.value = ''
 }
 
-// 서버 전송
-const submitRegion = async () => {
+/** 서버 전송 */
+async function submitRegion() {
   errorMsg.value = ''
   successMsg.value = ''
 
@@ -100,8 +123,10 @@ const submitRegion = async () => {
     return
   }
 
-  const combined = `${r1} ${r2}`
-  if (combined === (props.message || '').trim()) {
+  const prev = (props.message || '').trim().replace(/\s+/g, ' ')
+  const nextCombined = `${r1} ${r2}`
+
+  if (nextCombined === prev) {
     errorMsg.value = '기존 지역과 동일합니다.'
     return
   }
@@ -114,20 +139,30 @@ const submitRegion = async () => {
       { withCredentials: true }
     )
 
-    // 서버가 일관되게 { ok: true } 또는 { message: '...' }를 줄 수 있음
-    if (res.data?.ok || res.data?.message) {
-      console.log('[Modal_region] 지역 수정 성공 →', combined)
+    // ✅ 성공 판정 강화: 2xx 상태코드 또는 success/ok 플래그가 true면 성공 처리
+    const httpOk = res && res.status >= 200 && res.status < 300
+    const flagOk = !!(res?.data?.success || res?.data?.ok)
+
+    if (httpOk || flagOk) {
       successMsg.value = '지역이 성공적으로 수정되었습니다.'
       setTimeout(() => {
-        emit('updated', combined)
+        // 부모가 객체/문자열 모두 처리 가능하지만, 더 명확하게 객체로 전달
+        emit('updated', { region1: r1, region2: r2 })
         emit('close')
-      }, 900)
+      }, 650)
     } else {
-      errorMsg.value = res.data?.message || '수정 실패'
+      errorMsg.value = res?.data?.message || '수정 실패'
     }
   } catch (err) {
     console.error('[Modal_region] 서버 오류', err)
-    errorMsg.value = err?.response?.data?.message || '서버 오류가 발생했습니다.'
+    const status = err?.response?.status
+    if (status === 409) {
+      errorMsg.value = err?.response?.data?.message || '다른 변경과 충돌했습니다. 다시 시도해 주세요.'
+    } else if (status === 400) {
+      errorMsg.value = err?.response?.data?.message || '요청 값이 올바르지 않습니다.'
+    } else {
+      errorMsg.value = err?.response?.data?.message || '서버 오류가 발생했습니다.'
+    }
   } finally {
     isSubmitting.value = false
   }
@@ -136,81 +171,60 @@ const submitRegion = async () => {
 
 <style scoped>
 /* ──────────────────────────────────────────────────────────────
-   지역 수정 모달 - CSS 보정(HTML/JS 변경 최소)
-   목적
-   - 모바일 가독성(검정 글씨) & 터치 타깃 강화(≥44px)
-   - 안전영역(safe-area) / 작은 화면 스크롤 안정성
-   - 포커스 접근성(:focus-visible) / 모션 최소화 대응
-   - 일관된 여백·그림자·라운드 및 반응형 폰트 스케일
+   지역 수정 모달 - CSS 보정
 ────────────────────────────────────────────────────────────── */
-
-/* 오버레이: 화면 전체 덮기 + 살짝 블러 */
 .popup-overlay {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;             /* 세로 중앙 */
-  justify-content: center;         /* 가로 중앙 */
+  align-items: center;
+  justify-content: center;
   background-color: rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   z-index: 1000;
-
-  /* 스크롤 체인/바운스 방지 + 안전영역 반영 */
   overscroll-behavior: contain;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px)
-           12px
-           calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
-
-/* 모달 카드 */
 .popup-content {
   background: #fff;
-  color: #000;                     /* 가독성: 기본 검정 */
+  color: #000;
   width: min(92vw, 420px);
-  max-height: min(86vh, 640px);    /* 작은 화면에서 넘치면 내부 스크롤 */
+  max-height: min(86vh, 640px);
   border: 1px solid #eaeaea;
   border-radius: 14px;
   box-shadow: 0 10px 28px rgba(0,0,0,0.18);
   padding: 16px 18px;
-  text-align: center;              /* 기존 가운데 정렬 유지 */
-  overflow: auto;                  /* 내부 스크롤 */
+  text-align: center;
+  overflow: auto;
   box-sizing: border-box;
   animation: modal-in .18s ease-out;
   transform-origin: center;
 }
-
-/* 제목 */
 .popup-content h3 {
   margin: 0 0 10px;
   font-size: clamp(16px, 3.4vw, 18px);
   font-weight: 800;
   line-height: 1.25;
 }
-
-/* 선택 그룹 레이아웃: 라벨/셀렉트 간격 일관화 */
 .select-group {
   margin-top: 12px;
   text-align: left;
   display: grid;
-  grid-template-columns: 1fr;      /* 단일 컬럼 */
-  grid-row-gap: 8px;               /* 요소 간 간격 */
+  grid-template-columns: 1fr;
+  grid-row-gap: 8px;
 }
-
-/* 라벨: 시인성 강화 */
 .select-group label {
   font-size: clamp(14px, 2.8vw, 15px);
   font-weight: 700;
   color: #111;
   letter-spacing: 0.1px;
 }
-
-/* 셀렉트: iOS 확대 방지(16px), 포커스 링, 터치 타깃 강화 */
 .select-group select {
   width: 100%;
-  min-height: 44px;                /* 터치 타깃 */
+  min-height: 44px;
   padding: 10px 12px;
-  font-size: 16px;                 /* iOS 줌 방지 기준값 */
+  font-size: 16px;
   line-height: 1.3;
   background: #fff;
   color: #111;
@@ -218,7 +232,7 @@ const submitRegion = async () => {
   border-radius: 10px;
   outline: none;
   transition: border-color .15s, box-shadow .15s;
-  -webkit-appearance: none;        /* 플랫폼 기본 화살표 최소화(브라우저별) */
+  -webkit-appearance: none;
   appearance: none;
 }
 .select-group select:focus-visible {
@@ -226,8 +240,6 @@ const submitRegion = async () => {
   box-shadow: 0 0 0 3px rgba(59,130,246,.25);
   border-radius: 10px;
 }
-
-/* 버튼 그룹: 가로 나란히(좁을 땐 자동 랩) */
 .button-group {
   display: grid;
   grid-auto-flow: column;
@@ -238,11 +250,9 @@ const submitRegion = async () => {
   --border-radius: 12px;
   --padding-start: 12px; --padding-end: 12px;
   --padding-top: 8px; --padding-bottom: 8px;
-  min-height: 44px;                /* 터치 타깃 강화 */
+  min-height: 44px;
   font-weight: 700;
 }
-
-/* 메시지(오류/성공) */
 .error-msg,
 .success-msg {
   margin: 6px 0 0;
@@ -253,26 +263,18 @@ const submitRegion = async () => {
 }
 .error-msg { color: #c0392b; }
 .success-msg { color: #2d7a33; }
-
-/* 키보드 포커스 접근성(공통) */
 :focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(59,130,246,.35);
   border-radius: 10px;
 }
-
-/* 초소형 화면(≤360px) 보정 */
 @media (max-width: 360px) {
   .popup-content { padding: 14px; width: 94vw; }
   .button-group { gap: 6px; }
 }
-
-/* 사용자 모션 최소화 설정 존중 */
 @media (prefers-reduced-motion: reduce) {
   .popup-content { animation: none !important; }
 }
-
-/* 가벼운 등장 애니메이션 */
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(6px) scale(.98); }
   to   { opacity: 1; transform: translateY(0)   scale(1); }

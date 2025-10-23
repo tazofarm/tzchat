@@ -6,6 +6,7 @@ module.exports = (app) => {
     next();
   });
 
+  
   // ----------------------------------------------------------
   // ✅ Public / Legal — 로그인 불필요 공개 엔드포인트들을 먼저!
   //    (catch-all을 가진 일반 /api 라우터보다 앞에 와야 함)
@@ -19,6 +20,7 @@ module.exports = (app) => {
   // ----------------------------------------------------------
   app.use('/api/admin', require('./admin/termsRouter'));         // 관리자 전용 – 약관
   app.use('/api/admin', require('./admin/adminRouter'));         // 관리자 전용 – 시스템/유저/채팅/공지/통계/환경
+  app.use('/api/admin', require('./admin/migrationRouter'));        // 관리자 전용 – migration
 
   // ----------------------------------------------------------
   // User / Auth / Profile 등 일반 /api 라우터 (인증 요구 가능)
@@ -45,4 +47,17 @@ module.exports = (app) => {
   // ----------------------------------------------------------
   app.use('/api/push', require('./system/pushRouter'));          // 푸시 디바이스 토큰 등록/해제
   app.use('/api/account', require('./system/accountDeletionRouter')); // 회원 탈퇴
+
+  // ----------------------------------------------------------
+  // membership
+  // ----------------------------------------------------------
+  app.use('/api/membership', require('./membership/membershipRouter'));          // 맴버쉽 라우터
+  
+  // ----------------------------------------------------------
+  // payment
+  // ----------------------------------------------------------
+  app.use('/api', require('./payment/paymentRouter'));          // 구매 라우터
+
+
 };
+ 

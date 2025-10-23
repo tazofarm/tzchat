@@ -1,4 +1,4 @@
-<!-- src/components/04010_Page0_emergency/Emergency_swape.vue (기존 파일을 교체하려면 원래 경로/파일명으로 저장하세요) -->
+<!-- src/components/04010_Page0_emergency/Emergency_swape.vue -->
 <template>
   <ion-page>
     <ion-content fullscreen class="no-gutter">
@@ -22,12 +22,55 @@
 
       <!-- ✅ 공용 스와이프 리스트 (SwapeList) -->
       <SwapeList
+        ref="swapeRef"
         :users="emergencyUsers"
         :is-loading="isLoading"
         :viewer-level="viewerLevel"
         :is-premium="isPremium"
         @userClick="u => goToUserProfile(u)"
-      />
+      >
+        <!-- ✅ 마지막에 붙는 '새로운 친구 보기' 카드 -->
+        <template #tail>
+          <div
+            class="reset-card"
+            role="button"
+            tabindex="0"
+            @click="openResetConfirm"
+            @keyup.enter.space="openResetConfirm"
+            :aria-disabled="resetUsed >= resetLimit || isLoading"
+            :style="{ '--op': (resetUsed >= resetLimit || isLoading) ? 0.5 : 1 }"
+          >
+            <div class="reset-card-inner">
+              <div class="reset-emoji">🔄</div>
+              <div class="reset-title">새로운 친구 보기</div>
+              <div class="reset-sub">({{ resetUsed }}/{{ resetLimit }})</div>
+            </div>
+          </div>
+        </template>
+      </SwapeList>
+
+      <!-- ✅ 확인/취소 모달 -->
+      <div
+        v-if="showResetConfirm"
+        class="reset-modal-overlay"
+        @click.self="cancelReset"
+      >
+        <div
+          class="reset-modal-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-title"
+        >
+          <h3 id="reset-title">새로운 친구 보기</h3>
+          <p class="reset-modal-text">
+            지금 보이는 긴급 사용자 카드 구성이 바뀝니다. 진행할까요?
+          </p>
+          <div class="reset-modal-actions">
+            <button class="btn-confirm" type="button" @click="confirmReset">확인</button>
+            <button class="btn-cancel"  type="button" @click="cancelReset">취소</button>
+          </div>
+        </div>
+      </div>
     </ion-content>
   </ion-page>
 </template>
@@ -35,7 +78,8 @@
 <script setup>
 /* -----------------------------------------------------------
    Emergency (스와이프 카드형)
-   - UserList → SwapeList로 변경
+   - 맨 끝에 '새로운 친구 보기' 카드 추가 (#tail 슬롯)
+   - 클릭 시 리셋 → 목록 재계산 → 첫 카드로 이동
    - 프리미엄 판정/필터/소켓/카운트다운 로직 유지
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
@@ -49,6 +93,7 @@ import { connectSocket as connectSharedSocket } from '@/lib/socket'
 import { IonPage, IonContent, IonModal } from '@ionic/vue'
 
 /* ===== 상태 ===== */
+const swapeRef = ref(null)
 const emergencyUsers = ref([])
 const isLoading = ref(true)
 const emergencyOn = ref(false)
@@ -59,9 +104,39 @@ const router = useRouter()
 const socket = ref(null)
 const excludeIds = ref(new Set())
 
-/* ✅ SwapeList 프리미엄 판정 전달용 */
+/* ✅ 프리미엄회원 판정 전달용 */
 const viewerLevel = ref('')
 const isPremium = ref(false)
+
+/* ===== 리셋 상태(일/사용자별) ===== */
+const resetLimit = 500        // target.vue와 동일
+const resetUsed = ref(0)
+const resetIndex = ref(0)
+const seedDay = ref('')
+const viewerId = ref('')
+
+function yyyymmddKST(date = new Date()) {
+  const fmt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })
+  const parts = fmt.formatToParts(date).reduce((o,p)=>{ o[p.type]=p.value; return o }, {})
+  return `${parts.year}${parts.month}${parts.day}`
+}
+function loadResetState() {
+  const day = yyyymmddKST()
+  seedDay.value = day
+  const key = `emg:${viewerId.value || 'anon'}:${day}`
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || '{}')
+    resetUsed.value = Number(saved.used || 0)
+    resetIndex.value = Number(saved.idx || 0)
+  } catch {
+    resetUsed.value = 0
+    resetIndex.value = 0
+  }
+}
+function saveResetState() {
+  const key = `emg:${viewerId.value || 'anon'}:${seedDay.value || yyyymmddKST()}`
+  localStorage.setItem(key, JSON.stringify({ used: resetUsed.value, idx: resetIndex.value }))
+}
 
 /* ===== 유틸: 제외목록 필터/구성 ===== */
 const filterByExcludeIds = (list, set) =>
@@ -115,7 +190,7 @@ const onHeaderToggle = async (next) => {
 const closeAdv = () => { showAdvModal.value = false }
 const onAdvDidDismiss = () => { showAdvModal.value = false }
 
-/* ===== Emergency 상태 판정/정렬 ===== */
+/* ===== Emergency 상태/정렬 ===== */
 function isEmergencyActive(u) {
   try {
     const em = u?.emergency || {}
@@ -299,19 +374,53 @@ const clearCountdown = () => {
   remainingSeconds.value = 0
 }
 
+/* ===== 리셋 카드 동작 ===== */
+const showResetConfirm = ref(false)
+function openResetConfirm() {
+  if (resetUsed.value >= resetLimit || isLoading.value) return
+  showResetConfirm.value = true
+}
+function cancelReset() {
+  showResetConfirm.value = false
+}
+async function confirmReset() {
+  showResetConfirm.value = false
+  if (resetUsed.value >= resetLimit) return
+  resetUsed.value += 1
+  resetIndex.value += 1
+  saveResetState()
+  // 새 목록 반영
+  await fetchEmergencyUsers()
+  // 첫 슬라이드로 이동
+  await nextTick()
+  goToFirstCard()
+}
+
+/* ===== 첫 카드로 이동 (SwapeList API 케이스 커버) ===== */
+function goToFirstCard() {
+  const c = swapeRef.value
+  if (!c) { try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch {} ; return }
+  if (typeof c.slideTo === 'function') { c.slideTo(0); return }
+  if (typeof c.goTo === 'function') { c.goTo(0); return }
+  if (typeof c.goToStart === 'function') { c.goToStart(); return }
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch {}
+}
+
 /* ===== 라이프사이클 ===== */
 onMounted(async () => {
   try {
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
+    viewerId.value = String(me?._id || '')
     emergencyOn.value = me?.emergency?.isActive === true
 
     const levelFromApi = me?.level || me?.user_level || me?.membership || ''
     viewerLevel.value = String(levelFromApi || '').trim()
     const premiumBool =
-      me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄')
+      me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
 
+    loadResetState()
     await fetchRelations()
 
     if (emergencyOn.value && me?.emergency?.remainingSeconds > 0) {
@@ -343,9 +452,11 @@ onBeforeUnmount(() => {
 :root, :host {
   --bg: #0b0b0d;
   --text: #d7d7d9;
+  --panel: #121214;
+  --panel-2: #17171a;
+  --divider: #26262a;
 }
 
-/* ion-content 여백/세이프에어리어 제거 */
 .no-gutter {
   --background: var(--bg);
   --padding-start: 0;
@@ -362,8 +473,47 @@ onBeforeUnmount(() => {
   overscroll-behavior: none;
 }
 
-/* 상단 스위치 헤더: 좌우·상하 여백 제거 */
 .em-header { padding: 0; margin: 0; }
 
-/* (참고) SwapeList 내부에서 슬라이드/카드 여백 제거 스타일을 이미 설정해두는 것이 가장 확실합니다. */
+/* ✅ 스와이프 마지막 '새로운 친구 보기' 카드 */
+.reset-card{
+  width: 100%;
+  height: 260px; /* 카드 높이는 SwapeList 카드 비율에 맞게 조정 */
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--divider);
+  border-radius: 16px;
+  background: #151518;
+  cursor:pointer;
+  opacity: var(--op, 1);
+}
+.reset-card-inner{
+  text-align:center;
+  line-height:1.35;
+}
+.reset-emoji{ font-size: 42px; margin-bottom: 6px; }
+.reset-title{ font-size: 18px; font-weight: 700; }
+.reset-sub{ font-size: 14px; color:#a9a9ad; margin-top: 2px; }
+
+/* ✅ 리셋 확인 모달 */
+.reset-modal-overlay{
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  display:flex; align-items:center; justify-content:center;
+  z-index: 9999;
+}
+.reset-modal-card{
+  width: min(88vw, 420px);
+  background:#1a1a1d; color:#e7e7ea; border:1px solid #2a2a2e;
+  border-radius:14px; padding:18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.reset-modal-text{ margin: 10px 0 18px; color:#bdbdc2; }
+.reset-modal-actions{
+  display:flex; gap:10px; justify-content:flex-end;
+}
+.btn-confirm, .btn-cancel{
+  padding:8px 12px; border-radius:10px; border:1px solid #2a2a2e;
+  background:#111114; color:#e7e7ea; cursor:pointer;
+}
+.btn-confirm{ background:#2a2a2e; }
+.btn-confirm:focus, .btn-cancel:focus{ outline:2px solid #3a3a3f; outline-offset:2px; }
 </style>

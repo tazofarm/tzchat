@@ -51,7 +51,7 @@
         <li class="list-item" @click="goPage('/home/admin/0012')">0012</li>
         <li class="list-item" @click="goPage('/home/admin/0013')">0013</li>
         <li class="list-item" @click="goPage('/home/admin/0014')">0014</li>
-        <li class="list-item" @click="goPage('/home/admin/0015')">0015</li>
+        <li class="list-item" @click="goPage('/home/admin/0015')">0015_베타→일반 전환</li>
         <li class="list-item" @click="goPage('/home/admin/0016')">0016</li>
         <li class="list-item" @click="goPage('/home/admin/0017')">0017</li>
         <li class="list-item" @click="goPage('/home/admin/0018')">0018</li>

@@ -383,6 +383,41 @@ router.get('/chatrooms/unread-total', requireLogin, async (req, res) => {
 });
 
 /* ===========================================
+ * [1-2] 내가 대화한 상대 ID 목록 (타겟 필터용)
+ *   - GET /api/chatrooms/partners
+ *   - 결과: { ids: [<상대방ID>...] }
+ * =========================================== */
+router.get('/chatrooms/partners', requireLogin, async (req, res) => {
+  console.log('[API][REQ]', { path: req.baseUrl + req.path, method: 'GET', userId: getMyId(req) });
+  try {
+    const myId = getMyId(req);
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
+    console.log('[DB][QRY]', { model: 'ChatRoom', op: 'find', criteria: { participants: myObjId }, select: 'participants' });
+
+    const rooms = await ChatRoom.find({ participants: myObjId })
+      .select('participants')
+      .lean();
+
+    const ids = [
+      ...new Set(
+        (rooms || [])
+          .flatMap(r => Array.isArray(r.participants) ? r.participants : [])
+          .map(p => String(p))
+          .filter(pid => pid !== String(myId))
+      )
+    ];
+
+    console.log('[API][RES]', { path: req.baseUrl + req.path, status: 200, count: ids.length });
+    return res.json({ ids });
+  } catch (err) {
+    console.error('[API][ERR]', { path: req.baseUrl + req.path, message: err?.message });
+    return res.status(500).json({ message: '채팅 상대 조회 실패' });
+  }
+});
+
+/* ===========================================
  * [2] 채팅방 메시지 조회
  * =========================================== */
 router.get('/chatrooms/:id', requireLogin, async (req, res) => {
@@ -619,7 +654,7 @@ router.put('/chatrooms/:id/read', requireLogin, async (req, res) => {
 });
 
 /* ===========================================
- * [4] 채팅방 생성 or 조회 (2인 DM)
+ * [4] 채팅방 생성 or 조회 (두 명 DM)
  * =========================================== */
 router.post('/chatrooms', requireLogin, async (req, res) => {
   console.log('[API][REQ]', { path: req.baseUrl + req.path, method: 'POST', body: req.body, userId: getMyId(req) });

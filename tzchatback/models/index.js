@@ -10,9 +10,11 @@ require('./Chat/Message');  //역할: 채팅 메시지(텍스트/이미지)와 �
 require('./Legal/Terms');  //역할: 약관 동의
 require('./Legal/UserAgreement');  //역할: 버전관리
 
+//membership
+require('./membership/MembershipOrder');  //역할: 멤버십 결제내역 (등급 구매 기록)
+
 //Payment
 require('./Payment/Payment');  //역할: 결제 / 구독 모델 뼈대
-
 
 //Social
 require('./Social/FriendRequest');  //역할: 친구 신청 흐름 관리(보냄/받음/수락/거절).
@@ -36,6 +38,9 @@ module.exports = {
   //Chat
   ChatRoom: mongoose.model('ChatRoom'),
   Message: mongoose.model('Message'),
+
+  //membership
+  MembershipOrder: mongoose.model('MembershipOrder'),
 
   //Payment
   Payment: mongoose.model('Payment'),

@@ -7,8 +7,9 @@
       <!-- 🔸 등급 선택 -->
       <select v-model="selectedGrade" class="select-box" aria-label="회원 등급 선택">
         <option value="일반회원">일반회원</option>
-        <option value="여성회원">여성회원</option>
-        <option value="프리미엄">프리미엄</option>
+        <option value="라이트회원">라이트회원</option>
+        <option value="프리미엄회원">프리미엄회원</option>
+        <option value="베타회원">베타회원</option>
       </select>
 
       <!-- 🔸 메시지 -->
@@ -29,7 +30,7 @@
    Modal_preference.vue (개조)
    - 회원 등급(user_level) 수정 모달 (테스트용)
    - DB 변경 없음: user_level만 PATCH
-   - PATCH /api/user/grade  { grade: '일반회원|여성회원|프리미엄' }
+   - PATCH /api/user/grade  { grade: '일반회원|라이트회원|프리미엄회원' }
    - 성공 시 부모로 'updated' 이벤트로 새 값 전달
 ------------------------------------------------------------------- */
 import { ref, onMounted } from 'vue'
@@ -48,7 +49,7 @@ const successMsg = ref('')
 
 onMounted(() => {
   const init = (props.current || '').trim()
-  selectedGrade.value = ['일반회원','여성회원','프리미엄'].includes(init) ? init : '일반회원'
+  selectedGrade.value = ['일반회원','라이트회원','프리미엄회원','베타회원'].includes(init) ? init : '일반회원'
 })
 
 const submitGrade = async () => {

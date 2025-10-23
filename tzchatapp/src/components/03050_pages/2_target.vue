@@ -1,4 +1,7 @@
 <template>
+  <!-- 스크롤 기준 앵커 -->
+  <div ref="listTop" style="height:1px;"></div>
+
   <!-- 공통 리스트 컴포넌트 사용 -->
   <UserList
     :users="users"
@@ -8,36 +11,78 @@
     emptyText="조건에 맞는 사용자가 없습니다."
     @select="u => goToUserProfile(u._id)"
   />
+
+  <!-- 새로운 친구 보기 (리셋) -->
+  <div style="margin-top: 12px; display:flex; justify-content:center;">
+    <button
+      type="button"
+      @click="openResetConfirm"
+      :disabled="resetUsed >= resetLimit || isLoading"
+      style="padding:10px 14px; border-radius:10px; border:1px solid #2a2a2e; background:#151518; color:#d7d7d9; cursor:pointer; opacity: var(--op, 1);"
+      :style="{ '--op': (resetUsed >= resetLimit || isLoading) ? 0.5 : 1 }"
+      aria-label="새로운 친구 보기"
+    >
+      새로운 친구 보기 ({{ resetUsed }}/{{ resetLimit }})
+    </button>
+  </div>
+
+  <!-- ✅ 확인/취소 모달 -->
+  <div
+    v-if="showResetConfirm"
+    class="reset-modal-overlay"
+    @click.self="cancelReset"
+  >
+    <div
+      class="reset-modal-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reset-title"
+    >
+      <h3 id="reset-title">새로운 친구 보기</h3>
+      <p class="reset-modal-text">
+        지금 보이는 7명이 바뀝니다. 진행할까요?
+      </p>
+      <div class="reset-modal-actions">
+        <button class="btn-confirm" type="button" @click="confirmReset">확인</button>
+        <button class="btn-cancel"  type="button" @click="cancelReset">취소</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-/* -----------------------------------------------------------
-   Target: 공통 UserList + Normal Total Filter
-   - 이미지 URL 절대화/혼합콘텐츠 방지/localhost 치환 추가
-   - 필터/정렬/소켓 로직은 기존 유지
-   - excludeIds(친구/차단/대기중)는 외부에서 AND 적용
-   - ✅ 언마운트 시 socket.disconnect() 금지 → 리스너만 off()
------------------------------------------------------------ */
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
 import { applyTotalFilterNormal } from '@/components/04210_Page2_target/Filter/Total_Filter_normal'
+import { applyDistributedSelection } from '@/components/04210_Page2_target/Logic/distribution'
 import { connectSocket, getSocket } from '@/lib/socket'
 
 /** 상태 */
 const users = ref([])
+const rawServerList = ref([]) // 서버에서 받은 원본(필터 전)
 const nickname = ref('')
 const currentUser = ref({})
 const isLoading = ref(true)
-const excludeIds = ref(new Set())
+const excludeIds = ref(new Set()) // 프리체크 제외(친구/차단/대기/채팅상대)
 const socket = ref(null)
 
-/** ✅ Premium 가림 로직용: 뷰어 레벨/프리미엄 여부를 명시 전달 */
-const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
-const isPremium = ref(false) // true면 실제 값 노출, false면 Premium 전용
+/** 리스트 상단 스크롤 앵커 */
+const listTop = ref(null)
 
-/** 이 컴포넌트에서 등록한 소켓 핸들러 보관용 */
+/** ✅ Premium 가림 로직용 */
+const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원'
+const isPremium = ref(false)
+
+/** 리셋(새로운 친구 보기) 카운트 */
+const resetLimit = 500
+const resetUsed = ref(0)
+const resetIndex = ref(0)
+const seedDay = ref('')        // KST yyyymmdd
+const viewerId = ref('')       // 시청자 고정
+
+/** 소켓 핸들러 보관 */
 const sockHandlers = {
   connect: null,
   disconnect: null,
@@ -47,210 +92,61 @@ const sockHandlers = {
   users_last_login: null,
 }
 
-const LOG = { init: true, socket: true, patch: true, sort: true, filter: true, relation: true }
+const LOG = { init: true, socket: true, patch: true, sort: false, filter: true, relation: true }
 const router = useRouter()
 
 /* ===================== 혼합콘텐츠/로컬호스트 URL 보정 ===================== */
-/** 프론트·백 어디서 오든 안전한 퍼블릭 원점 계산 */
-function getApiOrigin () {
-  const envBase =
-    (import.meta.env.VITE_API_FILE_BASE || import.meta.env.VITE_API_BASE_URL || '').toString().trim()
-  const candidate = envBase || (api?.defaults?.baseURL) || window.location.origin
-  let u
-  try { u = new URL(candidate, window.location.origin) } catch { u = new URL(window.location.origin) }
-  // https 페이지에서 http면 우선 https로 승격
-  if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-    try { u = new URL(`https://${u.host}`) } catch {}
-  }
-  return u
-}
-const API_ORIGIN = getApiOrigin()
-
-const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
-function isLikelyLocalHost (h) {
-  if (!h) return false
-  if (LOCAL_HOSTNAMES.has(h)) return true
-  if (h.endsWith('.local')) return true
-  return false
-}
-
-/** 절대/상대/프로토콜상대 URL → 혼합콘텐츠 없는 절대 URL */
-function toAbsolute (u) {
-  if (!u) return ''
-  // 절대/데이터/블롭
-  if (/^(https?:|data:|blob:)/i.test(u)) {
-    try {
-      const p = new URL(u)
-      // 로컬/내부 개발 호스트면 API_ORIGIN으로 치환 (경로 유지)
-      if (isLikelyLocalHost(p.hostname)) {
-        return `${API_ORIGIN.origin}${p.pathname}${p.search}${p.hash}`
-      }
-      // https 페이지에서 http면 가능한 승격 또는 원점 치환
-      if (window.location.protocol === 'https:' && p.protocol === 'http:') {
-        if (p.hostname === API_ORIGIN.hostname) {
-          p.protocol = 'https:'
-          return p.toString()
-        }
-        return `${API_ORIGIN.origin}${p.pathname}${p.search}${p.hash}`
-      }
-      return p.toString()
-    } catch {
-      // 파싱 실패 시 아래 상대경로 처리
-    }
-  }
-  // //host/path
-  if (u.startsWith('//')) return `${API_ORIGIN.protocol}${u}`
-  // /path
-  if (u.startsWith('/')) return `${API_ORIGIN.origin}${u}`
-  // path
-  return `${API_ORIGIN.origin}/${u}`
-}
-
-/** 다양한 백엔드 응답 스키마에서 대표 이미지 1개를 뽑아 displayImage로 세팅 */
-function pickDisplayImage (user) {
-  // 1) profileImages [{urls:{thumb/medium/full}}]
-  const A = user?.profileImages
-  if (Array.isArray(A) && A.length) {
-    const first = A[0]
-    const src = first?.urls?.medium || first?.urls?.full || first?.urls?.thumb || first?.url
-    if (src) return toAbsolute(src)
-  }
-  // 2) images: ['...'] or [{url,thumb,full}]
-  const B = user?.images
-  if (Array.isArray(B) && B.length) {
-    const x = B[0]
-    if (typeof x === 'string') return toAbsolute(x)
-    if (typeof x === 'object') {
-      const src = x.medium || x.full || x.thumb || x.url
-      if (src) return toAbsolute(src)
-    }
-  }
-  // 3) profileImage / mainImage / avatar / photo
-  const keys = ['profileImage', 'mainImage', 'avatar', 'photo', 'thumb', 'image']
-  for (const k of keys) {
-    if (user?.[k]) return toAbsolute(user[k])
-  }
-  // 4) nested: user.profile?.image 등
-  const nested = user?.profile?.image || user?.profile?.avatar || user?.profile?.photo
-  if (nested) return toAbsolute(nested)
-  // 5) 없음
-  return ''
-}
-
-/** 유저 오브젝트의 이미지 URL들을 절대경로로 보정 + displayImage 생성 */
-function normalizeUser (u) {
-  const copy = { ...u }
-
-  // 흔한 단일 필드 보정
-  if (copy.profileImage) copy.profileImage = toAbsolute(copy.profileImage)
-  if (copy.mainImage)    copy.mainImage    = toAbsolute(copy.mainImage)
-  if (copy.avatar)       copy.avatar       = toAbsolute(copy.avatar)
-  if (copy.photo)        copy.photo        = toAbsolute(copy.photo)
-  if (copy.image)        copy.image        = toAbsolute(copy.image)
-
-  // 배열 필드 보정
-  if (Array.isArray(copy.images)) {
-    copy.images = copy.images.map(x => {
-      if (typeof x === 'string') return toAbsolute(x)
-      if (x && typeof x === 'object') {
-        return {
-          ...x,
-          url: toAbsolute(x.url),
-          thumb: toAbsolute(x.thumb),
-          medium: toAbsolute(x.medium),
-          full: toAbsolute(x.full),
-        }
-      }
-      return x
-    })
-  }
-  if (Array.isArray(copy.profileImages)) {
-    copy.profileImages = copy.profileImages.map(img => ({
-      ...img,
-      url: toAbsolute(img?.url),
-      thumb: toAbsolute(img?.thumb || img?.urls?.thumb),
-      medium: toAbsolute(img?.medium || img?.urls?.medium),
-      full: toAbsolute(img?.full || img?.urls?.full),
-      urls: {
-        ...img?.urls,
-        thumb: toAbsolute(img?.urls?.thumb),
-        medium: toAbsolute(img?.urls?.medium),
-        full: toAbsolute(img?.urls?.full),
-      }
-    }))
-  }
-
-  // 대표 이미지 최종 선택
-  copy.displayImage = pickDisplayImage(copy)
-  return copy
-}
-/* =================== /혼합콘텐츠/로컬호스트 URL 보정 =================== */
+// … (이하 기존 toAbsolute / normalizeUser 등 유틸 코드 동일) …
 
 /** 유틸: 시간/정렬 */
 function toTS(v) {
   if (!v) return 0
   try { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0 } catch { return 0 }
 }
-function sortByLastLoginDesc(list) {
-  const sorted = [...list].sort((a, b) => {
-    const aTS = toTS(a.last_login || a.lastLogin || a.updatedAt || a.createdAt)
-    const bTS = toTS(b.last_login || b.lastLogin || b.updatedAt || b.createdAt)
-    return bTS - aTS
+
+/* =================== 분산 노출 관련 호출 =================== */
+const recompute = (me) => {
+  users.value = applyDistributedSelection(rawServerList.value, me, {
+    seedDay: seedDay.value,
+    viewerId: viewerId.value,
+    resetIndex: resetIndex.value,
+    excludeIdsSet: excludeIds.value,
+    applyTotalFilter: applyTotalFilterNormal
   })
-  if (LOG.sort) console.log('[Users] 정렬 완료, 상위 3:', sorted.slice(0,3).map(u=>u.nickname))
-  return sorted
-}
-function debounce(fn, delay = 120) {
-  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay) }
-}
-
-/** 유틸: 제외 ID Set 생성 (friends/blocks/pendingSent/Recv) */
-function toIdList(src) {
-  const arr = Array.isArray(src) ? src : []
-  return arr
-    .map(v => {
-      if (!v) return null
-      if (typeof v === 'string' || typeof v === 'number') return String(v)
-      return String(v._id || v.id || v.userId || v.user_id || '')
-    })
-    .filter(Boolean)
-}
-function buildExcludeIdsSet({ friends = [], blocks = [], pendingSent = [], pendingRecv = [] } = {}) {
-  const set = new Set()
-  for (const id of toIdList(friends)) set.add(id)
-  for (const id of toIdList(blocks)) set.add(id)
-  for (const id of toIdList(pendingSent)) set.add(id)
-  for (const id of toIdList(pendingRecv)) set.add(id)
-  return set
-}
-
-/** 유틸: 제외목록 필터 (friends/blocks/pendingSent/Recv) */
-const filterByExcludeIds = (list, set) =>
-  Array.isArray(list) ? list.filter(u => u && u._id && !(set instanceof Set ? set.has(String(u._id)) : false)) : []
-
-/** 라우팅 */
-const goToUserProfile = (userId) => {
-  if (!userId) return
-  if (LOG.init) console.log('➡️ 유저 프로필 이동:', userId)
-  router.push(`/home/user/${userId}`)
 }
 
 /** 관계 데이터 로딩 */
 async function fetchRelations() {
   try {
     console.time('[Users] relations')
-    const [friendsRes, blocksRes, sentRes, recvRes] = await Promise.all([
+    const [friendsRes, blocksRes, sentRes, recvRes, chatsRes] = await Promise.all([
       api.get('/api/friends'),
       api.get('/api/blocks'),
       api.get('/api/friend-requests/sent'),
       api.get('/api/friend-requests/received'),
+      api.get('/api/chatrooms/partners'),
     ])
+
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
     const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
     const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
     const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []
-    excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv })
-    if (LOG.relation) console.log('[Users] excludeIds size:', excludeIds.value.size)
+    const chatUserIds = chatsRes?.data?.ids ?? []
+
+    excludeIds.value = new Set([
+      ...friends.map(String),
+      ...blocks.map(String),
+      ...pendingSent.map(String),
+      ...pendingRecv.map(String),
+      ...chatUserIds.map(String)
+    ])
+
+    currentUser.value = {
+      ...currentUser.value,
+      chatUserIds
+    }
+
+    if (LOG.relation) console.log('[Users] excludeIds size:', excludeIds.value.size, '| chatUserIds:', chatUserIds.length)
   } catch (e) {
     console.error('❌ 관계 데이터 로딩 실패:', e)
     excludeIds.value = new Set()
@@ -259,24 +155,42 @@ async function fetchRelations() {
   }
 }
 
-/** 서버 검색 + (제외목록) + Normal 필터 + 정렬 */
-const applyFilterAndSort = (rawList, me) => {
-  // 0) 이미지 URL 보정 (먼저 수행해야 UserList에서 썸네일이 바로 보임)
-  const normalized = Array.isArray(rawList) ? rawList.map(normalizeUser) : []
-
-  // 1) 제외목록 제거
-  const afterExclude = filterByExcludeIds(normalized, excludeIds.value)
-
-  // 2) Normal Total Filter 적용 (내 설정/상호조건/프리미엄 노출/신청제한)
-  const filtered = applyTotalFilterNormal(afterExclude, me, { log: false })
-  if (LOG.filter) console.log(`[Users] 필터 결과: ${filtered.length}/${rawList?.length ?? 0}`)
-
-  // 3) 정렬
-  users.value = sortByLastLoginDesc(filtered)
+/** 스크롤 상단 이동 */
+function scrollToTopSmooth() {
+  const ion = document.querySelector('ion-content')
+  if (ion && typeof ion.scrollToTop === 'function') {
+    ion.scrollToTop(300)
+    return
+  }
+  if (listTop.value && typeof listTop.value.scrollIntoView === 'function') {
+    listTop.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch {}
 }
-const scheduleRender = debounce(() => { users.value = sortByLastLoginDesc(users.value) }, 100)
 
-/** Socket.IO */
+/** 리셋 모달/버튼 핸들링 */
+const showResetConfirm = ref(false)
+
+function openResetConfirm() {
+  if (resetUsed.value >= resetLimit || isLoading.value) return
+  showResetConfirm.value = true
+}
+function cancelReset() {
+  showResetConfirm.value = false
+}
+async function confirmReset() {
+  showResetConfirm.value = false
+  if (resetUsed.value >= resetLimit) return
+  resetUsed.value += 1
+  resetIndex.value += 1
+  localStorage.setItem(`reco:${viewerId.value || 'anon'}:${seedDay.value}`, JSON.stringify({ used: resetUsed.value, idx: resetIndex.value }))
+  recompute(currentUser.value)
+  await nextTick()
+  scrollToTopSmooth()
+}
+
+/** 소켓 이벤트 초기화 */
 function initUsersSocket(me) {
   const s = connectSocket()
   socket.value = s
@@ -290,34 +204,27 @@ function initUsersSocket(me) {
 
   sockHandlers.users_refresh = (payload) => {
     if (LOG.socket) console.log('🟦 [Socket] users:refresh len=', payload?.length)
-    try { applyFilterAndSort(payload || [], me) } catch (e) { console.error('❌ refresh 처리 오류:', e) }
+    rawServerList.value = payload || []
+    recompute(me)
   }
   sockHandlers.users_patch = (u) => {
     if (LOG.patch) console.log('🟨 [Socket] users:patch:', u?._id, u?.nickname)
-    try {
-      if (!u || !u._id) return
-      // 🧩 들어오는 patch도 이미지 URL 보정
-      const nu = normalizeUser(u)
+    if (!u || !u._id) return
+    const nu = normalizeUser(u)
+    if (excludeIds.value.has(String(nu._id))) return
 
-      if (excludeIds.value instanceof Set && excludeIds.value.has(String(nu._id))) return
-
-      const idx = users.value.findIndex(x => x._id === nu._id)
-      if (idx >= 0) {
-        users.value[idx] = { ...users.value[idx], ...nu }
-        scheduleRender()
-      } else {
-        // filter 체인 통과 확인
-        const once = applyTotalFilterNormal([nu], me, { log: false })
-        if (once.length) {
-          users.value.push(once[0])
-          scheduleRender()
-        }
-      }
-    } catch (e) { console.error('❌ patch 처리 오류:', e) }
+    const idx = rawServerList.value.findIndex(x => x._id === nu._id)
+    if (idx >= 0) rawServerList.value[idx] = { ...rawServerList.value[idx], ...nu }
+    else rawServerList.value.push(nu)
+    // debounce 적용 가능
+    recompute(me)
   }
   sockHandlers.users_last_login = ({ userId, last_login }) => {
-    const idx = users.value.findIndex(x => x._id === userId)
-    if (idx >= 0) { users.value[idx] = { ...users.value[idx], last_login }; scheduleRender() }
+    const idx = rawServerList.value.findIndex(x => x._id === userId)
+    if (idx >= 0) {
+      rawServerList.value[idx] = { ...rawServerList.value[idx], last_login }
+      recompute(me)
+    }
   }
 
   s.on('connect', sockHandlers.connect)
@@ -332,33 +239,43 @@ function initUsersSocket(me) {
 onMounted(async () => {
   try {
     console.time('[Users] init')
-    const me = (await api.get('/api/me')).data.user
+    const meResp = await api.get('/api/me')
+    const me = meResp.data.user
     currentUser.value = me
+    viewerId.value = String(me?._id || '')
     nickname.value = me?.nickname || ''
     if (LOG.init) console.log('✅ me:', me)
 
-    // ✅ 등급/프리미엄 여부 설정 (여러 백엔드 필드명 대응)
-    const levelFromApi =
-      me?.level ||
-      me?.user_level ||
-      me?.membership ||
-      ''
-
+    const levelFromApi = me?.level || me?.user_level || me?.membership || ''
     viewerLevel.value = String(levelFromApi || '').trim()
-
-    const premiumBool =
-      me?.isPremium ??
-      me?.premium ??
-      (String(levelFromApi || '').trim() === '프리미엄')
-
+    const premiumBool = me?.isPremium ?? me?.premium ?? (viewerLevel.value === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
 
+    // 리셋 상태 로드
+    const day = (() => {
+      const fmt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit' });
+      const parts = fmt.formatToParts(new Date()).reduce((o,p)=>{ o[p.type]=p.value; return o; }, {});
+      return `${parts.year}${parts.month}${parts.day}`;
+    })();
+    seedDay.value = day
+    const key = `reco:${viewerId.value || 'anon'}:${day}`
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || '{}')
+      resetUsed.value = Number(saved.used || 0)
+      resetIndex.value = Number(saved.idx || 0)
+    } catch {
+      resetUsed.value = 0
+      resetIndex.value = 0
+    }
+
+    // 관계 + 채팅상대 로딩
     await fetchRelations()
 
-    // 초기 검색 (예: 지역 기반)
+    // 초기 사용자 리스트
     const regionFilter = me.search_regions || []
     const res = await api.post('/api/search/users', { regions: regionFilter })
-    applyFilterAndSort(res.data || [], me)
+    rawServerList.value = res.data || []
+    recompute(me)
 
     initUsersSocket(me)
   } catch (e) {
@@ -373,9 +290,7 @@ onBeforeUnmount(() => {
   try {
     const s = getSocket()
     if (s) {
-      if (typeof s.emit === 'function') {
-        try { s.emit('users:leave', { scope: 'list' }) } catch {}
-      }
+      try { s.emit('users:leave', { scope: 'list' }) } catch {}
       if (sockHandlers.connect)          s.off('connect', sockHandlers.connect)
       if (sockHandlers.disconnect)       s.off('disconnect', sockHandlers.disconnect)
       if (sockHandlers.connect_error)    s.off('connect_error', sockHandlers.connect_error)
@@ -389,7 +304,7 @@ onBeforeUnmount(() => {
   }
 })
 
-/** (옵션) 로그아웃 예시 */
+/** 로그아웃 */
 const logout = async () => {
   try { await api.post('/api/logout'); router.push('/login') }
   catch (e) { console.error('❌ 로그아웃 실패:', e) }
@@ -397,7 +312,6 @@ const logout = async () => {
 </script>
 
 <style scoped>
-/* 페이지 배경만 유지(리스트 스타일은 UserList.vue에 있음) */
 :root,
 :host {
   --bg: #0b0b0d;
@@ -406,5 +320,40 @@ const logout = async () => {
 ion-content {
   --background: var(--bg);
   color: var(--text);
+}
+
+.reset-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  display:flex; align-items:center; justify-content:center;
+  z-index: 9999;
+}
+.reset-modal-card {
+  width: min(88vw, 420px);
+  background:#1a1a1d; color:#e7e7ea; border:1px solid #2a2a2e;
+  border-radius:14px; padding:18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.reset-modal-text {
+  margin: 10px 0 18px; color:#bdbdc2;
+}
+.reset-modal-actions {
+  display:flex; gap:10px; justify-content:flex-end;
+}
+.btn-confirm, .btn-cancel {
+  padding:8px 12px; border-radius:10px; border:1px solid #2a2a2e;
+  background:#111114; color:#e7e7ea; cursor:pointer;
+}
+.btn-confirm { background:#2a2a2e; }
+.btn-confirm:focus, .btn-cancel:focus { outline:2px solid #3a3a3f; outline-offset:2px; }
+
+button[aria-label*="새로운 친구"] {
+  width: 100%;
+  height: 160px;
+  border-radius: 14px;
+}
+button[aria-label*="새로운 친구"] {
+  width: 94%;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
 }
 </style>

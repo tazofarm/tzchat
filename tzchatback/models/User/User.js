@@ -78,8 +78,14 @@ const userSchema = new mongoose.Schema(
     search_preference: { type: String, default: '이성친구 - 전체' },
 
     // 유료회원 관련
-    user_level: { type: String, default: '일반회원' },
+    // ※ 베타기간(정식 전): default '베타회원' → 베타 종료 후 마이그레이션 스크립트에서 '일반회원'로 일괄 전환
+    user_level: { 
+      type: String, 
+      enum: ['베타회원', '일반회원', '라이트회원', '프리미엄회원'],
+      default: '베타회원'
+    },
     refundCountTotal: { type: Number, default: 0, min: 0 },
+
 
     // 다중 검색 지역
     search_regions: {
@@ -181,9 +187,7 @@ function removeSensitive(doc, ret) {
 userSchema.set('toJSON',  { transform: (_, ret) => removeSensitive(_, ret) });
 userSchema.set('toObject', { transform: (_, ret) => removeSensitive(_, ret) });
 
-// ===== 인덱스 (탈퇴 만기 스캔 최적화 + phone/phoneHash)
-// - phone: 값이 "존재할 때만" 유니크 적용(partial index)
-// - phoneHash: 기존 데이터에 null/undefined가 있을 수 있으므로 sparse 권장
+// ===== 인덱스 (탈퇴 만기 스캔 최적화 + phone/phoneHash + user_level)
 userSchema.index({ status: 1, deletionDueAt: 1 });
 userSchema.index({ isDeleted: 1, deletionDueAt: 1 });
 userSchema.index(
@@ -195,6 +199,10 @@ userSchema.index(
   }
 );
 userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
+// 등급별 리스트/집계용 (권장)
+userSchema.index({ user_level: 1 });
+
+
 
 // ===== 인스턴스 메서드: 탈퇴 신청/취소
 userSchema.methods.requestDeletion = function() {

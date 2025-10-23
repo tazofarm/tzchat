@@ -10,7 +10,7 @@
     </div>
 
     <!-- ✅ 공통 리스트 + 하단 액션(취소/차단)
-         ✅ 프리미엄 가림을 위해 viewer-level / is-premium 전달 -->
+         ✅ 프리미엄회원 가림을 위해 viewer-level / is-premium 전달 -->
     <UserList
       :users="users"
       :isLoading="isLoading"
@@ -68,8 +68,8 @@ const users = ref([])            // 보낸신청 대상 유저들(to)만
 const isLoading = ref(true)
 const sentRequests = ref([])     // [{ _id, to, status:'pending', ... }...] (pending만 유지)
 
-/* ✅ 프리미엄 가림 로직 전달용 */
-const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+/* ✅ 프리미엄회원 가림 로직 전달용 */
+const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium   = ref(false)
 
 /* ===== 유틸 ===== */
@@ -207,7 +207,7 @@ onMounted(async () => {
   try {
     isLoading.value = true
 
-    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
+    // ✅ 뷰어 등급/회원 여부 설정 (서버 우선 → 로컬 폴백)
     try {
       const me = (await api.get('/api/me')).data?.user || {}
       const levelFromApi =
@@ -219,13 +219,13 @@ onMounted(async () => {
       const premiumBool =
         me?.isPremium ??
         me?.premium ??
-        (String(levelFromApi || '').trim() === '프리미엄')
+        (String(levelFromApi || '').trim() === '프리미엄회원')
       isPremium.value = Boolean(premiumBool)
     } catch {
       const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
       viewerLevel.value = lv
       const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+      isPremium.value = ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
                         ['true','1','yes','y'].includes(boolish)
     }
 

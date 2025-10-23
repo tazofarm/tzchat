@@ -1,4 +1,4 @@
-// frontend/utils/Filter_premium_exposure.js
+// frontend/04210_Page2_target/Filter_premium_exposure.js
 // ------------------------------------------------------------
 // Premium 전용 노출 필터 (단방향)
 //

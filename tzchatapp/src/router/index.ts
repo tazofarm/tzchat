@@ -15,8 +15,11 @@ import {
 import LoginPage from '@/views/LoginPage.vue'
 import LoginTestPage from '@/views/LoginTestPage.vue'
 import LoginMainPage from '@/views/LoginMainPage.vue'
+import LoginAutoPage from '@/views/LoginAutoPage.vue'
 import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
+
+
 
 import Page0 from '@/components/03050_pages/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
@@ -87,6 +90,12 @@ import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 // ✅ 동의 전용 페이지
 const AgreementPage = () => import('@/legalpage/AgreementPage.vue')
 
+
+// ✅ 멤버십 구매(남/녀 자동 분기 단일 페이지)
+import BuyPage from '@/components/05110_Membership/Buy.vue'
+// ✅ 결제 이력 페이지
+import HistoryPage from '@/components/05110_Membership/History.vue'
+
 // (문서 목록/단일)
 const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
 const LegalContainer = () => import('@/legalpage/LegalContainer.vue')
@@ -100,6 +109,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/signup', component: SignupPage },
   { path: '/loginmain', component: LoginMainPage },
   { path: '/logintester', component: LoginTestPage },
+  { path: '/loginauto', component: LoginAutoPage },
 
   // ✅ 외부 공개 라우트(로그인 불필요)
   { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage },
@@ -120,6 +130,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     children: [
       { path: '', component: Page6 },
+
+      // ✅ 멤버십 관련 라우트
+      { path: 'membership/buy', component: BuyPage, meta: { requiresAuth: true } },
+      { path: 'membership/history', component: HistoryPage, meta: { requiresAuth: true } },
+
+
 
       { path: '0page', component: Page0 },
       { path: '1page', component: Page1 },
@@ -196,6 +212,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0018', component: Admin18, meta: { requiresMaster: true } },
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
+
 
       // ✅ 관리자 약관/정책 관리
       {

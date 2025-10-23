@@ -52,7 +52,7 @@ const users = ref([])      // 화면 표시용: 차단한 유저 객체들
 const isLoading = ref(true)
 
 /* ✅ 프리미엄 가림 로직 전달용 */
-const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium   = ref(false)
 
 /* 유틸 */
@@ -149,13 +149,13 @@ onMounted(async ()=>{
       const premiumBool =
         me?.isPremium ??
         me?.premium ??
-        (String(levelFromApi || '').trim() === '프리미엄')
+        (String(levelFromApi || '').trim() === '프리미엄회원')
       isPremium.value = Boolean(premiumBool)
     } catch {
       const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
       viewerLevel.value = lv
       const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-      isPremium.value = ['프리미엄','premium','premium_member','prem'].includes(lv) ||
+      isPremium.value = ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
                         ['true','1','yes','y'].includes(boolish)
     }
 

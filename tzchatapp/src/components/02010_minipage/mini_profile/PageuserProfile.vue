@@ -1,30 +1,21 @@
 <!-- src/02010_minipage/mini_profile/PageuserProfile.vue -->
 <template>
-  <!-- ✅ 6_profile 스타일을 적용한 사용자 프로필 상세 페이지 -->
   <div class="page-wrapper">
     <div class="container">
 
-      <!-- ░░ 프로필 카드 (타이틀 + 뒤로가기 버튼 한 줄) ░░ -->
+      <!-- 프로필 카드 -->
       <div class="card pf-scope">
         <div class="card-header">
           <h3 class="card-title">
             <IonIcon :icon="icons.personCircleOutline" class="title-icon" />
             {{ user.nickname || '-' }}
           </h3>
-
-          <!-- 뒤로가기 -->
-          <button
-            class="title-action-btn"
-            type="button"
-            @click="goBack"
-            aria-label="뒤로가기"
-          >
+          <button class="title-action-btn" type="button" @click="goBack" aria-label="뒤로가기">
             <IonIcon :icon="icons.chevronBackOutline" class="action-icon" />
             <span class="action-text">뒤로</span>
           </button>
         </div>
 
-        <!-- ░░ 사진 뷰어: 대표 보이기 + 클릭 시 확대/스와이프 ░░ -->
         <div class="photo-slot">
           <ProfilePhotoViewer
             :user-id="user._id || String(route.params.id)"
@@ -34,112 +25,60 @@
         </div>
 
         <table class="info-table">
-          <colgroup>
-            <col class="pf-col-th" />
-            <col class="pf-col-td" />
-          </colgroup>
+          <colgroup><col class="pf-col-th"/><col class="pf-col-td"/></colgroup>
           <tbody>
-            <!-- 성별 -->
             <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.maleFemaleOutline" class="row-icon" />
-                <strong class="label">성별</strong>
-              </td>
-              <td class="pf-td readonly">
-                {{ user.gender === 'man' ? '남자'
-                    : user.gender === 'woman' ? '여자' : '-' }}
-              </td>
+              <td class="pf-th"><IonIcon :icon="icons.maleFemaleOutline" class="row-icon"/><strong class="label">성별</strong></td>
+              <td class="pf-td readonly">{{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '-' }}</td>
             </tr>
-
-            <!-- 출생년도 -->
             <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.calendarOutline" class="row-icon" />
-                <strong class="label">출생년도</strong>
-              </td>
+              <td class="pf-th"><IonIcon :icon="icons.calendarOutline" class="row-icon"/><strong class="label">출생년도</strong></td>
               <td class="pf-td readonly">{{ user.birthyear || '-' }}</td>
             </tr>
-
-            <!-- 지역 -->
             <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.locationOutline" class="row-icon" />
-                <strong class="label">지역</strong>
-              </td>
+              <td class="pf-th"><IonIcon :icon="icons.locationOutline" class="row-icon"/><strong class="label">지역</strong></td>
               <td class="pf-td readonly">{{ user.region1 || '' }} {{ user.region2 || '' }}</td>
             </tr>
-
-            <!-- 특징 (등급별 노출 제어: 뷰어 기준) -->
             <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">특징</strong>
-              </td>
-              <td class="pf-td readonly">{{ viewerIsPremium ? (user.preference || '-') : 'Premium 전용' }}</td>
+              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon"/><strong class="label">특징</strong></td>
+              <td class="pf-td readonly">{{ viewerIsPremium ? (user.preference || '-') : '🔒' }}</td>
             </tr>
-
-            <!-- 결혼 (등급별 노출 제어: 뷰어 기준) -->
             <tr>
-              <td class="pf-th">
-                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
-                <strong class="label">결혼</strong>
-              </td>
-              <td class="pf-td readonly">{{ viewerIsPremium ? (user.marriage || '-') : 'Premium 전용' }}</td>
+              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon"/><strong class="label">결혼</strong></td>
+              <td class="pf-td readonly">{{ viewerIsPremium ? (user.marriage || '-') : '🔒' }}</td>
             </tr>
-          
           </tbody>
         </table>
 
-        <!-- 소개 (셀 클릭 시 모달 오픈) -->
         <table class="info-table">
-          <colgroup>
-            <col class="pf-col-th" />
-            <col class="pf-col-td" />
-          </colgroup>
+          <colgroup><col class="pf-col-th"/><col class="pf-col-td"/></colgroup>
           <tbody>
-            <tr
-              class="editable-row"
-              @click="openIntroModal"
-              tabindex="0"
-              @keydown.enter="openIntroModal"
-            >
-              <td class="pf-th">
-                <IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" />
-                <strong class="label">소개</strong>
-              </td>
+            <tr class="editable-row" @click="openIntroModal" tabindex="0" @keydown.enter="openIntroModal">
+              <td class="pf-th"><IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon"/><strong class="label">소개</strong></td>
               <td class="pf-td editable-text intro-cell">
                 <span class="intro-preview">{{ user.selfintro || '없음' }}</span>
-                <span class="intro-more">
-                  <IonIcon :icon="icons.chevronForwardOutline" class="more-icon" />
-                </span>
+                <span class="intro-more"><IonIcon :icon="icons.chevronForwardOutline" class="more-icon"/></span>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <!-- ░░ 액션 영역 (대화하기/친구신청/차단/신고) ░░ -->
+      <!-- 액션 영역 -->
       <div class="card pf-scope">
-        <!-- 대화하기 -->
-        <div class="chat-button">
-          <ion-button
-            type="button"
-            expand="block"
-            class="btn-primary"
-            :disabled="!user.isFriend || isSubmitting"
-            @click="startChat(user._id)"
-          >
-            <IonIcon :icon="icons.chatbubblesOutline" class="btn-icon" />
-            대화하기
-          </ion-button>
-        </div>
+        <!-- ✅ 3열 그리드 배치
+             1열: 버튼A(두 줄 높이로 세로 확장)
+             2~3열(상단): 대화하기(두 칸 가로 확장)
+             2열(하단): 차단하기
+             3열(하단): 신고하기 -->
+        <div class="action-grid" role="group" aria-label="사용자 액션">
 
-        <!-- 버튼 그룹 -->
-        <div class="button-group" role="group" aria-label="사용자 액션">
+          <!-- ░ 버튼A (친구신청/신청취소/수락하기/친구삭제/차단해제) : 왼쪽, 두 줄 높이 -->
+          <!-- 수락하기 -->
           <ion-button
+            v-if="!user.isFriend && hasIncomingRequest && !user.isBlocked"
             type="button"
-            v-if="!user.isFriend && hasIncomingRequest && !user.isBlocked"  
-            class="btn-primary"
+            class="btn-primary slot-a"
             :disabled="isSubmitting"
             @click="acceptIncomingRequest"
           >
@@ -147,63 +86,81 @@
             수락하기
           </ion-button>
 
+          <!-- 친구신청 -->
           <ion-button
+            v-else-if="!user.isFriend && !hasPendingRequest && !hasIncomingRequest && !user.isBlocked"
             type="button"
-            v-if="!user.isFriend && !hasPendingRequest && !hasIncomingRequest && !user.isBlocked"
-            class="btn-outline"
-            @click="onOpenFriendRequest"
+            class="btn-outline slot-a"
             :disabled="showRequestModal || isSubmitting"
+            @click="onOpenFriendRequest"
           >
             <IonIcon :icon="icons.personAddOutline" class="btn-icon" />
             친구신청
           </ion-button>
 
+          <!-- 신청취소 -->
           <ion-button
+            v-else-if="!user.isFriend && hasPendingRequest && !user.isBlocked"
             type="button"
-            v-if="!user.isFriend && hasPendingRequest && !user.isBlocked"
-            class="btn-warning"
+            class="btn-warning slot-a"
             :disabled="isSubmitting"
             @click="cancelFriendRequest"
           >
             <IonIcon :icon="icons.removeCircleOutline" class="btn-icon" />
-            신청 취소
+            신청취소
           </ion-button>
 
+          <!-- 친구삭제 -->
           <ion-button
+            v-else-if="user.isFriend && !user.isBlocked"
             type="button"
-            v-if="user.isFriend"
-            class="btn-danger"
+            class="btn-danger slot-a"
             :disabled="isSubmitting"
             @click="removeFriend(user._id)"
           >
             <IonIcon :icon="icons.personRemoveOutline" class="btn-icon" />
-            친구 삭제
+            친구삭제
           </ion-button>
 
+          <!-- 차단해제 -->
+          <ion-button
+            v-else
+            type="button"
+            class="btn-muted slot-a"
+            :disabled="isSubmitting"
+            @click="unblockUser(user._id)"
+          >
+            <IonIcon :icon="icons.checkmarkCircleOutline" class="btn-icon" />
+            차단해제
+          </ion-button>
+
+          <!-- ░ 대화하기 : 오른쪽 상단, 두 칸 가로 확장 -->
           <ion-button
             type="button"
+            class="btn-primary slot-chat"
+            :disabled="!user.isFriend || isSubmitting"
+            @click="startChat(user._id)"
+          >
+            <IonIcon :icon="icons.chatbubblesOutline" class="btn-icon" />
+            대화하기
+          </ion-button>
+
+          <!-- ░ 차단하기 : 오른쪽 하단-왼쪽 칸 -->
+          <ion-button
             v-if="!user.isBlocked"
-            class="btn-warning"
+            type="button"
+            class="btn-warning slot-block"
             :disabled="isSubmitting"
             @click="blockUser(user._id)"
           >
             <IonIcon :icon="icons.removeCircleOutline" class="btn-icon" />
             차단하기
           </ion-button>
-          <ion-button
-            type="button"
-            v-else
-            class="btn-muted"
-            :disabled="isSubmitting"
-            @click="unblockUser(user._id)"
-          >
-            <IonIcon :icon="icons.checkmarkCircleOutline" class="btn-icon" />
-            차단 해제
-          </ion-button>
 
+          <!-- ░ 신고하기 : 오른쪽 하단-오른쪽 칸 -->
           <ion-button
             type="button"
-            class="btn-secondary"
+            class="btn-secondary slot-report"
             :disabled="isSubmitting"
             @click="reportUser(user._id)"
           >
@@ -213,69 +170,25 @@
         </div>
       </div>
 
-      <!-- ░░ 소개 모달 (읽기 전용) ░░ -->
-      <div
-        v-if="showIntroModal"
-        class="popup-overlay"
-        role="presentation"
-        @click.self="closeIntroModal"
-      >
-        <div
-          class="popup-content"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="intro-modal-title"
-        >
+      <!-- 소개 모달 -->
+      <div v-if="showIntroModal" class="popup-overlay" role="presentation" @click.self="closeIntroModal">
+        <div class="popup-content" role="dialog" aria-modal="true" aria-labelledby="intro-modal-title">
           <h3 id="intro-modal-title">소개</h3>
           <p class="intro-full">{{ user.selfintro || '소개가 없습니다.' }}</p>
-
           <div class="footer-btns">
-            <ion-button
-              type="button"
-              class="btn-primary"
-              expand="block"
-              @click="closeIntroModal"
-            >확인</ion-button>
+            <ion-button type="button" class="btn-primary" expand="block" @click="closeIntroModal">확인</ion-button>
           </div>
         </div>
       </div>
 
-      <!-- ░░ 친구 신청 모달 ░░ -->
-      <div
-        v-if="showRequestModal"
-        class="popup-overlay"
-        role="presentation"
-        @click.self="onCloseFriendRequest"
-      >
-        <div
-          class="popup-content"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="fr-modal-title"
-        >
+      <!-- 친구 신청 모달 -->
+      <div v-if="showRequestModal" class="popup-overlay" role="presentation" @click.self="onCloseFriendRequest">
+        <div class="popup-content" role="dialog" aria-modal="true" aria-labelledby="fr-modal-title">
           <h3 id="fr-modal-title">친구 신청</h3>
-          <textarea
-            v-model="requestMessage"
-            class="request-input"
-            placeholder="인사말을 입력하세요 (선택)"
-            rows="4"
-          ></textarea>
-
+          <textarea v-model="requestMessage" class="request-input" placeholder="인사말을 입력하세요 (선택)" rows="4"></textarea>
           <div class="footer-btns">
-            <ion-button
-              type="button"
-              class="btn-primary"
-              expand="block"
-              :disabled="isSubmitting"
-              @click="sendFriendRequest"
-            >신청 보내기</ion-button>
-            <ion-button
-              type="button"
-              class="btn-muted"
-              expand="block"
-              :disabled="isSubmitting"
-              @click="onCloseFriendRequest"
-            >취소</ion-button>
+            <ion-button type="button" class="btn-primary" expand="block" :disabled="isSubmitting" @click="sendFriendRequest">신청 보내기</ion-button>
+            <ion-button type="button" class="btn-muted"   expand="block" :disabled="isSubmitting" @click="onCloseFriendRequest">취소</ion-button>
           </div>
         </div>
       </div>
@@ -331,7 +244,6 @@ const icons = {
 const route = useRoute()
 const router = useRouter()
 
-/** 프로필 대상 사용자 (상대방) */
 const user = ref<any>({
   _id: '',
   username: '',
@@ -343,7 +255,7 @@ const user = ref<any>({
   preference: '',
   marriage: '',
   selfintro: '',
-  user_level: '',        // 상대 유저의 등급(표시용)
+  user_level: '',
   isFriend: false,
   isBlocked: false,
   sentRequestCountTotal: 0,
@@ -351,69 +263,37 @@ const user = ref<any>({
   acceptedChatCountTotal: 0
 })
 
-/** ✅ 현재 로그인한 '뷰어'의 등급/프리미엄 여부 (노출 판단은 항상 뷰어 기준) */
-const viewerLevel = ref<string>('') // '일반회원' | '여성회원' | '프리미엄' 등
+const viewerLevel = ref<string>('')
 const viewerIsPremium = computed<boolean>(() => {
-  // 1) 서버 값 우선
   const lv = (viewerLevel.value || '').trim().toLowerCase()
-  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(lv)) return true
-  // 2) 로컬스토리지 폴백
+  if (['프리미엄회원','premium','premium_member','prem'].includes(lv)) return true
   const lvLS = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
-  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(lvLS)) return true
+  if (['프리미엄회원','premium','premium_member','prem'].includes(lvLS)) return true
   const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-  if (['true', '1', 'yes', 'y'].includes(boolish)) return true
+  if (['true','1','yes','y'].includes(boolish)) return true
   return false
 })
-
-/** 템플릿에서 간단히 쓰기 위한 별칭 */
 const isPremium = viewerIsPremium
 
-/** 모달/폼 상태 */
 const showIntroModal = ref(false)
 const showRequestModal = ref(false)
 const requestMessage = ref('')
 
-/** 전송/로딩 제어 */
 const isSubmitting = ref(false)
-
-/** ✅ 내가 보낸 친구신청 pending 여부/ID */
 const hasPendingRequest = ref(false)
-const pendingRequestId = ref<string | null>(null)
-
-/** ✅ 상대가 나에게 보낸 친구신청 pending 여부/ID (수락하기 용) */
+const pendingRequestId = ref<string|null>(null)
 const hasIncomingRequest = ref(false)
-const incomingRequestId = ref<string | null>(null)
+const incomingRequestId = ref<string|null>(null)
 
-/* ========== 유틸 ========== */
 function extractError(e: unknown) {
   if (isAxiosError(e)) return e.response?.data ?? e.message
   if (e instanceof Error) return e.message
   try { return JSON.stringify(e) } catch { return String(e) }
 }
 
-/* ✅ 신고자 정보(LocalStorage 폴백) */
-function getReporterId() {
-  return (
-    localStorage.getItem('userId') ||
-    localStorage.getItem('id') ||
-    localStorage.getItem('_id') ||
-    'unknown'
-  )
-}
-function getReporterNickname() {
-  return (
-    localStorage.getItem('nickname') ||
-    localStorage.getItem('username') ||
-    localStorage.getItem('name') ||
-    'unknown'
-  )
-}
-
-/* ========== 모달 ========== */
 function openIntroModal() { showIntroModal.value = true }
 function closeIntroModal() { showIntroModal.value = false }
 
-/* ========== 데이터 로드 ========== */
 async function loadUser() {
   const targetId = String(route.params.id || '')
   const res = await axios.get(`/api/users/${targetId}`, { withCredentials: true })
@@ -422,7 +302,7 @@ async function loadUser() {
     ...user.value,
     ...data,
     _id: String(data._id || targetId),
-    isFriend:  !!data.isFriend,
+    isFriend: !!data.isFriend,
     isBlocked: !!data.isBlocked,
     user_level: data.user_level || data.level || user.value.user_level || '일반회원',
     sentRequestCountTotal: data.sentRequestCountTotal ?? 0,
@@ -431,34 +311,23 @@ async function loadUser() {
   }
 }
 
-/** ✅ 현재 로그인한 내 등급/프리미엄 여부를 서버에서 가져와서 설정 (노출 판단용) */
 async function loadViewerLevel() {
   try {
     const meRes = await axios.get('/api/me', { withCredentials: true })
     const me = meRes?.data?.user ?? {}
-    const levelFromApi =
-      me?.level ||
-      me?.user_level ||
-      me?.membership ||
-      ''
-    viewerLevel.value = String(levelFromApi || '').trim()
-  } catch (e) {
-    // 서버 실패 시 로컬스토리지 폴백에만 의존
+    viewerLevel.value = String(me?.level || me?.user_level || me?.membership || '').trim()
+  } catch {
     viewerLevel.value = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim()
   }
 }
 
-/** ✅ 내가 보낸 친구신청 '대기중'인지 확인 */
 async function syncPendingRequestState() {
   try {
     const targetId = String(user.value._id || route.params.id || '')
     if (!targetId) return
     const res = await axios.get('/api/friend-requests/sent', { withCredentials: true })
     const list = (res.data?.requests ?? res.data ?? []) as any[]
-    const pending = list.find((r:any) =>
-      (String(r.to?._id ?? r.to) === targetId) &&
-      String(r.status).toLowerCase() === 'pending'
-    )
+    const pending = list.find((r:any) => (String(r.to?._id ?? r.to) === targetId) && String(r.status).toLowerCase() === 'pending')
     hasPendingRequest.value = !!pending
     pendingRequestId.value = pending?._id ?? null
   } catch {
@@ -467,17 +336,13 @@ async function syncPendingRequestState() {
   }
 }
 
-/** ✅ 상대가 나에게 보낸 친구신청 '대기중'인지 확인 (수락하기 노출 조건) */
 async function syncIncomingRequestState() {
   try {
     const targetId = String(user.value._id || route.params.id || '')
     if (!targetId) return
     const res = await axios.get('/api/friend-requests/received', { withCredentials: true })
     const list = (res.data?.requests ?? res.data ?? []) as any[]
-    const pending = list.find((r:any) =>
-      (String(r.from?._id ?? r.from) === targetId) &&
-      String(r.status).toLowerCase() === 'pending'
-    )
+    const pending = list.find((r:any) => (String(r.from?._id ?? r.from) === targetId) && String(r.status).toLowerCase() === 'pending')
     hasIncomingRequest.value = !!pending
     incomingRequestId.value = pending?._id ?? null
   } catch {
@@ -488,20 +353,13 @@ async function syncIncomingRequestState() {
 
 onMounted(async () => {
   try {
-    await Promise.all([
-      loadUser(),
-      loadViewerLevel(),
-    ])
-    await Promise.all([
-      syncPendingRequestState(),
-      syncIncomingRequestState(),
-    ])
+    await Promise.all([loadUser(), loadViewerLevel()])
+    await Promise.all([syncPendingRequestState(), syncIncomingRequestState()])
   } catch (e) {
     console.error('❌ 초기 로딩 실패:', extractError(e))
   }
 })
 
-/* ========== 액션 ========== */
 function onOpenFriendRequest() {
   if (!user.value._id || user.value.isBlocked || hasPendingRequest.value || hasIncomingRequest.value) return
   requestMessage.value = ''
@@ -519,9 +377,7 @@ async function sendFriendRequest() {
     pendingRequestId.value = reqId
     hasPendingRequest.value = true
     showRequestModal.value = false
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
 async function cancelFriendRequest() {
@@ -531,12 +387,9 @@ async function cancelFriendRequest() {
     await axios.delete(`/api/friend-request/${pendingRequestId.value}`, { withCredentials: true })
     hasPendingRequest.value = false
     pendingRequestId.value = null
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
-/** ✅ 수락하기 */
 async function acceptIncomingRequest() {
   if (!incomingRequestId.value) { await syncIncomingRequestState(); if (!incomingRequestId.value) return }
   try {
@@ -547,23 +400,17 @@ async function acceptIncomingRequest() {
     incomingRequestId.value = null
     hasPendingRequest.value = false
     pendingRequestId.value = null
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
-function startChat(targetId: string) {
-  console.log('💬 대화 시작:', targetId)
-}
+function startChat(targetId: string) { console.log('💬 대화 시작:', targetId) }
 
 async function removeFriend(targetId: string) {
   try {
     isSubmitting.value = true
     await axios.delete(`/api/friend/${String(targetId)}`, { withCredentials: true })
     user.value.isFriend = false
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
 async function blockUser(targetId: string) {
@@ -576,9 +423,7 @@ async function blockUser(targetId: string) {
     hasIncomingRequest.value = false
     incomingRequestId.value = null
     try { await router.push('/home/3page') } catch {}
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
 async function unblockUser(targetId: string) {
@@ -586,48 +431,34 @@ async function unblockUser(targetId: string) {
     isSubmitting.value = true
     await axios.delete(`/api/block/${String(targetId)}`, { withCredentials: true })
     user.value.isBlocked = false
-  } finally {
-    isSubmitting.value = false
-  }
+  } finally { isSubmitting.value = false }
 }
 
-/* ✅ 신고 메일 연동 */
+function getReporterId() {
+  return localStorage.getItem('userId') || localStorage.getItem('id') || localStorage.getItem('_id') || 'unknown'
+}
+function getReporterNickname() {
+  return localStorage.getItem('nickname') || localStorage.getItem('username') || localStorage.getItem('name') || 'unknown'
+}
 function reportUser(targetId: string) {
   const email = 'tazocode@gmail.com'
   const subject = '(네네챗 사용자 신고)'
-
   const reporterId = getReporterId()
   const reporterNickname = getReporterNickname()
-
   const targetUserId = String(user.value._id || targetId || route.params.id || '')
   const targetNickname = user.value.nickname || user.value.username || '-'
-
   const bodyLines = [
-    '아래 사용자에 대한 신고가 접수되었습니다.',
-    '',
-    '--- 신고자 정보 ---',
-    `아이디: ${reporterId}`,
-    `닉네임: ${reporterNickname}`,
-    '',
-    '--- 신고 대상자 정보 ---',
-    `아이디: ${targetUserId}`,
-    `닉네임: ${targetNickname}`,
-    '',
-    '--- 추가 작성 ---',
-    '신고 사유: ',
-    '관련 스크린샷/증빙이 있으면 첨부해 주세요.',
+    '아래 사용자에 대한 신고가 접수되었습니다.','','--- 신고자 정보 ---',
+    `아이디: ${reporterId}`,`닉네임: ${reporterNickname}`,'','--- 신고 대상자 정보 ---',
+    `아이디: ${targetUserId}`,`닉네임: ${targetNickname}`,'','--- 추가 작성 ---','신고 사유: ','관련 스크린샷/증빙이 있으면 첨부해 주세요.'
   ]
-
   const body = encodeURIComponent(bodyLines.join('\n'))
-  const mailto = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${body}`
-  window.location.href = mailto
+  window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${body}`
 }
-
 function goBack() { router.back() }
 </script>
 
 <style scoped>
-/* (기존 스타일 그대로) */
 :root {
   --bg: #0f0f10;
   --card: #161616;
@@ -638,8 +469,10 @@ function goBack() { router.back() }
   --gold: #D4AF37;
   --gold-2: #c19b2e;
 }
+
 .page-wrapper { background: var(--bg); min-height: 100dvh; min-height: -webkit-fill-available; box-sizing: border-box; padding: 12px; color: var(--text); width: 100%; overflow-x: hidden; }
 .container{ max-width: 780px; margin: 0 auto; padding: 12px; box-sizing: border-box; }
+
 .card { background: var(--card); border: 1px solid var(--divider); border-radius: 14px; padding: 14px; box-shadow: 0 0 0 1px #000 inset; }
 .card-title { display:flex; align-items:center; gap:2px; margin:0; color: var(--text-strong); font-weight: 700; }
 .title-icon  { font-size: 20px !important; color: var(--gold) !important; }
@@ -647,6 +480,7 @@ function goBack() { router.back() }
 .title-action-btn { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--gold); border: 1px solid var(--gold); border-radius: 10px; padding: 6px 10px; cursor: pointer; }
 .title-action-btn .action-icon { font-size: 16px !important; color: var(--gold) !important; }
 .title-action-btn .action-text { color: var(--gold); font-weight: 700; }
+
 .photo-slot { display: flex; justify-content: center; padding: 8px 0 12px; }
 
 .info-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.4; table-layout: fixed; }
@@ -671,31 +505,56 @@ function goBack() { router.back() }
 .request-input { width: 100%; min-height: 100px; border-radius: 10px; border: 1px solid #333; background: #0f0f0f; color: #eaeaea; padding: 10px; font-size: 14px; box-sizing: border-box; }
 .footer-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 
-ion-button { --border-radius: 12px; font-weight: 700; --padding-top: 4px; --padding-bottom: 4px; font-size: 12px; }
-.chat-button ion-button { --padding-top: 2px; --padding-bottom: 2px; font-size: 12px; min-height: 28px; }
+/* ===== 버튼 공통 ===== */
+ion-button { --border-radius: 12px; font-weight: 700; --padding-top: 4px; --padding-bottom: 4px; font-size: 10px; }
 
-.button-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.button-group ion-button {
-  width: 100%; min-width: 0;
-  --padding-top: 2px; --padding-bottom: 2px;
-  --padding-start: 10px; --padding-end: 10px;
-  font-size: 10px; --border-radius: 8px; min-height: 25px;
-  white-space: nowrap;
+/* ===== 액션 그리드 (요청 배치 구현) =====
+   [1열] 버튼A(두 줄 높이)
+   [2~3열 상단] 대화하기(두 칸)
+   [2열 하단] 차단하기
+   [3열 하단] 신고하기
+*/
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-auto-rows: 40px; /* ← 한 줄 높이 */
+  gap: 8px;            /* ← 버튼 사이 간격 */
+  align-items: stretch;
+
 }
 
+/* 버튼A: 왼쪽, 세로 2행 고정 */
+.slot-a {
+  grid-column: 1 / 2;
+  grid-row: 1 / span 2;
+  font-size: 10px;
+}
+
+/* 대화하기: 상단 오른쪽, 두 칸 가로 확장 */
+.slot-chat {
+  grid-column: 2 / span 2;
+  grid-row: 1 / 2;
+  min-height: 30px;
+}
+
+/* 하단 두 버튼 */
+.slot-block  { grid-column: 2 / 3; grid-row: 2 / 3; min-height: 30px;}
+.slot-report { grid-column: 3 / 4; grid-row: 2 / 3; min-height: 30px;}
+
+/* 테마 색상 */
 .btn-primary   { --background: var(--gold); --background-activated: var(--gold-2); --background-hover: var(--gold-2); --color: #1a1a1a; }
 .btn-outline   { --background: transparent; --color: var(--gold); --border-color: var(--gold); --border-style: solid; --border-width: 1px; }
-.btn-warning   { --background: #3a2a0a; --color: var(--gold); }
+.btn-warning   { --background: #666; --color: var(--gold); }
 .btn-muted     { --background: transparent; --color: var(--text-dim); --border-color: var(--divider); --border-style: solid; --border-width: 1px; }
 .btn-secondary { --background: #232323; --color: var(--gold); }
 .btn-danger    { --background: #b00020; --color: #fff; }
+
 
 @media (max-width: 360px) {
   .container { padding: 10px; }
   .card { padding: 10px; border-radius: 10px; }
   .info-table { font-size: 12px; }
   .pf-col-th { width: 46%; } .pf-col-td { width: 54%; }
-  .pf-col-thd { width: 26%; } .pf-col-tdd { width: 34%; }
   .pf-scope .pf-th, .pf-scope .pf-td { padding: 6px; }
 }
 </style>

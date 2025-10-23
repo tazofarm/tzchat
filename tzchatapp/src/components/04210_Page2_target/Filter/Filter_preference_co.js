@@ -1,4 +1,4 @@
-// frontend/utils/Filter_preference_co.js
+// frontend/04210_Page2_target/Filter_preference_co.js
 // ------------------------------------------------------------
 // 검색특징(Preference) 필터 (개정)
 // 기본 동작: "내 규칙"만 적용(단방향).  ← reciprocal=false (기본값)

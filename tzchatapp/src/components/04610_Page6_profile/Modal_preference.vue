@@ -8,7 +8,7 @@
     >
       <h3 id="pref-edit-title">성향 수정</h3>
 
-      <!-- 🔸 선택 제한: 일반회원/여성회원이면 '동성친구' 옵션은 표시하되 비활성화 -->
+      <!-- 🔸 선택 제한: 일반회원이면 '동성친구' 옵션은 표시하되 비활성화 -->
       <select
         v-model="newPreference"
         class="select-box"
@@ -18,19 +18,27 @@
         <option value="이성친구 - 일반">이성친구 - 일반</option>
         <option value="이성친구 - 특수">이성친구 - 특수</option>
 
-        <option value="이성친구 - 특수"disabled>------------------------</option>
+        <option value="__sep__" disabled>------------------------</option>
 
-        <option value="동성친구 - 일반" :disabled="isRestrictedLevel"
-          class="disabled-option" :aria-disabled="isRestrictedLevel ? 'true' : 'false'"
+        <option
+          value="동성친구 - 일반"
+          :disabled="isRestrictedLevel"
+          class="disabled-option"
+          :aria-disabled="isRestrictedLevel ? 'true' : 'false'"
           :title="isRestrictedLevel ? '현재 등급에서 선택할 수 없습니다.' : ''"
-        > 동성친구 - 일반 </option>
+        >
+          동성친구 - 일반
+        </option>
 
-        <option value="동성친구 - 특수" :disabled="isRestrictedLevel"
-          class="disabled-option" :aria-disabled="isRestrictedLevel ? 'true' : 'false'"
+        <option
+          value="동성친구 - 특수"
+          :disabled="isRestrictedLevel"
+          class="disabled-option"
+          :aria-disabled="isRestrictedLevel ? 'true' : 'false'"
           :title="isRestrictedLevel ? '현재 등급에서 선택할 수 없습니다.' : ''"
-        > 동성친구 - 특수 </option>
-
-        <option value="이성친구 - 특수"disabled></option>
+        >
+          동성친구 - 특수
+        </option>
       </select>
 
       <!-- 🔸 안내 문구 -->
@@ -53,18 +61,23 @@
 /* ------------------------------------------------------------------
    Modal_preference.vue
    - 성향(preference) 수정 모달
-   - 제한 규칙:
-     · '일반회원' | '여성회원'  → '동성친구 - …' 옵션은 disabled (보이되 선택 불가)
-     · '프리미엄'               → 모든 옵션 선택 가능
-   - 안전장치: 초기/변경 시 비허용 값이면 '이성친구 - 일반'으로 보정
+
+   제한 규칙(2025-10-19 기준):
+     · '일반회원' → '동성친구 - …' 옵션은 비활성화(표시는 되나 선택 불가)
+     · '라이트회원' | '프리미엄회원' → 모든 옵션 선택 가능
+
+   안전장치:
+     · 초기 마운트 시, 혹은 사용자가 셀렉트 값을 바꿀 때
+       현재 등급에서 허용되지 않는 값이면
+       강제로 '이성친구 - 일반'으로 보정하고 에러 문구 표시
 ------------------------------------------------------------------- */
 import { ref, onMounted, computed } from 'vue'
 import axios from '@/lib/api'
 import { IonButton } from '@ionic/vue'
 
 const props = defineProps({
-  message: { type: String, default: '' }, // 현재 저장된 성향
-  level:   { type: String, default: '' }, // '일반회원' | '여성회원' | '프리미엄'
+  message: { type: String, default: '' }, // 현재 저장된 성향(예: '이성친구 - 일반')
+  level:   { type: String, default: '' }, // '일반회원' | '라이트회원' | '프리미엄회원'
 })
 const emit = defineEmits(['close', 'updated'])
 
@@ -72,16 +85,16 @@ const newPreference = ref('')
 const errorMsg = ref('')
 const successMsg = ref('')
 
-/* 등급 판별 */
-const isRestrictedLevel = computed(() => props.level === '일반회원' || props.level === '여성회원')
+/* 등급 판별: 일반회원만 제한 */
+const isRestrictedLevel = computed(() => props.level === '일반회원')
 
-/* 허용 여부 */
+/* 현재 등급에서 허용되는지 검사 */
 function isAllowed(option) {
   if (isRestrictedLevel.value) return option?.startsWith('이성친구')
   return true
 }
 
-/* 변경 시 즉시 보정 (만약 비활성 옵션이 somehow 선택되면 되돌림) */
+/* 변경 시 즉시 보정 (비허용 값이면 되돌림) */
 function enforceAllowed(e) {
   const val = e?.target?.value ?? newPreference.value
   if (!isAllowed(val)) {

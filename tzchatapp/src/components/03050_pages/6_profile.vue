@@ -27,23 +27,30 @@
         <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
-            <!-- 회원등급 (TEST) -->
+            <!-- 회원등급 + 구독하기 버튼 -->
             <tr class="editable-row" @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal">
               <td class="pf-th">
                 <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
-                <strong class="label">회원등급 (TEST)</strong>
+                <strong class="label">{{ user.user_level }}</strong>
               </td>
               <td class="pf-td editable-text">
-                {{ user.user_level || '일반회원' }}
+                <IonButton
+                  size="small"
+                  color="primary"
+                  class="btn-inline-gray"
+                  @click.stop="goMembership"
+                >
+                  구독하기
+                </IonButton>
               </td>
             </tr>
 
             <!-- 닉네임 (모든 레벨 수정 가능) -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('nickname') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('nickname') }]"
               tabindex="0"
-              @click="canEditField('nickname') ? openPopup(4, user.nickname) : lock('닉네임')"
-              @keydown.enter="canEditField('nickname') ? openPopup(4, user.nickname) : null"
+              @click="canEditFieldLocal('nickname') ? openPopup(4, user.nickname) : lock('닉네임')"
+              @keydown.enter="canEditFieldLocal('nickname') ? openPopup(4, user.nickname) : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.personCircleOutline" class="row-icon" /><strong class="label">닉네임</strong></td>
               <td class="pf-td editable-text">{{ user.nickname }}</td>
@@ -54,7 +61,6 @@
               <td class="pf-th"><IonIcon :icon="icons.calendarOutline" class="row-icon" /><strong class="label">나이</strong></td>
               <td class="pf-td readonly editable-text">
                 {{ user.birthyear || '미입력' }}
-                
               </td>
             </tr>
 
@@ -63,7 +69,6 @@
               <td class="pf-th"><IonIcon :icon="icons.maleFemaleOutline" class="row-icon" /><strong class="label">성별</strong></td>
               <td class="pf-td readonly editable-text">
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
-                
               </td>
             </tr>
 
@@ -80,75 +85,68 @@
                   class="btn-inline-gray"
                   @click.stop="onChangePhoneClick"
                 >
-                  번호 변경/인증
+                  번호 변경
                 </IonButton>
               </td>
             </tr>
 
             <!-- 지역 (모든 레벨 수정 가능) -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('region') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('region') }]"
               tabindex="0"
-              @click="canEditField('region') ? openPopup(1, user.region1 + ' ' + user.region2) : lock('지역')"
-              @keydown.enter="canEditField('region') ? openPopup(1, user.region1 + ' ' + user.region2) : null"
+              @click="canEditFieldLocal('region') ? openPopup(1, user.region1 + ' ' + user.region2) : lock('지역')"
+              @keydown.enter="canEditFieldLocal('region') ? openPopup(1, user.region1 + ' ' + user.region2) : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.locationOutline" class="row-icon" /><strong class="label">지역</strong></td>
               <td class="pf-td editable-text">{{ user.region1 }} {{ user.region2 }}</td>
             </tr>
 
-            <!-- 특징 (일반/여성: 이성친구만 허용, 프리미엄: 제한 없음) -->
+            <!-- 특징 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('preference') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('preference') }]"
               tabindex="0"
-              @click="canEditField('preference') ? openPopup(2, user.preference) : lock('특징')"
-              @keydown.enter="canEditField('preference') ? openPopup(2, user.preference) : null"
+              @click="canEditFieldLocal('preference') ? openPopup(2, user.preference) : lock('특징')"
+              @keydown.enter="canEditFieldLocal('preference') ? openPopup(2, user.preference) : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">특징</strong></td>
               <td class="pf-td editable-text">
-
                 <span
-                  v-if="preferenceRestricted && !isPremium"
+                  v-if="preferenceRestricted && !isPremiumComputed"
                   class="pf-hint"
-                  title="일반/여성회원은 '이성친구' 계열만 선택 가능"
+                  title="일반/라이트회원은 '이성친구' 계열만 선택 가능"
                 ></span>
                 {{ user.preference }}
-                
               </td>
             </tr>
 
             <!-- 결혼 (모든 레벨 수정 가능) -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('marriage') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('marriage') }]"
               tabindex="0"
-              @click="canEditField('marriage') ? openMarriageModal() : lock('결혼')"
-              @keydown.enter="canEditField('marriage') ? openMarriageModal() : null"
+              @click="canEditFieldLocal('marriage') ? openMarriageModal() : lock('결혼')"
+              @keydown.enter="canEditFieldLocal('marriage') ? openMarriageModal() : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">결혼</strong></td>
               <td class="pf-td editable-text">{{ user.marriage }}</td>
             </tr>
-
-
           </tbody>
         </table>
 
-          <table class="info-table">
+        <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
-
-            <!-- 소개 (모든 레벨 수정 가능) -->
+            <!-- 소개 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('selfintro') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('selfintro') }]"
               tabindex="0"
-              @click="canEditField('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : lock('소개')"
-              @keydown.enter="canEditField('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : null"
+              @click="canEditFieldLocal('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : lock('소개')"
+              @keydown.enter="canEditFieldLocal('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" /><strong class="label">소개</strong></td>
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
-
           </tbody>
         </table>
-
       </div>
 
       <br />
@@ -160,29 +158,29 @@
         <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
-            <!-- 검색나이 (모든 레벨 가능) -->
+            <!-- 검색나이 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('search_year') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('search_year') }]"
               tabindex="0"
-              @click="canEditField('search_year') ? openSearchYearModal() : lock('검색나이')"
-              @keydown.enter="canEditField('search_year') ? openSearchYearModal() : null"
+              @click="canEditFieldLocal('search_year') ? openSearchYearModal() : lock('검색나이')"
+              @keydown.enter="canEditFieldLocal('search_year') ? openSearchYearModal() : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.calendarNumberOutline" class="row-icon" /><strong class="label">검색나이</strong></td>
               <td class="pf-td editable-text">{{ toAll(user.search_birthyear1) }} ~ {{ toAll(user.search_birthyear2) }}</td>
             </tr>
 
-            <!-- 검색지역 (모든 레벨 가능) -->
+            <!-- 검색지역 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('search_regions') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('search_regions') }]"
               tabindex="0"
-              @click="canEditField('search_regions') ? openSearchRegionModal() : lock('검색지역')"
-              @keydown.enter="canEditField('search_regions') ? openSearchRegionModal() : null"
+              @click="canEditFieldLocal('search_regions') ? openSearchRegionModal() : lock('검색지역')"
+              @keydown.enter="canEditFieldLocal('search_regions') ? openSearchRegionModal() : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.locationOutline" class="row-icon" /><strong class="label">검색지역</strong></td>
               <td class="pf-td editable-text">{{ searchRegionDisplay }}</td>
             </tr>
 
-            <!-- 휴대폰 내 번호 연결 끊기 (모든 레벨 가능) -->
+            <!-- 휴대폰 내 번호 연결 끊기 -->
             <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleDisconnectLocalContacts">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -200,7 +198,7 @@
               </td>
             </tr>
 
-            <!-- 친구 신청 받지 않기 (명시 제한 없음 → 모두 가능) -->
+            <!-- 친구 신청 받지 않기 -->
             <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleAllowFriendRequests">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -218,7 +216,7 @@
               </td>
             </tr>
 
-            <!-- 알림 받지 않기 (명시 제한 없음 → 모두 가능) -->
+            <!-- 알림 받지 않기 -->
             <tr class="editable-row" tabindex="0" @keydown.enter.prevent="toggleAllowNotifications">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -248,82 +246,88 @@
         <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
-            <!-- 검색특징 (일반/여성: 전체만, 프리미엄: 자유) -->
+            <!-- 검색특징 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('search_preference') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('search_preference') }]"
               tabindex="0"
-              @click="canEditField('search_preference') ? openSearchPreferenceModal() : lock('검색특징', '일반/여성회원은 전체만 사용 가능')"
-              @keydown.enter="canEditField('search_preference') ? openSearchPreferenceModal() : null"
+              @click="canEditFieldLocal('search_preference') ? openSearchPreferenceModal() : lock('검색특징', '라이트회원 이상 사용 가능')"
+              @keydown.enter="canEditFieldLocal('search_preference') ? openSearchPreferenceModal() : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">검색특징</strong></td>
               <td class="pf-td editable-text">
-                <span v-if="!canEditField('search_preference')" class="pf-lock">🔒</span>
+                <span v-if="!canEditFieldLocal('search_preference')" class="pf-lock">🔒</span>
                 {{ user.search_preference }}
-                
               </td>
             </tr>
 
-            <!-- 검색결혼 (일반/여성: 전체만, 프리미엄: 자유) -->
+            <!-- 검색결혼 -->
             <tr
-              :class="['editable-row', { disabled: !canEditField('search_marriage') }]"
+              :class="['editable-row', { disabled: !canEditFieldLocal('search_marriage') }]"
               tabindex="0"
-              @click="canEditField('search_marriage') ? openSearchMarriageModal() : lock('검색결혼', '일반/여성회원은 전체만 사용 가능')"
-              @keydown.enter="canEditField('search_marriage') ? openSearchMarriageModal() : null"
+              @click="canEditFieldLocal('search_marriage') ? openSearchMarriageModal() : lock('검색결혼', '라이트회원 이상 사용 가능')"
+              @keydown.enter="canEditFieldLocal('search_marriage') ? openSearchMarriageModal() : null"
             >
               <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">검색결혼</strong></td>
               <td class="pf-td editable-text">
-               <span v-if="!canEditField('search_marriage')" class="pf-lock">🔒</span>
+               <span v-if="!canEditFieldLocal('search_marriage')" class="pf-lock">🔒</span>
                 {{ user.search_marriage }}
-                
               </td>
             </tr>
 
-            <!-- 사진 있는 사람만 (일반/여성: OFF만, 프리미엄: 토글 가능) -->
+            <!-- 사진 있는 사람만 -->
             <tr class="editable-row">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">사진 있는 사람만 연결하기</strong>
-                   <span v-if="!canEditField('onlyWithPhoto')" class="pf-lock-inline">🔒</span>
+                   <span v-if="!canEditFieldLocal('onlyWithPhoto')" class="pf-lock-inline">🔒</span>
                   <button type="button" class="pf-switch"
-                          :class="{ 'is-on': onlyWithPhoto, disabled: !canEditField('onlyWithPhoto') }"
+                          :class="{ 'is-on': onlyWithPhoto, disabled: !canEditFieldLocal('onlyWithPhoto') }"
                           role="switch"
                           :aria-checked="onlyWithPhoto"
-                          :aria-disabled="!canEditField('onlyWithPhoto')"
+                          :aria-disabled="!canEditFieldLocal('onlyWithPhoto')"
                           @click.stop="onToggleOnlyWithPhoto">
-                          
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">
                       {{ onlyWithPhoto ? 'ON' : 'OFF' }}
-                     
                     </span>
                   </button>
                 </div>
               </td>
             </tr>
 
-            <!-- Premium 만 연결하기 (일반/여성: OFF만, 프리미엄: 토글 가능) -->
+            <!-- Premium 만 연결하기 -->
             <tr class="editable-row">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">Premium 만 연결하기</strong>
-                  <span v-if="!canEditField('matchPremiumOnly')" class="pf-lock-inline">🔒</span>
+                  <span v-if="!canEditFieldLocal('matchPremiumOnly')" class="pf-lock-inline">🔒</span>
                   <button type="button" class="pf-switch"
-                          :class="{ 'is-on': matchPremiumOnly, disabled: !canEditField('matchPremiumOnly') }"
+                          :class="{ 'is-on': matchPremiumOnly, disabled: !canEditFieldLocal('matchPremiumOnly') }"
                           role="switch"
                           :aria-checked="matchPremiumOnly"
-                          :aria-disabled="!canEditField('matchPremiumOnly')"
+                          :aria-disabled="!canEditFieldLocal('matchPremiumOnly')"
                           @click.stop="onToggleMatchPremiumOnly">
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">
                       {{ matchPremiumOnly ? 'ON' : 'OFF' }}
-                      
                     </span>
                   </button>
                 </div>
+              </td>
+            </tr>
+
+            <!-- 회원등급 (TEST) -->
+            <tr class="editable-row" @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal">
+              <td class="pf-th">
+                <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
+                <strong class="label">회원등급 (TEST)</strong>
+              </td>
+              <td class="pf-td editable-text">
+                {{ user.user_level || '일반회원' }}
               </td>
             </tr>
           </tbody>
@@ -344,17 +348,20 @@
     />
     <PopupModal_3 v-if="showModal3" :message="popupMessage" @close="showModal3 = false" @updated="handleIntroUpdate" />
     <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" @updated="handleNicknameUpdate" />
-    <!-- 결혼유무(개인 프로필) -->
     <ModalMarriage v-if="showMarriageModal" :message="user?.marriage || ''" @close="showMarriageModal = false" @updated="handleMarriageUpdated" />
 
     <!-- ✅ 검색 모달들 -->
-    <Search_Year_Modal v-if="showSearchYear"
-      :initial-from="user?.search_birthyear1 ?? ''" :initial-to="user?.search_birthyear2 ?? ''"
-      :from="user?.search_birthyear1 ?? ''" :to="user?.search_birthyear2 ?? ''"
-      @close="showSearchYear = false" @updated="onSearchYearUpdated" />
+    <Search_Year_Modal
+      v-if="showSearchYear"
+      :initial-from="user?.search_birthyear1 ?? ''"
+      :initial-to="user?.search_birthyear2 ?? ''"
+      :from="user?.search_birthyear1 ?? ''"
+      :to="user?.search_birthyear2 ?? ''"
+      @close="showSearchYear = false"
+      @updated="onSearchYearUpdated"
+    />
     <Search_Region_Modal v-if="showSearchRegion" :regions="regionsForModal" @close="showSearchRegion = false" @updated="onSearchRegionUpdated" />
     <Search_Preference_Modal v-if="showSearchPreference" :message="user?.search_preference ?? ''" @close="showSearchPreference = false" @updated="onSearchPreferenceUpdated" />
-    <!-- 상대 결혼유무(검색 조건) -->
     <Search_Marriage v-if="showSearchMarriage" :message="user?.search_marriage ?? '전체'" @close="showSearchMarriage = false" @updated="handleSearchMarriageUpdated" />
 
     <!-- ✅ 회원등급 수정 모달 (TEST) -->
@@ -395,6 +402,9 @@ import Search_Marriage from '@/components/04610_Page6_profile/Search_Marriage.vu
 /* ✅ 회원등급 모달 */
 import ModalLevel from '@/components/04610_Page6_profile/Modal_Level.vue'
 
+/* ✅ 등급 규칙 모듈 */
+import { RULES, isPremium as isPremiumLevel, canEditField as canEditFieldByLevel, isRestricted as isRestrictedByLevel, normalizeLevel } from '@/components/05110_Membership/grade/gradeRule.js'
+
 import {
   personCircleOutline, lockClosedOutline, calendarOutline, calendarNumberOutline,
   maleFemaleOutline, locationOutline, sparklesOutline, chatbubbleEllipsesOutline,
@@ -407,68 +417,24 @@ const nickname = ref('')
 const user = ref(null)
 
 /* =========================
-   🔒 등급별 편집 규칙 (프론트)
-   - 일반/여성: 동일 정책
-   - 프리미엄: 완전 허용(특정 항목)
+   🔒 등급별 편집 규칙 (모듈 사용)
    ========================= */
-const RULES = {
-  // 내 프로필
-  nickname:        { 일반회원: true, 여성회원: true, 프리미엄: true },
-  region:          { 일반회원: true, 여성회원: true, 프리미엄: true },
-  preference:      { 일반회원: { restrict: 'hetero-only' }, 여성회원: { restrict: 'hetero-only' }, 프리미엄: true },
-  marriage:        { 일반회원: true, 여성회원: true, 프리미엄: true },
-  selfintro:       { 일반회원: true, 여성회원: true, 프리미엄: true },
+const myLevel = computed(() => normalizeLevel(user.value?.user_level || '일반회원'))
+// 앱 내부 gender('man' | 'woman') → 룰 모듈 기대값('male' | 'female')로 정규화
+const myGender = computed(() => (user.value?.gender === 'woman' ? 'female' : 'male'))
 
-  // 가입시 고정 (편집 불가) — 템플릿에서 disabled 고정
-  birthyear:       { 일반회원: false, 여성회원: false, 프리미엄: false },
-  gender:          { 일반회원: false, 여성회원: false, 프리미엄: false },
-  phone:           { 일반회원: false, 여성회원: false, 프리미엄: false },
+const isPremiumComputed = computed(() => isPremiumLevel(myLevel.value))
 
-  // 검색 (친구 찾기/프리미엄)
-  search_year:       { 일반회원: true, 여성회원: true, 프리미엄: true },
-  search_regions:    { 일반회원: true, 여성회원: true, 프리미엄: true },
-  search_preference: { 일반회원: false, 여성회원: false, 프리미엄: true }, // 일반/여성 → "전체"만
-  search_marriage:   { 일반회원: false, 여성회원: false, 프리미엄: true }, // 일반/여성 → "전체"만
-  onlyWithPhoto:     { 일반회원: false, 여성회원: false, 프리미엄: true }, // 일반/여성 → OFF만
-  matchPremiumOnly:  { 일반회원: false, 여성회원: false, 프리미엄: true }, // 일반/여성 → OFF만
-
-  // 친구 신청/알림 제한은 표에 명시가 없어 모두 허용
-  allowFriendRequests: { 일반회원: true, 여성회원: true, 프리미엄: true },
-  allowNotifications:  { 일반회원: true, 여성회원: true, 프리미엄: true },
-  disconnectLocalContacts: { 일반회원: true, 여성회원: true, 프리미엄: true },
+// ✅ level + gender 모두 전달
+function canEditFieldLocal(field) {
+  return canEditFieldByLevel(field, myLevel.value, myGender.value)
+}
+function isRestrictedLocal(field, kind) {
+  return isRestrictedByLevel(field, myLevel.value, myGender.value, kind)
 }
 
-const isPremium = computed(() => (user.value?.user_level || '일반회원') === '프리미엄')
-const isFemaleLevel = computed(() => (user.value?.user_level || '일반회원') === '여성회원')
-const myLevel = computed(() => user.value?.user_level || '일반회원')
 
-function ruleFor(field) {
-  const level = myLevel.value
-  const r = RULES[field]
-  if (!r) return true
-  const val = r[level]
-  return typeof val === 'undefined' ? true : val
-}
-function canEditField(field) {
-  const val = ruleFor(field)
-  if (val === false) return false
-  return true
-}
-function isRestricted(field, kind) {
-  const val = ruleFor(field)
-  return typeof val === 'object' && val?.restrict === kind
-}
-
-async function lock(label, extra) {
-  const t = await toastController.create({
-    message: `${label} 항목은 현재 등급에서 변경할 수 없습니다.${extra ? ` (${extra})` : ''}`,
-    duration: 1400,
-    color: 'warning'
-  })
-  t.present()
-}
-
-/* 모달 on/off */
+/* 누락된 오프너 및 모달 on/off */
 const showModal1 = ref(false)
 const showModal2 = ref(false)
 const showModal3 = ref(false)
@@ -505,7 +471,6 @@ async function onPasswordUpdated() {
 }
 
 async function onChangePhoneClick() {
-  // TODO: 추후 인증 플로우 연결 (/api/phone/change/request, /verify)
   const t = await toastController.create({
     message: '전화번호 변경/인증 기능은 곧 제공됩니다.',
     duration: 1200,
@@ -516,7 +481,7 @@ async function onChangePhoneClick() {
 
 /* 이동 */
 function goSetting() { router.push('/home/7page') }
-function goMembership() { router.push('/home/setting/0001') }
+function goMembership() { router.push('/home/membership/buy') }
 
 /* 사진 */
 function onProfilePhotoUpdated() {}
@@ -618,8 +583,8 @@ async function onSearchRegionUpdated(payload){
 
 /* 검색특징 저장 (등급 제약 반영) */
 async function onSearchPreferenceUpdated(payload){
-  const can = canEditField('search_preference')
-  if (!can) { lock('검색특징', '일반/여성회원은 "전체"만 사용 가능'); showSearchPreference.value = false; return }
+  const can = canEditFieldLocal('search_preference')
+  if (!can) { lock('검색특징', '일반/라이트회원은 "전체"만 사용 가능'); showSearchPreference.value = false; return }
   const preference = typeof payload === 'string' ? payload : payload?.preference ?? ''
   if (user.value) user.value.search_preference = preference
   try {
@@ -640,8 +605,8 @@ async function handleMarriageUpdated(value){
 
 /* 상대 결혼유무(검색조건) 업데이트 반영 (등급 제약) */
 async function handleSearchMarriageUpdated(value){
-  if (!canEditField('search_marriage')) {
-    lock('검색결혼', '일반/여성회원은 "전체"만 사용 가능')
+  if (!canEditFieldLocal('search_marriage')) {
+    lock('검색결혼', '일반/라이트회원은 "전체"만 사용 가능')
     showSearchMarriage.value = false
     return
   }
@@ -655,7 +620,7 @@ async function handleSearchMarriageUpdated(value){
 async function handleNicknameUpdate(payload){
   const v = typeof payload==='string' ? payload : payload?.nickname ?? ''
   if(user.value && v) user.value.nickname=v
-  (await toastController.create({message:'닉네임이 변경되었습니다.',duration:1400,color:'success'})).present()
+  ;(await toastController.create({message:'닉네임이 변경되었습니다.',duration:1400,color:'success'})).present()
   showModal4.value=false
 }
 async function handleRegionUpdate(payload){
@@ -664,18 +629,17 @@ async function handleRegionUpdate(payload){
   else if(payload&&typeof payload==='object'){r1=payload.region1??payload.r1??''; r2=payload.region2??payload.r2??''}
   else if(typeof payload==='string'){const p=payload.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); [r1='',r2='']=p}
   if(user.value){user.value.region1=r1; user.value.region2=r2}
-  (await toastController.create({message:'지역이 변경되었습니다.',duration:1400,color:'success'})).present()
+  ;(await toastController.create({message:'지역이 변경되었습니다.',duration:1400,color:'success'})).present()
   showModal1.value=false
 }
-const preferenceRestricted = computed(() => isRestricted('preference', 'hetero-only'))
+const preferenceRestricted = computed(() => isRestrictedLocal('preference', 'hetero-only'))
 async function handlePreferenceUpdate(payload){
   let pref = typeof payload === 'string' ? payload : payload?.preference ?? ''
-  // 일반/여성 → '이성친구' 계열만 허용
-  if (!isPremium.value && preferenceRestricted.value) {
+  if (!isPremiumComputed.value && preferenceRestricted.value) {
     if (!String(pref).startsWith('이성친구')) {
       pref = '이성친구 - 전체'
       ;(await toastController.create({
-        message: '일반/여성회원은 "이성친구"만 선택할 수 있습니다. 기본값으로 적용합니다.',
+        message: '일반/라이트회원은 "이성친구"만 선택할 수 있습니다. 기본값으로 적용합니다.',
         duration: 1600,
         color: 'warning'
       })).present()
@@ -689,13 +653,13 @@ async function handlePreferenceUpdate(payload){
       user.value.search_preference = '동성친구 - 전체'
     }
   }
-  (await toastController.create({ message: '성향이 변경되었습니다.', duration: 1400, color: 'success' })).present()
+  ;(await toastController.create({ message: '성향이 변경되었습니다.', duration: 1400, color: 'success' })).present()
   showModal2.value = false
 }
 async function handleIntroUpdate(payload){
   const intro = typeof payload==='string' ? payload : payload?.selfintro ?? ''
   if(user.value) user.value.selfintro=intro
-  (await toastController.create({message:'소개가 변경되었습니다.',duration:1400,color:'success'})).present()
+  ;(await toastController.create({message:'소개이 변경되었습니다.',duration:1400,color:'success'})).present()
   showModal3.value=false
 }
 
@@ -703,8 +667,8 @@ async function handleIntroUpdate(payload){
    ✅ 스위치(5개) — DB에 ON/OFF 저장
    =========================== */
 const disconnectLocalContacts = ref(false)
-const allowFriendRequests    = ref(false)  // UI: "받지 않기" → true면 DB OFF, false면 DB ON
-const allowNotifications     = ref(false)  // UI: "받지 않기" → true면 DB OFF, false면 DB ON
+const allowFriendRequests    = ref(false)
+const allowNotifications     = ref(false)
 const onlyWithPhoto          = ref(false)
 const matchPremiumOnly       = ref(false)
 
@@ -736,9 +700,7 @@ async function saveSwitchesToDB() {
   }
 }
 
-/* ---------------------------------------
-   ✅ 연락처 업로드/삭제를 동반하는 토글 로직
-   --------------------------------------- */
+/* 연락처/토글 로직 */
 async function toggleDisconnectLocalContacts(){
   const nextState = !disconnectLocalContacts.value
   if (nextState) {
@@ -773,48 +735,44 @@ async function toggleDisconnectLocalContacts(){
   }
 }
 
-/* 다른 스위치들 (동일) */
+/* 다른 스위치들 */
 async function toggleAllowFriendRequests()   { allowFriendRequests.value    = !allowFriendRequests.value;    await saveSwitchesToDB(); feedbackOK('설정이 적용되었습니다.') }
-
-// ✅ 알림 받지 않기 ↔ 허용
 async function toggleAllowNotifications() {
   allowNotifications.value = !allowNotifications.value
   await saveSwitchesToDB()
-  await setNotificationsOptOut(allowNotifications.value) // true(ON)=opt-out
+  await setNotificationsOptOut(allowNotifications.value)
   feedbackOK('설정이 적용되었습니다.')
 }
 
-/* 🔒 프리미엄 제약 토글: 사진있는사람/프리미엄만 */
+/* 🔒 프리미엄 제약 토글 */
 async function onToggleOnlyWithPhoto(){
-  if (!canEditField('onlyWithPhoto')) {
-    // 일반/여성 → OFF 고정
+  if (!canEditFieldLocal('onlyWithPhoto')) {
     if (onlyWithPhoto.value) {
       onlyWithPhoto.value = false
       await saveSwitchesToDB()
     }
-    return lock('사진 있는 사람만', '이 기능은 프리미엄에서만 사용할 수 있습니다.')
+    return lock('사진 있는 사람만', '이 기능은 프리미엄회원만 사용할 수 있습니다.')
   }
   onlyWithPhoto.value = !onlyWithPhoto.value
   await saveSwitchesToDB()
   feedbackOK('설정이 적용되었습니다.')
 }
 async function onToggleMatchPremiumOnly(){
-  if (!canEditField('matchPremiumOnly')) {
+  if (!canEditFieldLocal('matchPremiumOnly')) {
     if (matchPremiumOnly.value) {
       matchPremiumOnly.value = false
       await saveSwitchesToDB()
     }
-    return lock('Premium 만 연결하기', '이 기능은 프리미엄에서만 사용할 수 있습니다.')
+    return lock('Premium 만 연결하기', '이 기능은 프리미엄회원에서만 사용할 수 있습니다.')
   }
   matchPremiumOnly.value = !matchPremiumOnly.value
   await saveSwitchesToDB()
   feedbackOK('설정이 적용되었습니다.')
 }
+async function toggleOnlyWithPhoto()    { return onToggleOnlyWithPhoto() }
+async function toggleMatchPremiumOnly() { return onToggleMatchPremiumOnly() }
 
-async function toggleOnlyWithPhoto()         { return onToggleOnlyWithPhoto() }
-async function toggleMatchPremiumOnly()      { return onToggleMatchPremiumOnly() }
-
-/* -------- 공통 유틸: 확인 다이얼로그 -------- */
+/* 공통 유틸 */
 async function confirmDialog(message){
   const alert = await alertController.create({
     header: '확인',
@@ -830,7 +788,17 @@ async function confirmDialog(message){
   return role === 'confirm'
 }
 
-/* -------- 연락처 수집 → 정규화 → 해시 -------- */
+/* 🔐 잠금 안내 유틸 (템플릿에서 lock(...) 호출) */
+async function lock(title = '제한됨', message = '현재 등급에서 변경할 수 없습니다.') {
+  const t = await toastController.create({
+    message: `${title}: ${message}`,
+    duration: 1500,
+    color: 'medium'
+  })
+  t.present()
+}
+
+/* 연락처 수집 → 정규화 → 해시 */
 function normalizePhoneKR(raw=''){
   const digits = String(raw).replace(/[^\d+]/g, '')
   if (!digits) return ''
@@ -838,23 +806,17 @@ function normalizePhoneKR(raw=''){
   if (digits.startsWith('0')) return '+82' + digits.slice(1)
   return '+82' + digits
 }
-
 async function sha256Hex(text){
   const enc = new TextEncoder().encode(text)
   const buf = await crypto.subtle.digest('SHA-256', enc)
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')
 }
-
-// 연락처 -> 전화번호 배열 추출 (Capacitor 전용 구현)
 async function getLocalContactPhoneNumbers() {
   try {
     if (typeof Contacts.requestPermissions === 'function') {
       await Contacts.requestPermissions()
     }
-  } catch (_) {
-    // 일부 버전에선 requestPermissions 미지원일 수 있으니 무시
-  }
-
+  } catch (_) {}
   const supportsProjection = typeof Contacts.getContacts === 'function' && Contacts.getContacts.length > 0
   let res
   if (supportsProjection) {
@@ -864,10 +826,8 @@ async function getLocalContactPhoneNumbers() {
   } else {
     res = await Contacts.getContacts()
   }
-
   const list = Array.isArray(res?.contacts) ? res.contacts : []
   const numbers = []
-
   for (const c of list) {
     const phones = c?.phones || c?.phoneNumbers || []
     for (const p of phones) {
@@ -875,11 +835,9 @@ async function getLocalContactPhoneNumbers() {
       if (v) numbers.push(v)
     }
   }
-
   if (!numbers.length) throw new Error('연락처에서 전화번호를 찾지 못했습니다.')
   return numbers
 }
-
 async function collectLocalContactHashes(){
   const phones = await getLocalContactPhoneNumbers()
   const normalized = Array.from(new Set(phones.map(normalizePhoneKR).filter(Boolean)))
@@ -909,9 +867,9 @@ onMounted(async () => {
     onlyWithPhoto.value           = onOffToBool(user.value?.search_onlyWithPhoto)
     matchPremiumOnly.value        = onOffToBool(user.value?.search_matchPremiumOnly)
 
-    // 🔒 일반/여성: 프리미엄-only 토글은 OFF로 강제 유지
-    if (!canEditField('onlyWithPhoto'))      { onlyWithPhoto.value = false }
-    if (!canEditField('matchPremiumOnly'))   { matchPremiumOnly.value = false }
+    // 🔒 일반/라이트: 프리미엄 전용 토글은 OFF로 강제 유지
+    if (!canEditFieldLocal('onlyWithPhoto'))      { onlyWithPhoto.value = false }
+    if (!canEditFieldLocal('matchPremiumOnly'))   { matchPremiumOnly.value = false }
   } catch (err) {
     console.error('유저 정보 로딩 실패:', err)
   }
@@ -923,7 +881,7 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 </script>
 
 <style scoped>
-/* === 스타일 동일 + 제약 상태 배지 === */
+/* (기존 스타일 동일) — 생략 없이 붙여둡니다 */
 :root{--bg:#0b0b0e;--panel:#111215;--panel-2:#15161a;--gold:#d4af37;--gold-2:#b8901e;--gold-3:#8c6f12;--text:#eaeaea;--text-dim:#bdbdbd;--text-muted:#9aa0a6;--divider:rgba(212,175,55,.18);--shadow:rgba(0,0,0,.35)}
 .page-wrapper{background:radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,.08), transparent 55%), radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,.06), transparent 60%), var(--bg); color:var(--text); min-height:100%}
 .container{padding:12px}
@@ -931,8 +889,8 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 .card-title{display:flex; align-items:center; gap:8px; margin:0 0 5px 0; margin-bottom:10px; font-size:clamp(15px,4.2vw,18px); font-weight:800; color:var(--text); position:relative}
 .card-title::after{content:""; height:2px; width:44px; background:linear-gradient(90deg, var(--gold), transparent); position:absolute; left:0; bottom:-6px}
 .title-icon{font-size:18px; color:var(--gold)}
-.pf-photo{display:flex; justify-content:center; padding:  0px 0px 15px}
-.pf-photo :deep(.avatar){max-width:130px} 
+.pf-photo{display:flex; justify-content:center; padding:0 0 15px}
+.pf-photo :deep(.avatar){max-width:130px}
 .title-action-btn{position:absolute; top:10px; right:10px; display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px; border:1px solid var(--divider); background:rgba(0,0,0,.25); color:#fff; font-weight:700; font-size:13px; cursor:pointer; transition:transform .08s ease, background .2s ease, border-color .2s ease}
 .title-action-btn:hover,.title-action-btn:focus{background:rgba(212,175,55,.12); border-color:var(--gold); outline:none}
 .title-action-btn:active{transform:translateY(1px)}
@@ -967,14 +925,48 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 .pf-switch.is-on .pf-switch__text--left{opacity:.95}
 .pf-fullcell{padding:8px 8px!important}
 .pf-fullrow{display:flex; align-items:center; gap:8px; width:100%}
-.pf-fullrow__label{flex:1 1 auto; white-space:normal!important; overflow:visible!important; text-overflow:unset!important}
+
+/* ✅ 풀폭 라벨 톤/크기 */
+.pf-fullrow__label{
+  flex:1 1 auto;
+  white-space:normal!important;
+  overflow:visible!important;
+  text-overflow:unset!important;
+  color: var(--text) !important;
+  font-size: clamp(12.5px, 3.6vw, 14px) !important;
+  font-weight: 700;
+  line-height: 1.28;
+}
+.pf-scope .pf-fullrow .label{
+  color: var(--text) !important;
+  font-size: clamp(12.5px, 3.6vw, 14px) !important;
+  font-weight: 700;
+  line-height: 1.28;
+}
+
+/* 🔧 비활성 행 스타일 */
+.editable-row.disabled{cursor:not-allowed}
+.pf-scope .editable-row.disabled .pf-th,
+.pf-scope .editable-row.disabled .pf-th .label{
+  color: var(--text) !important;
+  opacity: 1 !important;
+  font-size: clamp(12.5px, 3.6vw, 14px) !important;
+  font-weight: 700 !important;
+  line-height: 1.28 !important;
+}
+.pf-scope .editable-row.disabled .row-icon{
+  color: var(--gold) !important;
+  opacity: 1 !important;
+}
+.pf-scope .editable-row.disabled .pf-td{
+  color: var(--text-dim) !important;
+}
 
 /* 🔒 잠금 상태 표현 */
-.editable-row.disabled{opacity:.5; cursor:not-allowed}
-.pf-lock{ margin-left:6px; color:var(--text-muted); font-size:.9em }
-.pf-hint{ margin-left:8px; color:var(--text-muted); font-size:.85em }
-.pf-switch.disabled{ opacity:.5; cursor:not-allowed }
-.pf-lock-inline{ margin-left:6px; opacity:.8; font-size:.95em }
+.pf-lock{margin-left:6px; color:var(--text-muted); font-size:.9em}
+.pf-hint{margin-left:8px; color:var(--text-muted); font-size:.85em}
+.pf-switch.disabled{opacity:.5; cursor:not-allowed}
+.pf-lock-inline{margin-left:6px; opacity:.8; font-size:.95em}
 
 /* 버튼 */
 .btn-inline-gray {
@@ -997,15 +989,11 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 @media (max-width:360px){
   .container{padding:10px}
   .card{border-radius:10px; padding:10px}
-
   .info-table{font-size:12px}
-
   .pf-col-th{width:46%; padding-top:12px; padding-bottom:12px}
   .pf-col-td{width:54%}
   .pf-col-tha{width:100%; padding-top:12px; padding-bottom:0px}
   .pf-col-tda{width:100%}
-
-
   .pf-scope .pf-th,.pf-scope .pf-td{padding:6px 6px}
   .pf-scope .pf-tha,.pf-scope .pf-tda{padding:6px 6px}
   .pf-scope .row-icon{font-size:13px!important}

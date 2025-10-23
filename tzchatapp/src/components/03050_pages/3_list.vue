@@ -107,7 +107,7 @@ const openReceive = (user) => { receiveUser.value = user || null }
 const closeReceive = () => { receiveUser.value = null }
 
 /* ✅ 프리미엄 가림 로직 전달용 상태 */
-const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium   = ref(false)
 
 onMounted(async () => {
@@ -123,14 +123,14 @@ onMounted(async () => {
     const premiumBool =
       me?.isPremium ??
       me?.premium ??
-      (String(levelFromApi || '').trim() === '프리미엄')
+      (String(levelFromApi || '').trim() === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
   } catch (e) {
     // 서버 실패 시 로컬 스토리지 폴백
     const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
     viewerLevel.value = lv
     const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-    isPremium.value = ['프리미엄', 'premium', 'premium_member', 'prem'].includes(lv) ||
+    isPremium.value = ['프리미엄회원', 'premium', 'premium_member', 'prem'].includes(lv) ||
                       ['true','1','yes','y'].includes(boolish)
   }
 })

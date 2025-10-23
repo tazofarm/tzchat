@@ -8,6 +8,16 @@
 
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
+
+        <button
+          type="button"
+          :disabled="submitting"
+          @click="goLoginauto"
+        >
+          {{ submitting ? '로그인 중...' : 'Tester 자동로그인' }}
+        </button>
+<br><br>
+
         <button
           type="button"
           :disabled="submitting"
@@ -16,15 +26,24 @@
           {{ submitting ? '로그인 중...' : '로그인' }}
         </button>
 
-        <br><br><br><br>
+
+
+
+        <br><br>
 
         <button
           type="button"
           :disabled="submitting"
           @click="goLoginTester"
         >
-          {{ submitting ? '로그인 중...' : 'Tester전용 로그인' }}
+          {{ submitting ? '로그인 중...' : 'Tester 전용로그인' }}
+
         </button>
+
+
+
+
+        
       </form>
     </div>
   </div>
@@ -70,7 +89,10 @@ async function redirectConsideringConsent(defaultRedirect = '/home/6page') {
     router.replace(redirectTo)
   }
 }
-
+function goLoginauto() {
+  if (submitting.value) return
+  router.push('/loginauto')
+}
 function goLoginmain() {
   if (submitting.value) return
   router.push('/loginmain')

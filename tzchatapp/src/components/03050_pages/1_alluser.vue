@@ -33,8 +33,8 @@ const currentUser = ref({})
 const isLoading = ref(true)
 const socket = ref(null)
 
-/** ✅ Premium 가림 로직용: 뷰어 레벨/프리미엄 여부를 명시 전달 */
-const viewerLevel = ref('')  // '일반회원' | '여성회원' | '프리미엄' 등
+/** ✅ Premium 가림 로직용: 뷰어 레벨/프리미엄회원 여부를 명시 전달 */
+const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium = ref(false) // true면 실제 값 노출, false면 Premium 전용
 
 /** 이 컴포넌트에서 등록한 소켓 핸들러 보관용 */
@@ -146,7 +146,7 @@ onMounted(async () => {
     const premiumBool =
       me?.isPremium ??
       me?.premium ??
-      (String(levelFromApi || '').trim() === '프리미엄')
+      (String(levelFromApi || '').trim() === '프리미엄회원')
 
     isPremium.value = Boolean(premiumBool)
 

@@ -43,16 +43,16 @@
               지역: {{ user.region1 || '미입력' }} / {{ user.region2 || '미입력' }}
             </p>
 
-            <!-- ✅ 프리미엄 전용 노출 -->
+            <!-- ✅ 프리미엄회원 전용 노출 -->
             <p class="meta">
               특징:
-              {{ viewerIsPremium ? (user.preference || '-') : 'Premium 전용' }}
+              {{ viewerIsPremium ? (user.preference || '-') : '🔒' }}
             </p>
 
-            <!-- ✅ 프리미엄 전용 노출 -->
+            <!-- ✅ 프리미엄회원 전용 노출 -->
             <p class="meta">
               결혼:
-              {{ viewerIsPremium ? (user.marriage || '-') : 'Premium 전용' }}
+              {{ viewerIsPremium ? (user.marriage || '-') : '🔒' }}
             </p>
 
             <p class="meta">
@@ -98,13 +98,13 @@ const props = defineProps({
   isLoading: { type: Boolean, default: false },
   /** 선택: 부모가 넘기는 회원 레벨(문자열) */
   viewerLevel: { type: String, default: '' },
-  /** 선택: 부모가 넘기는 프리미엄 여부(불리언) */
+  /** 선택: 부모가 넘기는 프리미엄회원 여부(불리언) */
   isPremium: { type: [Boolean, String], default: undefined },
 })
 
 const emit = defineEmits(['userClick'])
 
-/** ✅ 프리미엄 여부 통합 판정 (prop 우선 → 로컬스토리지 폴백) */
+/** ✅ 프리미엄회원 여부 통합 판정 (prop 우선 → 로컬스토리지 폴백) */
 const viewerIsPremium = computed(() => {
   // 1) 불리언/문자 prop 직접 전달 시 최우선
   if (typeof props.isPremium === 'boolean') return props.isPremium === true
@@ -116,11 +116,11 @@ const viewerIsPremium = computed(() => {
 
   // 2) 레벨 문자열 판정 (ko/en 혼용 허용)
   const level = (props.viewerLevel || '').trim().toLowerCase()
-  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(level)) return true
+  if (['프리미엄회원', 'premium', 'premium_member', 'prem'].includes(level)) return true
 
   // 3) 로컬 스토리지 폴백 (여러 키 허용)
   const lvLS = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
-  if (['프리미엄', 'premium', 'premium_member', 'prem'].includes(lvLS)) return true
+  if (['프리미엄회원', 'premium', 'premium_member', 'prem'].includes(lvLS)) return true
 
   const boolish = (localStorage.getItem('isPremium') || '').toLowerCase().trim()
   if (['true', '1', 'yes', 'y'].includes(boolish)) return true
