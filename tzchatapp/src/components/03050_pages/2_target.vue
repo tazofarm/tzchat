@@ -347,13 +347,9 @@ ion-content {
 .btn-confirm:focus, .btn-cancel:focus { outline:2px solid #3a3a3f; outline-offset:2px; }
 
 button[aria-label*="새로운 친구"] {
-  width: 100%;
+  width: 94%;
   height: 160px;
   border-radius: 14px;
 }
-button[aria-label*="새로운 친구"] {
-  width: 94%;
-  aspect-ratio: 1 / 1;
-  border-radius: 14px;
-}
+
 </style>

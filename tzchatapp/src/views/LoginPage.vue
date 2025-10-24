@@ -9,6 +9,7 @@
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
 
+        <!--
         <button
           type="button"
           :disabled="submitting"
@@ -16,7 +17,7 @@
         >
           {{ submitting ? '로그인 중...' : 'Tester 자동로그인' }}
         </button>
-<br><br>
+<br><br>-->
 
         <button
           type="button"

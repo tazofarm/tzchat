@@ -73,6 +73,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { IonButton, IonIcon } from '@ionic/vue'
+import { App } from '@capacitor/app'
 import {
   happyOutline,
   settingsOutline,
@@ -162,9 +163,9 @@ function detectOS() {
 }
 async function getAppVersion() {
   try {
-    const mod = await import('@capacitor/app')
-    const info = await mod.App.getInfo()
-    return info.version || info.build || 'unknown'
+    // ❌ mod.App.getInfo() → ✅ App.getInfo()
+    const info = await App.getInfo()
+    return info.version || String((info as any).build) || 'unknown'
   } catch {
     return 'unknown'
   }

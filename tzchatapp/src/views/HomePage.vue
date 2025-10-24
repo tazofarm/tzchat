@@ -3,12 +3,14 @@
     
    <TopSpace height="8vh" /> <!-- ← 원하는 높이로 조절 --> 
     
-    <!-- 상단 메뉴 -->
-    <TopMenu />
+
     <!--<USpace height="6vh" />  ← 원하는 높이로 조절 --> 
 
     <!-- 가운데 스크롤 영역 -->
     <MainPage />
+
+        <!-- 상단 메뉴 -->
+    <TopMenu />
 
     <!-- 하단 여백 -->
     <Space height="10vh" /> <!-- ← 원하는 높이로 조절 -->

@@ -1,7 +1,7 @@
 <!-- src/components/04010_Page0_emergency/Emergency.vue -->
 <template>
   <ion-page>
-    <ion-content>
+    <ion-content fullscreen class="no-gutter">
       <!-- 보상형 광고 모달 -->
       <ion-modal
         :is-open="showAdvModal"
@@ -11,43 +11,42 @@
         <ModalAdv @close="closeAdv" />
       </ion-modal>
 
-      <div class="ion-padding">
-        <!-- ===== Speed Matching 헤더 ===== -->
+      <!-- ===== Speed Matching 헤더 ===== -->
+      <div class="em-header">
         <EmergencySwitch
           :emergencyOn="emergencyOn"
           :formattedTime="formattedTime"
           @toggle="onHeaderToggle"
         />
+      </div>
 
-        <!-- ✅ 리스트 상단 스크롤 앵커 -->
-        <div ref="listTop" style="height:1px;"></div>
+      <!-- ✅ 리스트 상단 스크롤 앵커 -->
+      <div ref="listTop" style="height:1px;"></div>
 
-        <!-- ===== 공통 리스트 컴포넌트 ===== -->
-        <UserList
-          :users="emergencyUsers"
-          :isLoading="isLoading"
-          :viewer-level="viewerLevel"
-          :is-premium="isPremium"
-          emptyText="현재 긴급 사용자 없음"
-          @select="u => goToUserProfile(u._id)"
-        />
+      <!-- ===== 공통 리스트 컴포넌트 ===== -->
+      <UserList
+        :users="emergencyUsers"
+        :isLoading="isLoading"
+        :viewer-level="viewerLevel"
+        :is-premium="isPremium"
+        emptyText="현재 긴급 사용자 없음"
+        @select="u => goToUserProfile(u._id)"
+      />
 
-        <!-- ✅ 새로운 친구 보기 (리셋) — emergencyOn 일 때만 노출 -->
-        <div
-          v-if="emergencyOn"
-          style="margin-top: 12px; display:flex; justify-content:center;"
+      <!-- ✅ 새로운 친구 보기 (리셋) — emergencyOn 일 때만 노출 -->
+      <div
+        v-if="emergencyOn"
+        class="reset-btn-wrap"
+      >
+        <button
+          type="button"
+          @click="openResetConfirm"
+          :disabled="resetUsed >= resetLimit || isLoading"
+          class="reset-action-card"
+          aria-label="새로운 친구 보기"
         >
-          <button
-            type="button"
-            @click="openResetConfirm"
-            :disabled="resetUsed >= resetLimit || isLoading"
-            style="padding:10px 14px; border-radius:10px; border:1px solid #2a2a2e; background:#151518; color:#d7d7d9; cursor:pointer; opacity: var(--op, 1);"
-            :style="{ '--op': (resetUsed >= resetLimit || isLoading) ? 0.5 : 1 }"
-            aria-label="새로운 친구 보기"
-          >
-            새로운 친구 보기 ({{ resetUsed }}/{{ resetLimit }})
-          </button>
-        </div>
+          새로운 친구 보기 ({{ resetUsed }}/{{ resetLimit }})
+        </button>
       </div>
 
       <!-- ✅ 확인/취소 모달 -->
@@ -78,10 +77,13 @@
 
 <script setup>
 /* -----------------------------------------------------------
-   Emergency 페이지 (필터 정리 반영)
-   - Total_Filter_premium 내부에 "자기자신 제외 + 리스트/채팅상대 제외" 통합
-   - 프론트 프리체크 제외 세트(친구/차단/대기/채팅상대)도 AND 적용
-   - 새로운 친구 보기(리셋): 일/사용자별 카운트·시드 관리, 회전, 스크롤
+   Emergency 페이지 (distribution.js 적용 버전)
+   - 서버 "긴급 활성" 유저 원본(rawEmergencyList)을 유지
+   - 분산 선정 applyDistributedSelection으로 7명 노출
+   - 옵션: 자기포함(INCLUDE_ME_WHEN_ON) 시 최상단 배치
+   - 프리미엄 Total 필터: applyTotalFilterPremium 사용
+   - 프리체크 제외: 친구/차단/대기/채팅상대 AND 적용
+   - 리셋: seedDay + viewerId + resetIndex로 재분배
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -91,10 +93,12 @@ import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
 import EmergencySwitch from '@/components/02010_minipage/mini_emergency/emergencySwitch.vue'
 import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/Total_Filter_premium'
 import { connectSocket as connectSharedSocket } from '@/lib/socket'
+import { applyDistributedSelection } from '@/components/04210_Page2_target/Logic/distribution'
 import { IonPage, IonContent, IonModal } from '@ionic/vue'
 
 /* ===== 상태 ===== */
-const emergencyUsers = ref([])
+const emergencyUsers = ref([])        // 화면 표시용(선정 결과 7명)
+const rawEmergencyList = ref([])      // 서버 원본(긴급 활성)
 const isLoading = ref(true)
 const emergencyOn = ref(false)
 const remainingSeconds = ref(0)
@@ -102,7 +106,7 @@ const currentUser = ref({})
 const showAdvModal = ref(false)
 const router = useRouter()
 const socket = ref(null)
-const excludeIds = ref(new Set()) // 친구/차단/대기/채팅상대 프리체크 제외
+const excludeIds = ref(new Set())     // 친구/차단/대기/채팅상대 프리체크 제외
 
 /* ✅ 리스트 상단 앵커 */
 const listTop = ref(null)
@@ -199,46 +203,7 @@ function saveResetState() {
   localStorage.setItem(key, JSON.stringify({ used: resetUsed.value, idx: resetIndex.value }))
 }
 
-/* ===== 셔플(회전) 유틸 ===== */
-function murmur32(str) {
-  let h = 0 ^ str.length, i = 0, k
-  while (str.length >= i + 4) {
-    k = (str.charCodeAt(i) & 0xff)
-      | ((str.charCodeAt(i + 1) & 0xff) << 8)
-      | ((str.charCodeAt(i + 2) & 0xff) << 16)
-      | ((str.charCodeAt(i + 3) & 0xff) << 24)
-    k = Math.imul(k, 0x5bd1e995)
-    k ^= k >>> 24
-    k = Math.imul(k, 0x5bd1e995)
-    h = Math.imul(h, 0x5bd1e995) ^ k
-    i += 4
-  }
-  switch (str.length - i) {
-    case 3: h ^= (str.charCodeAt(i + 2) & 0xff) << 16
-    case 2: h ^= (str.charCodeAt(i + 1) & 0xff) << 8
-    case 1: h ^= (str.charCodeAt(i) & 0xff); h = Math.imul(h, 0x5bd1e995)
-  }
-  h ^= h >>> 13
-  h = Math.imul(h, 0x5bd1e995)
-  h ^= h >>> 15
-  return h >>> 0
-}
-function rotateBySeed(arr, seed, tag='EM') {
-  if (!Array.isArray(arr) || arr.length === 0) return arr
-  const off = murmur32(`${seed}::${tag}`) % arr.length
-  if (off === 0) return arr
-  return arr.slice(off).concat(arr.slice(0, off))
-}
-
-/* ===== 헤더 토글 ===== */
-const onHeaderToggle = async (next) => {
-  if (next) showAdvModal.value = true
-  await updateEmergencyState(next)
-}
-const closeAdv = () => { showAdvModal.value = false }
-const onAdvDidDismiss = () => { showAdvModal.value = false }
-
-/* ===== 긴급 활성/목록 ===== */
+/* ===== 긴급 활성 판정 ===== */
 function isEmergencyActive(u) {
   try {
     const em = u?.emergency || {}
@@ -252,26 +217,36 @@ function isEmergencyActive(u) {
     return false
   } catch { return false }
 }
-const INCLUDE_ME_WHEN_ON = true   // ✅ 나 포함
-const APPLY_FILTERS_TO_ME = false // ✅ 포함할 때는 필터도 건너뜀
 
-function getLastAccessTs(u) {
-  const lastLogin = u?.last_login ? new Date(u.last_login).getTime() : 0
-  const updatedAt = u?.updatedAt ? new Date(u.updatedAt).getTime() : 0
-  const activatedAt = u?.emergency?.activatedAt ? new Date(u.emergency.activatedAt).getTime() : 0
-  return Math.max(lastLogin, updatedAt, activatedAt, 0)
-}
-function sortByLastAccessDesc(list) {
-  return [...list].sort((a, b) => getLastAccessTs(b) - getLastAccessTs(a))
-}
-function upsertMeToTop(meObj) {
-  if (!meObj?._id) return
-  emergencyUsers.value = emergencyUsers.value.filter(u => u._id !== meObj._id)
-  emergencyUsers.value.unshift(meObj)
-}
-function removeMeFromList(myId) {
-  if (!myId) return
-  emergencyUsers.value = emergencyUsers.value.filter(u => u._id !== myId)
+/* 옵션: 나 포함 제어 */
+const INCLUDE_ME_WHEN_ON = true     // ✅ 나 포함
+const APPLY_FILTERS_TO_ME = false   // 포함할 때는 필터도 건너뜀
+
+/* ===== 분산 재선정 ===== */
+function recompute() {
+  const me = currentUser.value
+  // 분산 입력 리스트: 긴급 활성만 대상으로 사용
+  let baseList = rawEmergencyList.value
+
+  // 프리체크 제외(AND) → distribution 내부에도 excludeIdsSet를 전달
+  baseList = filterByExcludeIds(baseList, excludeIds.value)
+
+  // 분산 선정 실행 (프리미엄 필터를 applyTotalFilter로 전달)
+  const selected = applyDistributedSelection(baseList, me, {
+    seedDay: seedDay.value,
+    viewerId: viewerId.value,
+    resetIndex: resetIndex.value,
+    excludeIdsSet: excludeIds.value,
+    applyTotalFilter: (list, meArg) => applyTotalFilterPremium(list, meArg, { log: false }),
+  })
+
+  // 옵션: 나 자신이 긴급 활성인 경우 0번에 고정 배치
+  if (INCLUDE_ME_WHEN_ON && isEmergencyActive(me)) {
+    const withoutMe = selected.filter(u => u._id !== me._id)
+    emergencyUsers.value = [me, ...withoutMe].slice(0, 7)
+  } else {
+    emergencyUsers.value = selected
+  }
 }
 
 /* ===== API/갱신 ===== */
@@ -282,7 +257,7 @@ async function fetchRelations() {
       api.get('/api/blocks'),
       api.get('/api/friend-requests/sent'),
       api.get('/api/friend-requests/received'),
-      api.get('/api/chatrooms/partners'), // ✅ 내가 대화한 상대 ID (신규)
+      api.get('/api/chatrooms/partners'),
     ])
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
     const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
@@ -293,7 +268,7 @@ async function fetchRelations() {
     // 프리체크 제외 세트
     excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv, chats: chatUserIds })
 
-    // 내부 Total 필터(Filter_listchat)가 참고하도록 me에 주입
+    // me에 채팅상대 주입(내부 필터 참조용)
     currentUser.value = {
       ...currentUser.value,
       chatUserIds,
@@ -306,42 +281,27 @@ async function fetchRelations() {
 const fetchEmergencyUsers = async () => {
   try {
     const res = await api.get('/api/emergencyusers')
-    let list = res.data?.users || []
     const me = currentUser.value
     if (!me || !me._id) return
 
-    // 1) 긴급 활성 유저만
+    // 원본: 긴급 활성 유저만
+    let list = Array.isArray(res.data?.users) ? res.data.users : []
     list = list.filter(isEmergencyActive)
-    // 2) 프리체크 제외(친구/차단/대기/채팅상대)
-    list = filterByExcludeIds(list, excludeIds.value)
-    // 3) Premium Total 필터 (내부에 자기자신/리스트·채팅상대 제외 포함)
-    list = applyTotalFilterPremium(list, me, { log: false })
-    // 4) 최근성 정렬
-    list = sortByLastAccessDesc(list)
-    // 5) 리셋 시드 기반 회전
-    const seed = `${seedDay.value || yyyymmddKST()}#${viewerId.value || 'anon'}#${resetIndex.value}`
-    list = rotateBySeed(list, seed, 'EM')
 
-    // 6) 옵션: 나 자신 포함 처리 (필요 시 필터 적용)
-    const iAmActive = isEmergencyActive(me)
-    if (INCLUDE_ME_WHEN_ON && iAmActive) {
-      let addMe = true
-      if (APPLY_FILTERS_TO_ME) {
-        const selfPremium = applyTotalFilterPremium([me], me, { log: false })
-        const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
-        addMe = selfFiltered.length > 0
-      }
-      if (addMe) {
-        list = list.filter(u => u._id !== me._id)
-        list.unshift(me)
-      }
-    }
-
-    emergencyUsers.value = list
+    rawEmergencyList.value = list
+    recompute()
   } catch (err) {
     console.error('❌ 목록 로딩 실패:', err)
   }
 }
+
+/* ===== 긴급 on/off ===== */
+const onHeaderToggle = async (next) => {
+  if (next) showAdvModal.value = true
+  await updateEmergencyState(next)
+}
+const closeAdv = () => { showAdvModal.value = false }
+const onAdvDidDismiss = () => { showAdvModal.value = false }
 
 const updateEmergencyState = async (newState) => {
   try {
@@ -362,16 +322,6 @@ const updateEmergencyState = async (newState) => {
             activatedAt: new Date().toISOString()
           }
         }
-        if (INCLUDE_ME_WHEN_ON) {
-          let me = { ...currentUser.value }
-          let pass = true
-          if (APPLY_FILTERS_TO_ME) {
-            const selfPremium = applyTotalFilterPremium([me], me, { log: false })
-            const selfFiltered = filterByExcludeIds(selfPremium, excludeIds.value)
-            pass = selfFiltered.length > 0
-          }
-          if (pass) upsertMeToTop(me)
-        }
         await nextTick()
         startCountdown(remaining)
       } else {
@@ -379,7 +329,6 @@ const updateEmergencyState = async (newState) => {
       }
     } else {
       clearCountdown()
-      removeMeFromList(currentUser.value?._id)
       currentUser.value = {
         ...currentUser.value,
         emergency: { ...(currentUser.value.emergency || {}), isActive: false, remainingSeconds: 0 }
@@ -403,16 +352,21 @@ function initSocket() {
     const s = connectSharedSocket()
     socket.value = s
     s.on('connect', () => { try { s.emit('subscribe', { room: 'emergency' }) } catch (_) {} })
-    s.on('emergency:refresh', fetchEmergencyUsers)
-    s.on('emergency:userOn', fetchEmergencyUsers)
-    s.on('emergency:userOff', fetchEmergencyUsers)
+    const refetch = async () => { await fetchEmergencyUsers() }
+    s.on('emergency:refresh', refetch)
+    s.on('emergency:userOn', refetch)
+    s.on('emergency:userOff', refetch)
     s.on('user:lastLogin', async ({ userId, last_login }) => {
-      let found = false
-      emergencyUsers.value = emergencyUsers.value.map(u => {
-        if (u._id === userId) { found = true; return { ...u, last_login } }
+      let touched = false
+      rawEmergencyList.value = rawEmergencyList.value.map(u => {
+        if (u._id === userId) { touched = true; return { ...u, last_login } }
         return u
       })
-      if (!found) await fetchEmergencyUsers()
+      if (touched) {
+        recompute()
+      } else {
+        await fetchEmergencyUsers()
+      }
     })
   } catch (e) {
     console.error('❌ [socket] 초기화 실패:', e)
@@ -463,7 +417,7 @@ async function confirmReset() {
   resetUsed.value += 1
   resetIndex.value += 1
   saveResetState()
-  await fetchEmergencyUsers()
+  recompute()
   await nextTick()
   scrollToTopSmooth()
 }
@@ -529,24 +483,36 @@ ion-content {
   color: var(--text);
 }
 
-/* emergency는 .ion-padding 안에서 렌더 → 타겟과 폭 맞춤 */
-:deep(.users-list){
-  margin-left: -16px;
-  margin-right: -16px;
+/* ✅ target.vue와 동일한 패딩 규칙(좌우 여백 제거) */
+.no-gutter {
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
+}
+
+/* 헤더 컨테이너(필요 시 최소 패딩만) */
+.em-header {
+  padding: 12px 12px 6px;
+}
+
+/* 리스트 래퍼: target와 폭 일치 (음수 마진 제거) */
+.reset-btn-wrap {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 16px;
 }
 
 /* ===== target.vue와 동일한 버튼 룰 ===== */
-/* (1) 가로 100% + 고정 높이 */
-button[aria-label*="새로운 친구"] {
+.reset-action-card {
   width: 100%;
-  height: 160px;
+  aspect-ratio: 2.5 / 1;  /* 정사각형 카드 */
   border-radius: 14px;
-}
-/* (2) 정사각 비율로 쓸 경우 — target.vue와 동일하게 존재 */
-button[aria-label*="새로운 친구"] {
-  width: 110%;
-  aspect-ratio: 1 / 1;
-  border-radius: 14px;
+  border: 1px solid #2a2a2e;
+  background: #151518;
+  color: #d7d7d9;
+  cursor: pointer;
 }
 
 /* ✅ 리셋 확인 모달 */

@@ -59,9 +59,9 @@ const route = useRoute()
 const router = useRouter()
 
 const menuItems = [
-  { name: 't-emer', path: '/home/91page', icon: diamondOutline },
-  { name: 't-tar', path: '/home/92page', icon: locateOutline },
-  { name: 't-all', path: '/home/93page', icon: warningOutline },
+ // { name: 't-emer', path: '/home/91page', icon: diamondOutline },
+ // { name: 't-tar', path: '/home/92page', icon: locateOutline },
+ // { name: 't-all', path: '/home/93page', icon: warningOutline },
   { name: 'Premium', path: '/home/0page', icon: diamondOutline },
   { name: 'Search', path: '/home/2page', icon: locateOutline },
   { name: 'all', path: '/home/1page', icon: warningOutline },
@@ -196,7 +196,7 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   background: var(--bg);
   border-bottom: 1px solid var(--panel-border);
-  padding: 6px 0;
+  padding: 1px 0;
   text-align: center;
   color: var(--text);
   overflow: visible;
