@@ -885,7 +885,7 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 /* (기존 스타일 동일) — 생략 없이 붙여둡니다 */
 :root{--bg:#0b0b0e;--panel:#111215;--panel-2:#15161a;--gold:#d4af37;--gold-2:#b8901e;--gold-3:#8c6f12;--text:#eaeaea;--text-dim:#bdbdbd;--text-muted:#9aa0a6;--divider:rgba(212,175,55,.18);--shadow:rgba(0,0,0,.35)}
 .page-wrapper{background:radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,.08), transparent 55%), radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,.06), transparent 60%), var(--bg); color:var(--text); min-height:100%}
-.container{padding:12px}
+.container{padding:2px}
 .card{border:1px solid var(--divider); border-radius:12px; padding:12px; background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0)), var(--panel); color:var(--text); box-shadow:0 8px 24px var(--shadow); backdrop-filter:blur(2px); position:relative}
 .card-title{display:flex; align-items:center; gap:8px; margin:0 0 5px 0; margin-bottom:10px; font-size:clamp(15px,4.2vw,18px); font-weight:800; color:var(--text); position:relative}
 .card-title::after{content:""; height:2px; width:44px; background:linear-gradient(90deg, var(--gold), transparent); position:absolute; left:0; bottom:-6px}

@@ -100,11 +100,16 @@ const openAaa = (payload) => {
 /* =======================
    다크 테마 강제 고정
 ======================= */
-.dark-scope { background: #0a0a0a !important; color: #f5f5f5; }
+.dark-scope { background: #000 !important; color: #f5f5f5; }
 
-/* 🔒 Ionic 내부 배경 변수/파트까지 강제 오버라이드 */
-:global(.dark-scope ion-content) { --background: #0a0a0a !important; background: #0a0a0a !important; }
-:global(.dark-scope ion-content::part(background)) { background: #0a0a0a !important; }
+/* ✅ Ionic 전역 배경 변수/파트까지 완전 검정으로 통일 */
+:global(.dark-scope) { --ion-background-color: #000 !important; }
+:global(html, body, #app, ion-app, .friends-page, .friends-page ion-page) { background: #000 !important; }
+:global(.dark-scope ion-content) { --background: #000 !important; background: #000 !important; }
+:global(.dark-scope ion-content::part(background)) { background: #000 !important; }
+:global(.dark-scope ion-content::part(scroll)) { background: #000 !important; }
+:global(.dark-scope ion-content::part(content)) { background: #000 !important; }
+
 :global(.dark-scope ion-list) { --background: transparent !important; background: transparent !important; }
 :global(.dark-scope ion-item) {
   --background: transparent !important;
@@ -117,7 +122,7 @@ const openAaa = (payload) => {
 /* ========== 상단 탭 (toolbar 안) ========== */
 /* ✅ sticky 제거: header가 고정 역할 수행 */
 .top-tabs {
-  background: var(--bg-deep, #0a0a0a);
+  background: var(--bg-deep, #000);
   padding: 4px 6px 8px;
   border-bottom: 1px solid var(--border, #333);
 }
@@ -157,7 +162,7 @@ const openAaa = (payload) => {
 /* ========== 색상 변수(로컬) ========== */
 :root {
   --gold:#d4af37; --gold-weak:#e6c964; --gold-strong:#b18f1a;
-  --bg-deep:#0a0a0a; --panel:#141414; --row:#1b1b1b;
+  --bg-deep:#000; --panel:#141414; --row:#1b1b1b;
   --ink:#f5f5f5; --ink-weak:#c9c9c9; --border:#333;
 }
 

@@ -171,7 +171,7 @@ onMounted(async () => {
   /* top: env(safe-area-inset-top, 0px); ← 제거 */
   
   background: var(--bg-deep, #0a0a0a);
-  padding: 4px 6px 8px;
+  padding: 4px 10px 8px 10px;
   border-bottom: 1px solid var(--border, #333);
   
 }

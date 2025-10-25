@@ -398,7 +398,7 @@ watch(() => receivedRequests.value.length, () => updateBadge())
 /* 상단 헤더 */
 .section-header{
   display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:4px 0 10px;
+  padding:8px 10px; margin:10px 10px 10px 10px;
   border-left:4px solid var(--gold, #d4af37);
   background:#0f0f0f; border-radius:10px;
   box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);

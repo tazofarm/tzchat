@@ -160,7 +160,7 @@ const viewerIsPremium = computed(() => {
 /* ===== 독립 스타일: 공용 변수에 의존하지 않음 ===== */
 .fl-scope{
   background:#121214;
-  margin:10px 12px 16px;
+  margin:1px 2px 16px;
   border-radius:14px;
   overflow:hidden;
   border:1px solid rgba(212,175,55,.18);
@@ -175,7 +175,7 @@ const viewerIsPremium = computed(() => {
 .row-divider{
   height:1px;
   background:#4a4a4a;        /* 회색 구분선 */
-  margin:6px 10px 8px 18px;  /* 좌우 여백(아바타 공간 고려) */
+  margin:1px 10px 1px 18px;  /* 좌우 여백(아바타 공간 고려) */
   pointer-events:none;
   z-index:1;
 }
@@ -186,11 +186,11 @@ const viewerIsPremium = computed(() => {
   --background:transparent !important;
   --min-height:60px;
 
-  --inner-padding-top:2px;
-  --inner-padding-bottom:2px;
+  --inner-padding-top:1px;
+  --inner-padding-bottom:1px;
 
-  --padding-start:18px;
-  --inner-padding-end:10px;
+  --padding-start:5px;
+  --inner-padding-end:5px;
   --inner-padding-start:0;
 
   color:#d7d7d9;

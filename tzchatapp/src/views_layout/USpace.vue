@@ -1,7 +1,7 @@
 <template>
   <!-- 빈칸: 홈 버튼, 제스처 영역 피하기 용 -->
   <div class="space" :style="{ height }" aria-hidden="true">
-   테스트 일반 회원 ＠ : 10 / # : 10
+   Yes ? Yes! 네네챗
   </div>
 </template>
 
@@ -29,5 +29,7 @@ defineProps({
   color: white;              /* 보기 쉽게 글자색 추가 */
   font-size: 14px;
   padding-right: 10px;       /* 살짝 여백 */
+
+  padding : 1px 30px 10px 10px;
 }
 </style>

@@ -9,7 +9,7 @@
     :viewer-level="viewerLevel"
     :is-premium="isPremium"
     emptyText="조건에 맞는 사용자가 없습니다."
-    @select="u => goToUserProfile(u._id)"
+    @select="u => goToUserProfile(u?._id || u?.id)"
   />
 
   <!-- 새로운 친구 보기 (리셋) -->
@@ -95,8 +95,11 @@ const sockHandlers = {
 const LOG = { init: true, socket: true, patch: true, sort: false, filter: true, relation: true }
 const router = useRouter()
 
-/* ===================== 혼합콘텐츠/로컬호스트 URL 보정 ===================== */
-// … (이하 기존 toAbsolute / normalizeUser 등 유틸 코드 동일) …
+/* ===================== 유틸 ===================== */
+function normalizeUser(u = {}) {
+  const id = String(u._id ?? u.id ?? '')
+  return { ...u, _id: id }
+}
 
 /** 유틸: 시간/정렬 */
 function toTS(v) {
@@ -118,7 +121,7 @@ const recompute = (me) => {
 /** 관계 데이터 로딩 */
 async function fetchRelations() {
   try {
-    console.time('[Users] relations')
+    console.time('[Users] relations]')
     const [friendsRes, blocksRes, sentRes, recvRes, chatsRes] = await Promise.all([
       api.get('/api/friends'),
       api.get('/api/blocks'),
@@ -151,7 +154,7 @@ async function fetchRelations() {
     console.error('❌ 관계 데이터 로딩 실패:', e)
     excludeIds.value = new Set()
   } finally {
-    console.timeEnd('[Users] relations')
+    console.timeEnd('[Users] relations]')
   }
 }
 
@@ -167,6 +170,14 @@ function scrollToTopSmooth() {
     return
   }
   try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch {}
+}
+
+/** ▶ 프로필 이동: 반드시 /home 하위로 이동 (PageuserProfile.vue 경로와 일치) */
+function goToUserProfile(userId) {
+  const id = String(userId || '')
+  if (!id) return
+  // 탭/홈 컨테이너를 벗어나지 않도록 명시적 /home 경로 사용
+  router.push(`/home/user/${id}`)
 }
 
 /** 리셋 모달/버튼 핸들링 */
@@ -204,7 +215,7 @@ function initUsersSocket(me) {
 
   sockHandlers.users_refresh = (payload) => {
     if (LOG.socket) console.log('🟦 [Socket] users:refresh len=', payload?.length)
-    rawServerList.value = payload || []
+    rawServerList.value = (payload || []).map(normalizeUser)
     recompute(me)
   }
   sockHandlers.users_patch = (u) => {
@@ -216,7 +227,6 @@ function initUsersSocket(me) {
     const idx = rawServerList.value.findIndex(x => x._id === nu._id)
     if (idx >= 0) rawServerList.value[idx] = { ...rawServerList.value[idx], ...nu }
     else rawServerList.value.push(nu)
-    // debounce 적용 가능
     recompute(me)
   }
   sockHandlers.users_last_login = ({ userId, last_login }) => {
@@ -274,7 +284,7 @@ onMounted(async () => {
     // 초기 사용자 리스트
     const regionFilter = me.search_regions || []
     const res = await api.post('/api/search/users', { regions: regionFilter })
-    rawServerList.value = res.data || []
+    rawServerList.value = (res.data || []).map(normalizeUser)
     recompute(me)
 
     initUsersSocket(me)
@@ -351,5 +361,4 @@ button[aria-label*="새로운 친구"] {
   height: 160px;
   border-radius: 14px;
 }
-
 </style>

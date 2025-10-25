@@ -1,3 +1,5 @@
+
+
 <template> 
   <div class="chatroom-container">
     <!-- 상단바 (전역 헤더 아래 sticky) -->
