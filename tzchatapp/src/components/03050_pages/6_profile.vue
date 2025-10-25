@@ -298,12 +298,12 @@
               </td>
             </tr>
 
-            <!-- Premium 만 연결하기 -->
+            <!-- Speed Maching 만 연결하기 -->
             <tr class="editable-row">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
-                  <strong class="label pf-fullrow__label">Premium 만 연결하기</strong>
+                  <strong class="label pf-fullrow__label">Speed Matching 만 연결하기</strong>
                   <span v-if="!canEditFieldLocal('matchPremiumOnly')" class="pf-lock-inline">🔒</span>
                   <button type="button" class="pf-switch"
                           :class="{ 'is-on': matchPremiumOnly, disabled: !canEditFieldLocal('matchPremiumOnly') }"

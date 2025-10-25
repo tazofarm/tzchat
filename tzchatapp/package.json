@@ -47,6 +47,7 @@
     "emoji-picker-element": "^1.26.3",
     "firebase": "^12.1.0",
     "ionicons": "^7.0.0",
+    "lucide-vue-next": "^0.548.0",
     "pinia": "^3.0.3",
     "socket.io-client": "^4.8.1",
     "swiper": "^11.2.10",

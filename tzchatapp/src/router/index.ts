@@ -24,6 +24,7 @@ import HomePage from '@/views/HomePage.vue'
 import Page0 from '@/components/03050_pages/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
 import Page2 from '@/components/03050_pages/2_target.vue'
+import Pagetarget from '@/components/03050_pages/2_target_merge.vue'
 import Page3 from '@/components/03050_pages/3_list.vue'
 import Page4 from '@/components/03050_pages/4_chatroom.vue'
 import Page5 from '@/components/03050_pages/5_test.vue'
@@ -39,7 +40,8 @@ import Page33 from '@/components/04310_Page3_list/Page_Receive.vue'
 import Page34 from '@/components/04310_Page3_list/Page_Send.vue'
 
 import PageuserProfile from '@/components/02010_minipage/mini_profile/PageuserProfile.vue'
-import PagepremiumProfile from '@/components/02010_minipage/mini_emergency/emergencyUserProfile.vue'
+
+import PagepremiumProfile from '@/components/02010_minipage/mini_profile/PagepremiumProfile.vue'
 
 import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
 import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage.vue'
@@ -140,6 +142,7 @@ const routes: RouteRecordRaw[] = [
       { path: '0page', component: Page0 },
       { path: '1page', component: Page1 },
       { path: '2page', component: Page2 },
+      { path: 'targetpage', component: Pagetarget },
       { path: '3page', component: Page3 },
 
       { path: '4page', component: Page4 },
@@ -157,7 +160,7 @@ const routes: RouteRecordRaw[] = [
 
       // minipage
       { path: 'user/:id', component: PageuserProfile, props: true },
-      { path: 'user/premium/:id', component: PagepremiumProfile, props: true },
+      { path: 'premuimuser/:id', component: PagepremiumProfile, props: true },
       { path: 'chat/:id', component: ChatRoomPage, props: true },
 
       // setting

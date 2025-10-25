@@ -174,7 +174,7 @@ function scrollToTopSmooth() {
 }
 
 /* ===== 리셋 상태(일/사용자별) ===== */
-const resetLimit = 500 // target.vue와 동일
+const resetLimit = 20 // target.vue와 동일
 const resetUsed = ref(0)
 const resetIndex = ref(0)
 const seedDay = ref('')

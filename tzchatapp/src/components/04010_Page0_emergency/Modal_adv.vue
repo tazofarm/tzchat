@@ -1,9 +1,9 @@
 <template> 
   <div class="popup-overlay" @click.self="$emit('close')">
     <div class="popup-content">
-      <h3>보상형 광고 beta</h3>
-      <h3>Yes? Yes!</h3>
-      <h3>네네~ Chat!!</h3>
+      <h3>Emergency 스위치를 on 한</h3>
+      <h3>사람들만 리스트에 표현됩니다.</h3>
+      <h3>보다 빠른 매칭이 가능합니다.</h3>
 
       <!-- 🔸 오류/성공 메시지 -->
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>

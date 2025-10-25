@@ -195,6 +195,104 @@ router.post('/friend-request', requireLogin, async (req, res) => {
   }
 });
 
+
+
+/** ============================
+ *  📨 (NEW) 프리미엄 친구 신청 (A → B)
+ *  - 현재는 일반과 기능 동일, 엔드포인트명만 분리
+ * ============================ */
+router.post('/friend-request-premium', requireLogin, async (req, res) => {
+  const fromId = getMyId(req);
+  const { to, message } = req.body || {};
+  const toId = String(to || '');
+
+  log('incoming friend-request-premium', {
+    path: req.baseUrl + req.path,
+    userId: fromId,
+    body: { to: toId, messageLen: (message || '').length }
+  });
+
+  try {
+    if (!fromId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    if (!toId)   return res.status(400).json({ message: '대상 사용자(to)가 필요합니다.' });
+    if (!isValidObjectId(toId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
+    if (fromId === toId) return res.status(400).json({ message: '자기 자신에게 친구 신청할 수 없습니다' });
+
+    const [fromUser, toUser] = await Promise.all([
+      User.findById(fromId).select('_id nickname suspended friendlist blocklist').lean(),
+      User.findById(toId).select('_id nickname suspended friendlist blocklist').lean()
+    ]);
+    if (!fromUser) return res.status(404).json({ message: '내 사용자 정보를 찾을 수 없습니다.' });
+    if (!toUser)   return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
+    if (fromUser.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
+
+    if ((fromUser.friendlist || []).some(fid => String(fid) === toId))
+      return res.status(400).json({ message: '이미 친구 상태입니다.' });
+
+    const iBlockedHim = (fromUser.blocklist || []).some(bid => String(bid) === toId);
+    const heBlockedMe = (toUser.blocklist || []).some(bid => String(bid) === fromId);
+    if (iBlockedHim || heBlockedMe)
+      return res.status(400).json({ message: '차단 상태에서는 친구 신청이 불가합니다.' });
+
+    const exists = await FriendRequest.findOne({
+      $or: [
+        { from: fromId, to: toId, status: 'pending' },
+        { from: toId,   to: fromId, status: 'pending' },
+      ]
+    }).lean();
+    if (exists) return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
+
+    // ✅ 현재는 일반과 동일하게 생성 (추후 분리 시 type 필드 추가 예정)
+    try {
+      const request = await FriendRequest.create({ from: fromId, to: toId, message: message || '', status: 'pending' });
+
+      // 누적 카운터 증가 (best-effort)
+      try {
+        await Promise.all([
+          User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }),
+          User.updateOne({ _id: toId   }, { $inc: { receivedRequestCountTotal: 1 } }),
+        ]);
+      } catch (incErr) { logErr('counter-inc-failed', incErr); }
+
+      const populated = await populateRequest(request);
+
+      // 소켓 통지 (옵션)
+      const emit = req.app.get('emit');
+      if (emit && emit.friendRequestCreated) {
+        try { emit.friendRequestCreated(populated); } catch (emitErr) { logErr('socket-emit-failed', emitErr); }
+      }
+
+      // 푸시 (옵션) — 문구는 동일 유지
+      (async () => {
+        try {
+          const fromNick = fromUser?.nickname || '알 수 없음';
+          await sendPushToUser(toId, {
+            title: '친구 신청 도착',
+            body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
+            type: 'friend_request',
+            fromUserId: fromId,
+            roomId: '',
+          });
+        } catch (pushErr) { logErr('[push][friend-request-premium] 발송 오류', pushErr); }
+      })();
+
+      log('✅ 프리미엄 친구 신청 완료', { path: req.baseUrl + req.path, fromId, toId, requestId: request._id });
+      return res.json(populated);
+    } catch (createErr) {
+      if (createErr && createErr.code === 11000) {
+        logErr('E11000 duplicate on create (pending unique)', createErr);
+        return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
+      }
+      throw createErr;
+    }
+  } catch (err) {
+    logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
+    return res.status(500).json({ message: '서버 오류' });
+  }
+});
+
+
+
 /** ============================
  *  🗑️ 친구 신청 취소
  * ============================ */

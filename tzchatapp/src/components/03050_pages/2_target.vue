@@ -76,7 +76,7 @@ const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미�
 const isPremium = ref(false)
 
 /** 리셋(새로운 친구 보기) 카운트 */
-const resetLimit = 500
+const resetLimit = 20
 const resetUsed = ref(0)
 const resetIndex = ref(0)
 const seedDay = ref('')        // KST yyyymmdd

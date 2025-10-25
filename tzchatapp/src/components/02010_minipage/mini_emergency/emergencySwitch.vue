@@ -3,7 +3,13 @@
   <div class="speed-head" role="group" aria-label="Speed Matching Toggle">
     <div class="speed-title">
       <ion-icon :icon="icons.flameOutline" aria-hidden="true" class="title-icon" />
-      <ion-label class="black-text">Speed Matching</ion-label>
+      <ion-label class="black-text">
+        <div>Speed Matching</div>
+        <div style="font-size: 0.85em; color: #888;">
+          (Switch on 한 유저만 리스트됩니다.)
+        </div>
+      </ion-label>
+      
     </div>
 
     <div v-if="emergencyOn" class="inline-timer black-text" aria-live="polite">
