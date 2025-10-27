@@ -1,63 +1,64 @@
+<!-- src/components/04310_Page3_list/Page_Send.vue -->
 <template>
-  <div class="sent-only-wrapper">
-    <!-- ✅ 상단 헤더: 보낸 친구 신청 (N) -->
-    <div class="section-header" role="heading" aria-level="2">
-      <ion-icon :icon="icons.sendOutline" class="section-icon" aria-hidden="true" />
-      <h3 class="section-title">
-        보낸 친구 신청
-        <span class="count">({{ pendingCount }})</span>
-      </h3>
+  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정 (중첩 안전) -->
+  <ion-header translucent="true" slot="fixed">
+    <ion-toolbar class="section-toolbar" role="heading" aria-level="2">
+      <div class="section-header">
+        <ion-icon :icon="icons.sendOutline" class="section-icon" aria-hidden="true" />
+        <h3 class="section-title">
+          보낸 친구 신청
+          <span class="count">({{ pendingCount }})</span>
+        </h3>
+      </div>
+    </ion-toolbar>
+  </ion-header>
+
+  <!-- ✅ 본문: 상위 IonContent가 스크롤 담당 -->
+  <div class="sent-wrapper">
+    <div class="page-container">
+      <!-- 공통 리스트 + 하단 액션(취소/차단) -->
+      <UserList
+        :users="users"
+        :isLoading="isLoading"
+        :viewer-level="viewerLevel"
+        :is-premium="isPremium"
+        emptyText="보낸 친구 신청이 없습니다."
+        @select="u => goToUserProfile(u._id)"
+      >
+        <template #item-actions="{ user }">
+          <ion-button
+            size="small"
+            color="medium"
+            class="btn-gold-outline"
+            :disabled="!reqByUserId[user._id]"
+            @click.stop="onCancelClick(reqByUserId[user._id]?._id)"
+          >신청 취소</ion-button>
+
+          <!-- ✅ 차단은 FriendRequest의 id가 아니라 '대상 사용자 id'로 처리 -->
+          <ion-button
+            size="small"
+            color="danger"
+            class="btn-gold-outline"
+            :disabled="!reqByUserId[user._id]"
+            @click.stop="onBlockClick(user._id)"
+          >차단</ion-button>
+        </template>
+      </UserList>
     </div>
-
-    <!-- ✅ 공통 리스트 + 하단 액션(취소/차단)
-         ✅ 프리미엄회원 가림을 위해 viewer-level / is-premium 전달 -->
-    <UserList
-      :users="users"
-      :isLoading="isLoading"
-      :viewer-level="viewerLevel"
-      :is-premium="isPremium"
-      emptyText="보낸 친구 신청이 없습니다."
-      @select="u => goToUserProfile(u._id)"
-    >
-      <template #item-actions="{ user }">
-        <ion-button
-          size="small"
-          color="medium"
-          class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id]"
-          @click.stop="onCancelClick(reqByUserId[user._id]?._id)"
-        >신청 취소</ion-button>
-
-        <!-- ✅ 차단은 FriendRequest의 id가 아니라 '대상 사용자 id'로 처리해야 함 -->
-        <ion-button
-          size="small"
-          color="danger"
-          class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id]"
-          @click.stop="onBlockClick(user._id)"
-        >차단</ion-button>
-      </template>
-    </UserList>
   </div>
 </template>
 
 <script setup>
 /* -----------------------------------------------------------
-   Sent Only: '내가 보낸 친구 신청' 전용
-   - 상단: 보낸 신청 수 (pending 기준)
-   - 각 행 하단: "취소" + "차단" 버튼
-   - 응답 포맷 다양성 대응 (requests/pendingIds/ids/객체배열)
-   - 일괄조회(bulk) → 의심 시 개별 조회 폴백 → 최종 id 필터
-   - 🔧 수정 요점:
-     • '차단'은 /api/friend-request/:id/block(수신자 전용)이 아니라
-       일반 차단 엔드포인트 /api/block/:userId 를 호출해야 동작합니다.
-   - ✅ Premium 가림: viewerLevel / isPremium을 UserList로 전달
+   Sent Only (중첩 안전 버전):
+   - ion-page/ion-content 제거 → 상위 페이지의 IonContent가 스크롤
+   - 헤더는 <ion-header slot="fixed">로 고정
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
-import { IonButton, IonIcon } from '@ionic/vue'
+import { IonHeader, IonToolbar, IonButton, IonIcon } from '@ionic/vue'
 import { sendOutline } from 'ionicons/icons'
 
 const router = useRouter()
@@ -66,7 +67,7 @@ const icons = { sendOutline }
 /* ===== 상태 ===== */
 const users = ref([])            // 보낸신청 대상 유저들(to)만
 const isLoading = ref(true)
-const sentRequests = ref([])     // [{ _id, to, status:'pending', ... }...] (pending만 유지)
+const sentRequests = ref([])     // [{ _id, to, status:'pending', ... }] (pending만)
 
 /* ✅ 프리미엄회원 가림 로직 전달용 */
 const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
@@ -74,241 +75,192 @@ const isPremium   = ref(false)
 
 /* ===== 유틸 ===== */
 const uniq = (arr = []) => Array.from(new Set(arr.map(String)))
-
-function toTS(v) {
-  if (!v) return 0
-  try { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0 } catch { return 0 }
-}
-function sortByRecent(list) {
-  return [...list].sort((a, b) => {
-    const aTS = toTS(a.last_login || a.lastLogin || a.updatedAt || a.createdAt)
-    const bTS = toTS(b.last_login || b.lastLogin || b.updatedAt || b.createdAt)
-    return bTS - aTS
+function toTS(v){ if(!v) return 0; try{ const t=new Date(v).getTime(); return Number.isFinite(t)?t:0 }catch{return 0} }
+function sortByRecent(list){
+  return [...list].sort((a,b)=>{
+    const aTS=toTS(a.last_login||a.lastLogin||a.updatedAt||a.createdAt)
+    const bTS=toTS(b.last_login||b.lastLogin||b.updatedAt||b.createdAt)
+    return bTS-aTS
   })
 }
 /** UserList 정규화 */
-function normalizeUser(u = {}) {
-  const r1 =
-    u.region1 ?? u.region1Name ?? u.regionName1 ?? u.city1 ?? u.area1 ??
-    (Array.isArray(u.region) ? u.region[0] : undefined) ?? '/'
-  const r2 =
-    u.region2 ?? u.region2Name ?? u.regionName2 ?? u.city2 ?? u.area2 ??
-    (Array.isArray(u.region) ? u.region[1] : undefined) ?? '/'
-
-  const pref =
-    u.preference ?? u.preferenceText ?? u.pref ?? u.trait ?? u.feature ??
-    (Array.isArray(u.tags) ? u.tags.join(', ') : undefined) ?? '-'
-
+function normalizeUser(u = {}){
+  const r1 = u.region1 ?? u.region1Name ?? u.regionName1 ?? u.city1 ?? u.area1 ?? (Array.isArray(u.region)?u.region[0]:undefined) ?? '/'
+  const r2 = u.region2 ?? u.region2Name ?? u.regionName2 ?? u.city2 ?? u.area2 ?? (Array.isArray(u.region)?u.region[1]:undefined) ?? '/'
+  const pref = u.preference ?? u.preferenceText ?? u.pref ?? u.trait ?? u.feature ?? (Array.isArray(u.tags)?u.tags.join(', '):undefined) ?? '-'
   const lastLogin = u.last_login || u.lastLogin || u.updatedAt || u.createdAt
-  return { ...u, region1: r1, region2: r2, preference: pref, last_login: lastLogin }
+  return { ...u, region1:r1, region2:r2, preference:pref, last_login:lastLogin }
 }
 
 /* ===== 네비게이션 ===== */
-const goToUserProfile = (userId) => {
-  if (!userId) return
-  router.push(`/home/user/${userId}`)
-}
+const goToUserProfile = (userId) => { if (userId) router.push(`/home/user/${userId}`) }
 
 /* ===== 보낸신청 → 수신자(to) ID 수집 ===== */
-function extractPendingRequests(data) {
-  const arr = Array.isArray(data) ? data
-           : (Array.isArray(data?.requests) ? data.requests
-           : (Array.isArray(data?.pending) ? data.pending
-           : []))
-  const reqs = (arr || []).filter(r => r && typeof r === 'object')
+function extractPendingRequests(data){
+  const arr = Array.isArray(data)?data
+           : (Array.isArray(data?.requests)?data.requests
+           : (Array.isArray(data?.pending)?data.pending:[]))
+  const reqs = (arr||[]).filter(r=>r && typeof r==='object')
   return reqs.filter(r => (r.status ?? 'pending') === 'pending')
 }
-function extractRecipientIdsFromAny(data) {
-  // 1) 표준/객체 경로
+function extractRecipientIdsFromAny(data){
   const pendingReqs = extractPendingRequests(data)
-  const ids1 = pendingReqs
-    .map(r => (typeof r.to === 'object' ? r.to?._id : r.to))
-    .filter(Boolean)
-    .map(String)
-
-  // 2) 단순 배열 경로 (ids/pendingIds/requests가 id 배열인 경우)
+  const ids1 = pendingReqs.map(r=> (typeof r.to==='object'? r.to?._id : r.to)).filter(Boolean).map(String)
   const idList =
     (Array.isArray(data?.pendingIds) && data.pendingIds) ||
     (Array.isArray(data?.ids) && data.ids) ||
-    (Array.isArray(data) && typeof data[0] !== 'object' && data) ||
-    []
+    (Array.isArray(data) && typeof data[0] !== 'object' && data) || []
   const ids2 = idList.map(String)
-
   return uniq([...ids1, ...ids2])
 }
 
 /* ===== 사용자 조회: bulk → 개별, 최종 id 필터 ===== */
-async function fetchUsersByIdsStrict(ids = []) {
-  if (!ids.length) return []
-  let bulkList = []
-  try {
-    const res = await api.post('/api/search/users', { ids })
-    bulkList = Array.isArray(res?.data?.users) ? res.data.users
-             : (Array.isArray(res?.data) ? res.data : [])
-  } catch (e) {
-    console.warn('[sent] bulk search failed, fallback per-id:', e?.message || e)
+async function fetchUsersByIdsStrict(ids=[]){
+  if(!ids.length) return []
+  let bulkList=[]
+  try{
+    const res=await api.post('/api/search/users',{ids})
+    bulkList = Array.isArray(res?.data?.users)?res.data.users : (Array.isArray(res?.data)?res.data:[])
+  }catch(e){
+    console.warn('[sent] bulk search failed, fallback per-id:', e?.message||e)
   }
-
-  if (Array.isArray(bulkList) && bulkList.length) {
-    const set = new Set(ids.map(String))
-    const filtered = bulkList.filter(u => u && set.has(String(u._id)))
-    if (filtered.length === ids.length) return filtered
-    console.warn('[sent] bulk suspicious; using per-id fallback')
+  if(Array.isArray(bulkList)&&bulkList.length){
+    const set=new Set(ids.map(String))
+    const filtered=bulkList.filter(u=>u && set.has(String(u._id)))
+    if(filtered.length===ids.length) return filtered
   }
-
-  const per = await Promise.all(ids.map(async id => {
-    try {
-      const r = await api.get(`/api/users/${id}`)
-      return r?.data?.user || r?.data || null
-    } catch { return null }
+  const per = await Promise.all(ids.map(async id=>{
+    try{ const r=await api.get(`/api/users/${id}`); return r?.data?.user||r?.data||null }catch{ return null }
   }))
   return per.filter(Boolean)
 }
 
 /* ===== 상단 카운트 ===== */
-const pendingCount = computed(() => sentRequests.value.length)
+const pendingCount = computed(()=> sentRequests.value.length)
 
 /* ===== userId → request 매핑 (취소 버튼 활성화) ===== */
-const reqByUserId = computed(() => {
-  const m = Object.create(null)
-  for (const r of sentRequests.value) {
-    const uid = typeof r?.to === 'object' ? r.to?._id : r?.to
-    if (uid) m[String(uid)] = r
+const reqByUserId = computed(()=>{
+  const m=Object.create(null)
+  for(const r of sentRequests.value){
+    const uid = typeof r?.to==='object' ? r.to?._id : r?.to
+    if(uid) m[String(uid)] = r
   }
   return m
 })
 
 /* ===== 액션: 취소 & 차단 ===== */
-// ✅ 신청 취소: FriendRequest 문서 id 필요
-async function cancelFriendRequest (friendRequestId) {
-  if (!friendRequestId) return
+async function cancelFriendRequest(friendRequestId){
+  if(!friendRequestId) return
   await api.delete(`/api/friend-request/${friendRequestId}`)
   // 요청/화면 동기화
-  sentRequests.value = sentRequests.value.filter(x => x._id !== friendRequestId)
-  const uid = users.value.find(u => reqByUserId.value[u._id]?._id === friendRequestId)?._id
-  if (uid) users.value = users.value.filter(u => u._id !== uid)
+  sentRequests.value = sentRequests.value.filter(x=>x._id!==friendRequestId)
+  const target = users.value.find(u => reqByUserId.value[u._id]?._id===friendRequestId)
+  if(target) users.value = users.value.filter(u=>u._id!==target._id)
 }
-// ✅ 차단: '대상 사용자 id'로 일반 차단 엔드포인트 호출
-async function blockUser (userId) {
-  if (!userId) return
-  await api.put(`/api/block/${userId}`, {})
-  // 차단 시 관련 pending 신청은 서버에서 일괄 rejected 처리됨
-  // 화면에서도 해당 사용자 제거
+async function blockUser(userId){
+  if(!userId) return
+  await api.put(`/api/block/${userId}`,{})
   const fr = reqByUserId.value[userId]
-  if (fr) sentRequests.value = sentRequests.value.filter(x => x._id !== fr._id)
-  users.value = users.value.filter(u => String(u._id) !== String(userId))
+  if(fr) sentRequests.value = sentRequests.value.filter(x=>x._id!==fr._id)
+  users.value = users.value.filter(u=>String(u._id)!==String(userId))
 }
-const onCancelClick = (payload) => cancelFriendRequest(typeof payload === 'string' ? payload : payload?._id)
-// 🔧 변경: userId를 직접 전달
-const onBlockClick  = (userId) => blockUser(userId)
+const onCancelClick = (payload)=> cancelFriendRequest(typeof payload==='string'? payload : payload?._id)
+const onBlockClick  = (userId)=> blockUser(userId)
 
 /* ===== 초기 로딩 ===== */
-onMounted(async () => {
-  try {
-    isLoading.value = true
-
-    // ✅ 뷰어 등급/회원 여부 설정 (서버 우선 → 로컬 폴백)
-    try {
-      const me = (await api.get('/api/me')).data?.user || {}
-      const levelFromApi =
-        me?.level ||
-        me?.user_level ||
-        me?.membership ||
-        ''
-      viewerLevel.value = String(levelFromApi || '').trim()
-      const premiumBool =
-        me?.isPremium ??
-        me?.premium ??
-        (String(levelFromApi || '').trim() === '프리미엄회원')
+onMounted(async ()=>{
+  try{
+    isLoading.value=true
+    // ✅ 뷰어 등급/회원 여부 (서버 우선 → 로컬 폴백)
+    try{
+      const me=(await api.get('/api/me')).data?.user||{}
+      const levelFromApi = me?.level || me?.user_level || me?.membership || ''
+      viewerLevel.value = String(levelFromApi||'').trim()
+      const premiumBool = me?.isPremium ?? me?.premium ?? (String(levelFromApi||'').trim()==='프리미엄회원')
       isPremium.value = Boolean(premiumBool)
-    } catch {
-      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+    }catch{
+      const lv=(localStorage.getItem('user_level')||localStorage.getItem('level')||'').trim().toLowerCase()
       viewerLevel.value = lv
-      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-      isPremium.value = ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
-                        ['true','1','yes','y'].includes(boolish)
+      const boolish=(localStorage.getItem('isPremium')||'').trim().toLowerCase()
+      isPremium.value =
+        ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
+        ['true','1','yes','y'].includes(boolish)
     }
 
-    // 1) 보낸 친구 신청 목록
+    // 보낸 친구 신청
     const res = await api.get('/api/friend-requests/sent')
-
-    // 2) pending만 보관 (상단 카운트/버튼용)
     const pendingReqs = extractPendingRequests(res?.data)
     sentRequests.value = pendingReqs
 
-    // 3) 수신자(to) id 수집
+    // 수신자(to) id 수집 → 사용자 조회
     const recipientIds = extractRecipientIdsFromAny(res?.data)
-    if (!recipientIds.length) { users.value = []; return }
+    if(!recipientIds.length){ users.value=[]; return }
 
-    // 4) 해당 id 사용자만 조회(+최종 id 필터)
     const raw = await fetchUsersByIdsStrict(recipientIds)
     const set = new Set(recipientIds.map(String))
-    const strictFinal = raw.filter(u => u && set.has(String(u._id)))
+    const strictFinal = raw.filter(u=>u && set.has(String(u._id)))
 
-    // 5) 정규화 + 정렬
     users.value = sortByRecent(strictFinal.map(normalizeUser))
-  } catch (e) {
+  }catch(e){
     console.error('❌ 보낸신청 전용 리스트 로딩 실패:', e)
-    users.value = []
-    sentRequests.value = []
-  } finally {
-    isLoading.value = false
+    users.value=[]; sentRequests.value=[]
+  }finally{
+    isLoading.value=false
   }
 })
 </script>
 
 <style scoped>
-/* 상단 헤더 */
+:root, :host{
+  --gold:#d4af37; --gold-weak:#e6c964; --gold-strong:#b18f1a;
+  --bg-deep:#0a0a0a; --panel:#141414; --row:#1b1b1b;
+  --ink:#f5f5f5; --ink-weak:#c9c9c9; --border:#333;
+}
+
+/* ✅ 고정 헤더 스타일 */
+.section-toolbar{
+  --background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+}
 .section-header{
-  display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:10px 10px 10px 10px;
-  border-left:4px solid var(--gold, #d4af37);
-  background:#0f0f0f; border-radius:10px;
-  box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
+  display:flex; align-items:center; gap:10px; padding:10px 12px;
 }
-.section-title{
-  display:flex; align-items:center; gap:8px;
-  margin:0; color:var(--gold, #d4af37); font-weight:800;
-  font-size:15px
-}
-.section-icon{ font-size:18px; color:var(--gold, #d4af37); }
-.count{ font-weight:800; color:var(--gold-weak, #e6c964); }
+.section-title{ display:flex; gap:8px; margin:0; color:var(--gold); font-weight:800; font-size:15px; }
+.section-icon{ font-size:18px; color:var(--gold); }
+.count{ font-weight:800; color:var(--gold-weak); }
 
-/* 버튼 크기/폰트/라운드(두 클래스 모두에 적용) */
+/* ✅ 본문 래퍼: 헤더 높이만큼 내리고, 항상 위에서부터 배치 */
+.sent-wrapper{
+  background:#0a0a0a; color:#f5f5f5;
+
+  /* 툴바(대개 56px) + 안전영역 만큼 패딩 */
+  padding-top: calc(0px + var(--ion-safe-area-top, 0px));
+
+  /* 상위가 flex여도 가운데 정렬되지 않도록 강제 */
+  display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch;
+
+  min-height: 100%;
+  width: 100%;
+}
+.page-container{ padding:10px 12px 16px 12px; }
+
+/* 버튼 */
 .btn-gold-solid,
-.btn-gold-outline {
-  --height: 18px;      /* ✅ 버튼 높이 지정 */
-  --border-radius: 12px;
-  --padding-start: 1px;
-  --padding-end: 1px;
-  --padding-top: 0;
-  --padding-bottom: 0;
-
-  font-size: 12px;
-  font-weight: 800;
-  min-width: 65px;
-  min-height: 30px;
-
-  --background: linear-gradient(135deg, var(--gold, #d4af37), var(--gold-strong, #b18f1a));
-  --color: #000;
+.btn-gold-outline{
+  --height:18px; --border-radius:12px;
+  --padding-start:1px; --padding-end:1px; --padding-top:0; --padding-bottom:0;
+  font-size:12px; font-weight:800; min-width:65px; min-height:30px;
+  --background: linear-gradient(135deg, var(--gold), var(--gold-strong));
+  --color:#000;
 }
-
-/* 윤곽형 버튼(거절, 차단 등)도 동일 높이 유지 */
-.btn-gold-outline {
+.btn-gold-outline{
   --background: transparent;
-  --color: var(--gold-weak, #e6c964);
-  border: 1.5px solid var(--gold, #d4af37);
+  --color: var(--gold-weak);
+  border:1.5px solid var(--gold);
 }
 
-:deep(.actions-bar) {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 0px 20px;
+/* UserList 내부 액션 바 */
+:deep(.actions-bar){
+  display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 20px;
 }
-
-/* 배경 */
-:root, :host{ --bg:#0b0b0d; --text:#d7d7d9; }
-.sent-only-wrapper{ color:var(--text); }
 </style>

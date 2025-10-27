@@ -1,15 +1,21 @@
+<!-- 차단 리스트 - 중첩 안전 고정 헤더 버전 (ion-header slot="fixed" + 상위 IonContent 스크롤) -->
 <template>
-  <div class="blocks-only-wrapper">
-    <!-- ✅ 상단 헤더: 차단 리스트 (N) -->
-    <div class="section-header" role="heading" aria-level="2">
-      <ion-icon :icon="icons.closeCircleOutline" class="section-icon danger" aria-hidden="true" />
-      <h3 class="section-title">
-        차단 리스트
-        <span class="count">({{ blocksCount }})</span>
-      </h3>
-    </div>
+  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정 -->
+  <ion-header translucent="true" slot="fixed">
+    <ion-toolbar class="section-toolbar" role="heading" aria-level="2">
+      <div class="section-header">
+        <ion-icon :icon="icons.closeCircleOutline" class="section-icon danger" aria-hidden="true" />
+        <h3 class="section-title">
+          차단 리스트
+          <span class="count">({{ blocksCount }})</span>
+        </h3>
+      </div>
+    </ion-toolbar>
+  </ion-header>
 
-    <!-- ✅ 공통 리스트 + 하단 액션(차단 해제) -->
+  <!-- ✅ 본문: 상위 IonContent가 스크롤 담당 -->
+  <div class="blocks-only-wrapper">
+    <!-- 공통 리스트 + 하단 액션(차단 해제) -->
     <UserList
       :users="users"
       :isLoading="isLoading"
@@ -33,15 +39,16 @@
 <script setup>
 /* -----------------------------------------------------------
    Blocks List (헤더 카운트 + 공통 UserList + 차단해제)
-   ✅ 항상 id를 추출해 재조회하여 전체 필드를 확보
-   ✅ 백엔드(friendRouter) 경로에 맞게 차단 해제 API 수정:
-      - DELETE /api/block/:id (단수 'block')
-   ✅ Premium 가림을 위해 viewerLevel/isPremium을 UserList로 전달
+   - 중첩 안전 버전: ion-page/ion-content 미사용
+   - 헤더는 <ion-header slot="fixed">, 스크롤은 상위 IonContent
+   - 항상 id를 추출해 재조회하여 전체 필드 확보
+   - friendRouter 경로 기준: DELETE /api/block/:id
 ----------------------------------------------------------- */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
+import { IonHeader, IonToolbar, IonButton, IonIcon } from '@ionic/vue'
 import { closeCircleOutline } from 'ionicons/icons'
 
 const router = useRouter()
@@ -75,10 +82,7 @@ function normalizeUser(u={}){
 }
 
 /* 네비게이션 */
-const goToUserProfile = (userId) => {
-  if (!userId) return
-  router.push(`/home/user/${userId}`)
-}
+const goToUserProfile = (userId) => { if (!userId) return; router.push(`/home/user/${userId}`) }
 
 /* /api/blocks 응답 파싱: ids 배열/객체 배열 모두 대응 */
 function extractBlockIds(data){
@@ -108,7 +112,6 @@ async function fetchUsersByIdsStrict(ids=[]){
     const set=new Set(ids.map(String))
     const filtered=bulkList.filter(u=>u && set.has(String(u._id)))
     if(filtered.length===ids.length) return filtered
-    console.warn('[blocks] bulk suspicious; using per-id fallback')
   }
 
   const per=await Promise.all(ids.map(async id=>{
@@ -126,8 +129,7 @@ const blocksCount = computed(()=> users.value.length)
 /* 차단 해제 */
 async function unblock(userId){
   if(!userId) return
-  // 🔧 백엔드 friendRouter 기준: DELETE /api/block/:id (단수)
-  await api.delete(`/api/block/${userId}`)
+  await api.delete(`/api/block/${userId}`) // friendRouter 기준
   users.value = users.value.filter(u=> String(u._id)!==String(userId))
 }
 const onUnblockClick = (userId) => unblock(userId)
@@ -140,23 +142,18 @@ onMounted(async ()=>{
     // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
     try {
       const me = (await api.get('/api/me')).data?.user || {}
-      const levelFromApi =
-        me?.level ||
-        me?.user_level ||
-        me?.membership ||
-        ''
+      const levelFromApi = me?.level || me?.user_level || me?.membership || ''
       viewerLevel.value = String(levelFromApi || '').trim()
       const premiumBool =
-        me?.isPremium ??
-        me?.premium ??
-        (String(levelFromApi || '').trim() === '프리미엄회원')
+        me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄회원')
       isPremium.value = Boolean(premiumBool)
     } catch {
       const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
       viewerLevel.value = lv
       const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-      isPremium.value = ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
-                        ['true','1','yes','y'].includes(boolish)
+      isPremium.value =
+        ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
+        ['true','1','yes','y'].includes(boolish)
     }
 
     const res=await api.get('/api/blocks')
@@ -166,7 +163,7 @@ onMounted(async ()=>{
     if (!blockIds.length){ users.value=[]; return }
 
     const raw = await fetchUsersByIdsStrict(blockIds)
-    const set = new Set(blockIds)
+    const set = new Set(blockIds.map(String))
     const strictFinal = raw.filter(u=>u && set.has(String(u._id)))
     users.value = sortByRecent(strictFinal.map(normalizeUser))
   }catch(e){
@@ -179,28 +176,51 @@ onMounted(async ()=>{
 </script>
 
 <style scoped>
-/* 상단 헤더: 기존 톤과 맞춤 */
+:root, :host{
+  --bg:#0b0b0d; --text:#d7d7d9;
+  --gold:#d4af37; --gold-weak:#e6c964; --gold-strong:#b18f1a;
+  --border:#333; --bg-deep:#0a0a0a;
+}
+
+/* ✅ 고정 헤더(툴바) */
+.section-toolbar{
+  --background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+}
 .section-header{
   display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:10px 10px 10px 10px;
-  border-left:4px solid var(--gold, #d4af37);
+  padding:8px 10px; margin:6px 10px 8px 10px;
+  border-left:4px solid var(--gold);
   background:#0f0f0f; border-radius:10px;
   box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
 }
 .section-title{
   display:flex; align-items:center; gap:8px;
-  margin:0; color:var(--gold, #d4af37); font-weight:800;
-  font-size:15px
+  margin:0; color:var(--gold); font-weight:800; font-size:15px;
 }
-.section-icon{ font-size:18px; color:var(--gold, #d4af37); }
+.section-icon{ font-size:18px; color:var(--gold); }
 .section-icon.danger{ color:#ff6b6b; }
-.count{ font-weight:800; color:var(--gold-weak, #e6c964); }
+.count{ font-weight:800; color:var(--gold-weak); }
+
+/* ✅ 본문 래퍼: 헤더 높이만큼 내려 위쪽 정렬 고정 */
+.blocks-only-wrapper{
+  color:var(--text);
+  background:var(--bg);
+
+  /* 툴바 기본 56px + 안전영역 */
+  padding-top: calc(0px + var(--ion-safe-area-top, 0px));
+
+  /* 상위 컨테이너가 flex여도 가운데 정렬 방지 */
+  display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch;
+
+  min-height: 100%;
+  width: 100%;
+}
 
 /* 버튼 공통 톤 */
-/* (필요시 버튼 높이는 --min-height/height로 조정 가능) */
 .btn-gold-solid,
 .btn-gold-outline {
-  --height: 18px;      /* 참고: Ionic은 --min-height 권장 */
+  --height: 18px;
   --border-radius: 12px;
   --padding-start: 1px;
   --padding-end: 1px;
@@ -212,15 +232,16 @@ onMounted(async ()=>{
   min-width: 65px;
   min-height: 30px;
 
-  --background: linear-gradient(135deg, var(--gold, #d4af37), var(--gold-strong, #b18f1a));
+  --background: linear-gradient(135deg, var(--gold), var(--gold-strong));
   --color: #000;
 }
 .btn-gold-outline {
   --background: transparent;
-  --color: var(--gold-weak, #e6c964);
-  border: 1.5px solid var(--gold, #d4af37);
+  --color: var(--gold-weak);
+  border: 1.5px solid var(--gold);
 }
 
+/* UserList 내부 액션 바 정렬 */
 :deep(.actions-bar) {
   display: flex;
   flex-wrap: wrap;
@@ -228,8 +249,4 @@ onMounted(async ()=>{
   gap: 12px;
   padding: 0 20px;
 }
-
-/* 배경 */
-:root, :host{ --bg:#0b0b0d; --text:#d7d7d9; }
-.blocks-only-wrapper{ color:var(--text); }
 </style>

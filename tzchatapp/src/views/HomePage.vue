@@ -7,13 +7,18 @@
   >
     <!-- ⬆️ 채팅 화면에서는 상단 여백/메뉴 숨김 -->
     <TopSpace height="8vh" />
-    <USpace v-if="!isChatRoute" height="2vh" />
+
+
+    <!-- ⬆️ height="2vh" -->
+    <USpace v-if="!isChatRoute" height="3vh" />
 
     <!-- 가운데 스크롤 영역 -->
     <MainPage />
 
-    <!-- 상단 메뉴: 채팅 화면에서는 숨김 -->
-    <TopMenu v-if="!isChatRoute" />
+    <!-- 상단 메뉴: 채팅 화면에서는 숨김-->
+    <TopMenu v-if="!isChatRoute" /> 
+    
+
 
     <!-- 하단 여백은 공통 유지 -->
     <Space height="10vh" />

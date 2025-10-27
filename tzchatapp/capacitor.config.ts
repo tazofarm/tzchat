@@ -21,9 +21,9 @@ const config: CapacitorConfig = {
 
   plugins: {
     Keyboard: {
-      resize: 'body',               // 키보드가 나올 때 body만 리사이즈 (상단 고정 유지)
-      resizeOnFullScreen: false,    // 전체화면일 때 리사이즈 비활성화
-      style: 'dark',                // (선택) 다크 배경 키보드에서 자연스러운 전환
+      resize: 'native',             // ✅ 안드로이드에서 가장 안정적 (ion-content 자동 리사이즈)
+      resizeOnFullScreen: true,     // ✅ 전체화면 모드에서도 정상 리사이즈
+      style: 'dark',                // 다크 테마 유지
     },
   },
 }

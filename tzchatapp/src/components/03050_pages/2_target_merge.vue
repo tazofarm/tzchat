@@ -1,7 +1,18 @@
 <!-- src/components/04010_Page0_emergency/Emergency.vue -->
 <template>
   <ion-page>
-    <ion-content fullscreen class="no-gutter">
+    <!-- ✅ A안: ion-header + ion-content 구조 (헤더 고정) -->
+    <ion-header class="em-fixed-header">
+      <div class="em-header">
+        <EmergencySwitch
+          :emergencyOn="emergencyOn"
+          :formattedTime="formattedTime"
+          @toggle="onHeaderToggle"
+        />
+      </div>
+    </ion-header>
+
+    <ion-content class="no-gutter">
       <!-- ✅ 보상형 광고 모달 (Emergency ON 전시) -->
       <ion-modal
         :is-open="showAdvModal"
@@ -10,15 +21,6 @@
       >
         <ModalAdv @close="closeAdv" />
       </ion-modal>
-
-      <!-- ===== 헤더: Emergency 스위치 + 남은시간 ===== -->
-      <div class="em-header">
-        <EmergencySwitch
-          :emergencyOn="emergencyOn"
-          :formattedTime="formattedTime"
-          @toggle="onHeaderToggle"
-        />
-      </div>
 
       <!-- ✅ 리스트 상단 스크롤 앵커 -->
       <div ref="listTop" style="height:1px;"></div>
@@ -38,16 +40,16 @@
         v-if="displayUsers.length"
         class="reset-btn-wrap"
       >
-      <button
-        type="button"
-        @click="openResetConfirm"
-        :disabled="reset.used >= reset.limit || isLoading"
-        class="reset-action-card two-lines"
-        aria-label="새로운 친구 보기"
-      >
-        <span class="line1">새로운 친구 보기 ({{ reset.used }}/{{ reset.limit }})</span>
-        <span class="line2">(오전 11:00 리셋)</span>
-      </button>
+        <button
+          type="button"
+          @click="openResetConfirm"
+          :disabled="reset.used >= reset.limit || isLoading"
+          class="reset-action-card two-lines"
+          aria-label="새로운 친구 보기"
+        >
+          <span class="line1">새로운 친구 보기 ({{ reset.used }}/{{ reset.limit }})</span>
+          <span class="line2">(오전 11:00 리셋)</span>
+        </button>
       </div>
 
       <!-- ✅ 확인/취소 모달 -->
@@ -78,14 +80,8 @@
 
 <script setup>
 /* -----------------------------------------------------------
-   통합 Emergency/Target 페이지
-   - Emergency ON: 서버 긴급 유저 중 분산선정(7명) + (옵션)나 포함
-     ➜ 필터: applyTotalFilterPremium
-   - Emergency OFF: 추천(타겟) 유저 분산선정(7명)
-     ➜ 필터: applyTotalFilterNormal
-   - 🔁 "새로운 친구 보기" 리셋: 두 모드에서 같은 카운트/인덱스/시드 사용
-   - 관계기반 프리체크 제외(친구/차단/요청/채팅상대) 공통
-   - 소켓: emergency 룸 + users 채널 동시 구독, 언마운트 시 off만
+   통합 Emergency/Target 페이지 (A안: ion-header + ion-content)
+   - ion-header에 EmergencySwitch 고정, 나머지는 ion-content 스크롤
 ----------------------------------------------------------- */
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -97,7 +93,7 @@ import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/
 import { applyTotalFilterNormal } from '@/components/04210_Page2_target/Filter/Total_Filter_normal'
 import { applyDistributedSelection } from '@/components/04210_Page2_target/Logic/distribution'
 import { connectSocket, getSocket } from '@/lib/socket'
-import { IonPage, IonContent, IonModal } from '@ionic/vue'
+import { IonPage, IonContent, IonModal, IonHeader } from '@ionic/vue'
 
 /* ===== 공통 상태 ===== */
 const isLoading = ref(true)
@@ -592,6 +588,15 @@ ion-content {
   color: var(--text);
 }
 
+/* ✅ ion-header 스타일 (상단 고정 영역) */
+.em-fixed-header {
+  --background: var(--bg);
+  border-bottom: 1px solid var(--divider);
+}
+.em-header {
+  padding: 12px 12px 6px;
+}
+
 /* ✅ target.vue와 동일한 패딩 규칙(좌우 여백 제거) */
 .no-gutter {
   --padding-start: 0;
@@ -599,9 +604,6 @@ ion-content {
   --padding-top: 0;
   --padding-bottom: 0;
 }
-
-/* 헤더 컨테이너 */
-.em-header { padding: 12px 12px 6px; }
 
 /* 리스트 하단 리셋 버튼 영역 */
 .reset-btn-wrap {
@@ -626,7 +628,7 @@ ion-content {
 .reset-modal-overlay{
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display:flex; align-items:center; justify-content:center;
-  z-index: 9999;
+  z-index: 9999; /* 헤더 위로 */
 }
 .reset-modal-card{
   width: min(88vw, 420px);
@@ -645,13 +647,11 @@ ion-content {
 
 /* 두 줄 표시 강제 */
 .reset-action-card.two-lines {
-  display: center;              /* 기존이 flex여도 OK */
-  flex-direction: column;     /* 세로로 쌓기 */
-  align-items: center;    /* 좌측 정렬 (원하면 center) */
-  white-space: normal !important; /* nowrap 무효화 */
+  display: block;
+  white-space: normal !important;
 }
 
-/* 각 줄 스타일(선택) */
+/* 각 줄 스타일 */
 .reset-action-card.two-lines .line1 {
   font-size: 1.20em;
   font-weight: 700;
@@ -661,11 +661,10 @@ ion-content {
   opacity: .85;
 }
 
-/* 혹시 상위 전역에 nowrap이 걸려 있다면 방어 */
+/* 방어 */
 .reset-action-card.two-lines * {
   white-space: normal !important;
-  display: block; /* span을 블록으로 → 확실한 줄바꿈 */
-  line-height: 1.6;       /* 전체 줄 간격 */
+  display: block;
+  line-height: 1.6;
 }
-
 </style>

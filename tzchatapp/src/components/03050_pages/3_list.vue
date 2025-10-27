@@ -1,11 +1,12 @@
+<!-- src/components/04310_Page3_list/FriendsTabsPage.vue -->
 <template>
-  <!-- ✅ Ionic 정석 구조로 변경: ion-page > ion-header > ion-content -->
+  <!-- ✅ Ionic 정석 구조: ion-page > ion-header(고정) > ion-content(스크롤) -->
   <ion-page class="friends-page dark-scope">
-    <!-- 상단 고정 탭을 ion-header/ion-toolbar 안으로 이동 -->
+    <!-- 상단 고정 탭 -->
     <ion-header translucent="true">
       <ion-toolbar class="top-tabs" role="tablist" aria-label="목록 전환">
         <ion-segment :value="currentTab" @ionChange="onTabChange">
-          <!-- 
+          <!--
           <ion-segment-button value="premium">
             <ion-label>Premium</ion-label>
           </ion-segment-button>
@@ -29,7 +30,7 @@
       </ion-toolbar>
     </ion-header>
 
-    <!-- ✅ 본문 -->
+    <!-- ✅ 본문: 헤더 고정, 나머지 영역만 스크롤 -->
     <ion-content fullscreen="true">
       <div class="page-container fl-scope" role="region" aria-label="탭 페이지 영역">
         <component
@@ -40,7 +41,7 @@
           @close-receive="closeReceive"
         />
 
-        <!-- ✅ 하단에 받은신청 패널(3) -->
+        <!-- ✅ 하단에 받은신청 패널(슬라이드 업) -->
         <transition name="slide-up">
           <section
             v-if="receiveUser"
@@ -53,7 +54,7 @@
               <button type="button" class="btn-close" @click="closeReceive" aria-label="닫기">×</button>
             </header>
 
-            <!-- ⬇⬇⬇ 상세 패널 컴포넌트 (경로 주의) -->
+            <!-- ⬇ 상세 패널 컴포넌트 -->
             <ReceivePanel
               :user="receiveUser"
               :viewer-level="viewerLevel"
@@ -82,7 +83,7 @@ import SentPage     from '@/components/04310_Page3_list/Page_Send.vue'
 import FriendsPage  from '@/components/04310_Page3_list/Page_Friend.vue'
 import BlocksPage   from '@/components/04310_Page3_list/Page_Block.vue'
 
-// ✅ 받은신청 '상세 패널' 컴포넌트
+// 받은신청 상세 패널
 import ReceivePanel from '@/components/02010_minipage/mini_list/UserList.vue'
 
 const currentTab = ref('received')
@@ -121,8 +122,7 @@ onMounted(async () => {
     viewerLevel.value = String(levelFromApi || '').trim()
 
     const premiumBool =
-      me?.isPremium ??
-      me?.premium ??
+      me?.isPremium ?? me?.premium ??
       (String(levelFromApi || '').trim() === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
   } catch (e) {
@@ -130,22 +130,23 @@ onMounted(async () => {
     const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
     viewerLevel.value = lv
     const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-    isPremium.value = ['프리미엄회원', 'premium', 'premium_member', 'prem'].includes(lv) ||
-                      ['true','1','yes','y'].includes(boolish)
+    isPremium.value =
+      ['프리미엄회원', 'premium', 'premium_member', 'prem'].includes(lv) ||
+      ['true','1','yes','y'].includes(boolish)
   }
 })
 </script>
-  
+
 <style scoped>
 /* =======================
-   다크 테마 강제 고정
+   다크 테마 고정
 ======================= */
 .dark-scope {
   background: #0a0a0a !important;
   color: #f5f5f5;
 }
 
-/* 🔒 Ionic 내부 배경 변수/파트까지 강제 오버라이드 */
+/* Ionic 내부 배경까지 강제 오버라이드 */
 :global(.dark-scope ion-content) {
   --background: #0a0a0a !important;
   background: #0a0a0a !important;
@@ -164,12 +165,9 @@ onMounted(async () => {
   --background-activated: #17171a !important;
 }
 
-/* ========== 상단 탭 (toolbar 안) ========== */
-/* ✅ sticky 제거: header가 고정 역할 수행 */
+/* ========== 상단 탭(ion-toolbar 안) ========== */
+/* header가 고정 역할을 하므로 sticky 불필요 */
 .top-tabs {
-  /* position: sticky;  ← 제거 */
-  /* top: env(safe-area-inset-top, 0px); ← 제거 */
-  
   background: var(--bg-deep, #0a0a0a);
   padding: 4px 10px 8px 10px;
   border-bottom: 1px solid var(--border, #333);
@@ -186,7 +184,6 @@ onMounted(async () => {
   flex-wrap: nowrap;
   justify-content: space-between;
   overflow-x: auto;
-  
 }
 .top-tabs :deep(ion-segment-button) {
   flex: 1 1 20%;
@@ -227,7 +224,7 @@ onMounted(async () => {
 
 /* ========== 페이지 컨테이너 ========== */
 .page-container {
-  padding: 0;
+  padding: 2px 2px 2px 2px;
   position: relative;
 }
 

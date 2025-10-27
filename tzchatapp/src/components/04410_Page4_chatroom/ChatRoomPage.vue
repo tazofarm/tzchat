@@ -1,161 +1,172 @@
+<template>
+  <ion-page>
+    <!-- ✅ 상단 고정 헤더 (A안: ion-header + ion-content) -->
+    <ion-header :translucent="true">
+      <ion-toolbar class="chat-toolbar">
+        <div class="chatroom-header" @click="closeEmojiIfOpen">
+          <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화</span>
+          <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">나가기</ion-button>
+        </div>
+      </ion-toolbar>
+    </ion-header>
 
-
-<template> 
-  <div class="chatroom-container">
-    <!-- 상단바 (전역 헤더 아래 sticky) -->
-    <div class="chatroom-header" @click="closeEmojiIfOpen">
-      <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화</span>
-      <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">←뒤로</ion-button>
-    </div>
-
-    <!-- 메시지 리스트 -->
-    <div
-      class="chat-messages"
-      ref="chatScroll"
-      @scroll.passive="scheduleMarkAsRead(250)"
-      @click="closeEmojiIfOpen"
-    >
-      <div
-        v-for="item in displayItems"
-        :key="item._id"
-        class="message-row"
-        :class="{ mine: item.type==='message' && isMine(item) }"
-      >
-        <!-- 날짜 구분선 (⬅ 왼쪽 정렬) -->
-        <template v-if="item.type === 'divider'">
-          <div class="date-divider" role="separator" :aria-label="`타임라인 ${item.label}`">
-            <span class="date-chip">{{ item.label }}</span>
-          </div>
-        </template>
-
-        <!-- ░ 내 메시지 (오른쪽 정렬, 그룹 마지막만 시간/안읽음) ░ -->
-        <template v-else-if="isMine(item)">
-          <div class="my-message">
-            <div class="bubble-row mine-row">
-              <span
-                v-if="item._meta?.showTime && !isReadByPartner(item)"
-                class="read-flag"
-                aria-label="상대가 아직 읽지 않음"
-              >안읽음</span>
-
-              <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
-              
-              <div class="bubble my-bubble">
-                <template v-if="item.imageUrl">
-                  <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
-                </template>             
-                <template v-else>
-                  {{ item.content }}
-                </template>
+    <!-- ✅ 본문: 메시지 영역 전담 스크롤 (+ 입력창은 하단 배치) -->
+    <ion-content class="chat-content">
+      <div class="chatroom-container">
+        <!-- 메시지 리스트 (내부 스크롤 전담) -->
+        <div
+          class="chat-messages"
+          ref="chatScroll"
+          @scroll.passive="scheduleMarkAsRead(250)"
+          @click="closeEmojiIfOpen"
+        >
+          <div
+            v-for="item in displayItems"
+            :key="item._id"
+            class="message-row"
+            :class="{ mine: item.type==='message' && isMine(item) }"
+          >
+            <!-- 날짜 구분선 (⬅ 왼쪽 정렬) -->
+            <template v-if="item.type === 'divider'">
+              <div class="date-divider" role="separator" :aria-label="`타임라인 ${item.label}`">
+                <span class="date-chip">{{ item.label }}</span>
               </div>
-            </div>
-          </div>
-        </template>
+            </template>
 
-        <!-- ░ 상대 메시지 (아바타/닉네임은 그룹 첫 메시지만, 시간은 마지막만) ░ -->
-        <template v-else>
-          <div class="other-message">
-            <div
-              v-if="item._meta?.showAvatarName"
-              class="avatar-col"
-              @click="goToPartnerProfile"
-              role="button"
-              aria-label="상대 프로필 보기"
-            >
-              <ProfilePhotoViewer
-                v-if="partnerId"
-                :userId="partnerId"
-                :gender="partnerGender"
-                :size="AVATAR_SIZE"
-              />
-              <div v-else class="avatar-fallback">{{ partnerNickname.charAt(0) || '상' }}</div>
-            </div>
-            <div v-else class="avatar-spacer" />
+            <!-- ░ 내 메시지 (오른쪽 정렬, 그룹 마지막만 시간/안읽음) ░ -->
+            <template v-else-if="isMine(item)">
+              <div class="my-message">
+                <div class="bubble-row mine-row">
+                  <span
+                    v-if="item._meta?.showTime && !isReadByPartner(item)"
+                    class="read-flag"
+                    aria-label="상대가 아직 읽지 않음"
+                  >안읽음</span>
 
-            <div class="content-col">
-              <div class="name-line" v-if="item._meta?.showAvatarName">
-                <span class="name" @click="goToPartnerProfile">{{ partnerNickname }}</span>
-              </div>
-              <div class="bubble-row">
-                <div class="bubble other-bubble">
-                  <template v-if="item.imageUrl">
-                    <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
-                  </template>
-                  <template v-else>
-                    {{ item.content }}
-                  </template>
+                  <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
+
+                  <div class="bubble my-bubble">
+                    <template v-if="item.imageUrl">
+                      <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                    </template>
+                    <template v-else>
+                      {{ item.content }}
+                    </template>
+                  </div>
                 </div>
-                <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
               </div>
-            </div>
+            </template>
+
+            <!-- ░ 상대 메시지 (아바타/닉네임은 그룹 첫 메시지만, 시간은 마지막만) ░ -->
+            <template v-else>
+              <div class="other-message">
+                <div
+                  v-if="item._meta?.showAvatarName"
+                  class="avatar-col"
+                  @click="goToPartnerProfile"
+                  role="button"
+                  aria-label="상대 프로필 보기"
+                >
+                  <ProfilePhotoViewer
+                    v-if="partnerId"
+                    :userId="partnerId"
+                    :gender="partnerGender"
+                    :size="AVATAR_SIZE"
+                  />
+                  <div v-else class="avatar-fallback">{{ partnerNickname.charAt(0) || '상' }}</div>
+                </div>
+                <div v-else class="avatar-spacer" />
+
+                <div class="content-col">
+                  <div class="name-line" v-if="item._meta?.showAvatarName">
+                    <span class="name" @click="goToPartnerProfile">{{ partnerNickname }}</span>
+                  </div>
+                  <div class="bubble-row">
+                    <div class="bubble other-bubble">
+                      <template v-if="item.imageUrl">
+                        <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                      </template>
+                      <template v-else>
+                        {{ item.content }}
+                      </template>
+                    </div>
+                    <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
-        </template>
-      </div>
-    </div>
+        </div>
 
-    <!-- 입력창 -->
-    <div class="chat-input-wrapper">
-      <div v-if="showEmoji" class="emoji-picker-wrapper" @click.stop>
-        <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
-      </div>
+        <!-- 입력창 (하단 배치, 페이지 플로우 안) -->
+        <div class="chat-input-wrapper">
+          <div v-if="showEmoji" class="emoji-picker-wrapper" @click.stop>
+            <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
+          </div>
 
-      <div class="chat-input" @click.stop>
-        <ion-button size="small" fill="outline" class="icon-btn" @click="triggerFileInput" aria-label="파일 첨부">📎</ion-button>
-        <input type="file" accept="image/*" ref="fileInput" style="display: none" @change="uploadImage" />
-        <ion-button
-          size="small"
-          fill="outline"
-          class="icon-btn"
-          @click="toggleEmoji"
-          aria-label="이모지 선택"
-        >😊</ion-button>
+          <div class="chat-input" @click.stop>
+            <ion-button size="small" fill="outline" class="icon-btn" @click="triggerFileInput" aria-label="파일 첨부">📎</ion-button>
+            <input type="file" accept="image/*" ref="fileInput" style="display: none" @change="uploadImage" />
+            <ion-button
+              size="small"
+              fill="outline"
+              class="icon-btn"
+              @click="toggleEmoji"
+              aria-label="이모지 선택"
+            >😊</ion-button>
 
-        <textarea
-          ref="textareaRef"
-          v-model="newMessage"
-          placeholder="메시지를 입력하세요"
-          @keydown="handleKeydown"
-          rows="1"
-          autocomplete="off"
-          autocorrect="on"
-          spellcheck="true"
-        ></textarea>
+            <textarea
+              ref="textareaRef"
+              v-model="newMessage"
+              placeholder="메시지를 입력하세요"
+              @keydown="handleKeydown"
+              rows="1"
+              autocomplete="off"
+              autocorrect="on"
+              spellcheck="true"
+            ></textarea>
 
-        <ion-button
-          size="small"
-          color="primary"
-          aria-label="전송"
-          @mousedown.prevent
-          @touchstart.prevent
-          @click="sendMessage"
-        >전송</ion-button>
-      </div>
-    </div>
-
-    <!-- 이미지 확대 팝업 (화면 중앙 고정, 입력바 위로 뜸) -->
-    <transition name="fade">
-      <div
-        v-if="enlargedImage"
-        class="image-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="이미지 보기"
-        tabindex="-1"
-        @click.self="closeImageModal"
-        @keyup.esc="closeImageModal"
-      >
-        <div class="image-wrapper">
-          <button class="close-button" @click="closeImageModal" aria-label="닫기">×</button>
-          <img :src="enlargedImage" class="modal-image" @click.stop />
+            <ion-button
+              size="small"
+              color="primary"
+              aria-label="전송"
+              @mousedown.prevent
+              @touchstart.prevent
+              @click="sendMessage"
+            >전송</ion-button>
+          </div>
         </div>
       </div>
-    </transition>
-  </div>
+
+      <!-- 이미지 확대 팝업 (화면 중앙 고정) -->
+      <transition name="fade">
+        <div
+          v-if="enlargedImage"
+          class="image-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="이미지 보기"
+          tabindex="-1"
+          @click.self="closeImageModal"
+          @keyup.esc="closeImageModal"
+        >
+          <div class="image-wrapper">
+            <button class="close-button" @click="closeImageModal" aria-label="닫기">×</button>
+            <img :src="enlargedImage" class="modal-image" @click.stop />
+          </div>
+        </div>
+      </transition>
+    </ion-content>
+  </ion-page>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
-import { IonButton } from '@ionic/vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
+import { IonPage, IonHeader, IonToolbar, IonContent, IonButton } from '@ionic/vue'
+import { Keyboard } from '@capacitor/keyboard'
+
+
+
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
 import { connectSocket, getSocket } from '@/lib/socket'
@@ -277,8 +288,8 @@ const sendMessage = async ()=>{
   getSocket()?.emit('chatMessage',{roomId,message:res.data})
   pushMessageSafe({...res.data,createdAt:res.data.createdAt||new Date().toISOString()})
   scrollToBottom()
-  showEmoji.value = false         // 전송 후 이모지 닫기
-  await focusComposer(0)          // 전송 후 즉시 입력창 포커스(키보드 유지)
+  showEmoji.value = false
+  await focusComposer(0)
 }
 
 /* 업로드 */
@@ -296,7 +307,7 @@ const uploadImage=async(e)=>{
   pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
   scrollToBottom(); e.target.value=''
   showEmoji.value = false
-  await focusComposer(0)          // 이미지 전송 뒤에도 포커스 유지
+  await focusComposer(0)
 }
 
 /* 붙여넣기 */
@@ -325,7 +336,7 @@ const onPaste=async(e)=>{
 const closeEmojiIfOpen = async ()=>{
   if(showEmoji.value){
     showEmoji.value=false
-    await focusComposer(0) // 화면을 탭해 접어도 포커스 복구 → 키보드 유지
+    await focusComposer(0)
   }
 }
 
@@ -364,6 +375,32 @@ onMounted(async()=>{
   window.addEventListener('paste', onPaste)
   await loadMessages()
 
+  // ✅ 안드로이드 키보드 대응: 높이만큼 하단 패딩 보정
+  try {
+    // 초기화
+    document.documentElement.style.setProperty('--kb','0px')
+
+    // 키보드 표시 직전
+    const showSub = await Keyboard.addListener('keyboardWillShow', ({ keyboardHeight }) => {
+      document.documentElement.style.setProperty('--kb', (keyboardHeight || 0) + 'px')
+      // 입력 시 마지막 메시지가 가려지지 않도록
+      scrollToBottom()
+    })
+    // 키보드 숨김 직전
+    const hideSub = await Keyboard.addListener('keyboardWillHide', () => {
+      document.documentElement.style.setProperty('--kb','0px')
+    })
+
+    // 언마운트 시 해제
+    onUnmounted(() => {
+      showSub?.remove?.()
+      hideSub?.remove?.()
+      document.documentElement.style.setProperty('--kb','0px')
+    })
+  } catch (e) {
+    // 웹/PWA 환경 등 플러그인 미존재 시 무시
+  }
+
   socket.emit('joinRoom',roomId)
   socket.on('chatMessage',(msg)=>{
     const message=msg?.message||msg
@@ -383,6 +420,7 @@ onMounted(async()=>{
     }
   })
 })
+
 watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
 
 /* 네비게이션 */
@@ -391,73 +429,79 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 </script>
 
 <style scoped>
-/* ───────── Theme & avatar variables ───────── */
+/* ───────── Layout containers ───────── */
+.chat-content {
+  /* iOS translucent 헤더 아래 내용이 자연스럽게 이어지도록 */
+  --padding-top: 0px;
+  --padding-bottom: 0px;
+  background: var(--page-bg, #0b0b0b);
+}
 
 .chatroom-container{
-  display:flex; flex-direction:column; height:100svh; min-height:0; width:100%;
+  /* ion-content 내부에서 전체 높이 차지하여 내부 스크롤을 위임 */
+  display:flex; flex-direction:column;
+  height:100%; min-height:100%;
+  width:100%;
+  overflow:hidden;
+
   --gold-500:#d4af37; --gold-400:#e0be53; --black-900:#0b0b0b;
   --color-text:#000; --color-muted:#9aa0a6;
   --page-bg:#0b0b0b; --section-bg:#0b0b0b;
   --bubble-other:#f1f3f4; --bubble-me:#ffefb3;
   --radius:10px; --radius-lg:14px;
-  --gap-xxs:4px; --gap-xs:6px; --gap-sm:8px; --gap-md:10px;
+  --gap-xxs:4px; --gap-xs:6px; --gap-sm:2px; --gap-md:10px;
   --fz-base:13px; --fz-time:11px; --fz-title:14px;
-  background:var(--page-bg); color:var(--color-text); overscroll-behavior:contain;
-
-  --avatar-size: 40px;
-  --avatar-radius: 50%;
-  --avatar-offset-y: 8px;
-
-  /* 전역 상단바(메인 헤더) 높이 — 필요시 페이지 레이아웃에서 재정의 */
-  --main-header-height: -10px;
 }
 
-/* 상단바: 전역 상단바 아래에서만 고정 */
-.chatroom-header {
-  position: sticky;
-  top: var(--main-header-height);
-  z-index: 5;
+/* ───────── Header (fixed via ion-header) ───────── */
+.chat-toolbar{
+  --background: #0b0b0b;
+  --border-color: rgba(255,255,255,.06);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
 
+.chatroom-header {
+  /* 이제 sticky 아님: ion-header가 고정 */
   display:flex; align-items:center; gap:var(--gap-sm);
   height:44px; padding:0 var(--gap-md);
-  background:#0b0b0b; border-bottom:1px solid rgba(255,255,255,.06);
+  background:#0b0b0b;
   box-sizing:border-box;
 }
 .chatroom-header ion-button{
-  --padding-start:116px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500);
+  --padding-start:6px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500);
   --background:transparent; --border-color:transparent;
-  min-height:30px; font-size:13px; margin-right: 6px;
+  min-height:30px; font-size:13px; margin-left:auto;
 }
 .chat-title{ font-weight:800; letter-spacing:.2px; color:var(--gold-500); font-size:var(--fz-title); line-height:2.15; cursor:pointer;  margin-left: 8px; }
 
-/* 메시지 리스트 */
+/* ───────── Messages (inner scroll) ───────── */
 .chat-messages{
-  flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  flex:1 1 0; min-height:0;
+  overflow:auto; -webkit-overflow-scrolling:touch;
   padding: var(--gap-md);
-  /* fixed 헤더가 아니므로 상단 패딩 불필요 */
-  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); /* 입력창 높이 + 세이프에어리어 */
-  background:var(--section-bg); scrollbar-gutter:stable;
+  /* ✅ 기본 8px + 키보드가 있을 때만 추가 공간 */
+  padding-bottom: calc(var(--kb, 0px) + var(--chat-bottom-gap, 8px));
+  background:var(--section-bg);
+  scrollbar-gutter:stable;
 }
+
+
 .chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
 .chat-messages::-webkit-scrollbar-thumb{ background:#333; border-radius:8px; }
 .message-row{ margin-bottom:var(--gap-xs); }
 
-/* 공통 행 */
 .other-message,.my-message{ display:flex; gap:var(--gap-xxs); }
-.my-message{
-  width:100%; justify-content:flex-end; align-items:flex-end;
-}
+.my-message{ width:100%; justify-content:flex-end; align-items:flex-end; }
 
-/* 상대방 */
 .other-message{ justify-content:flex-start; align-items:flex-start; }
 .avatar-col,
 .avatar-spacer{
-  width:var(--avatar-size); min-width:var(--avatar-size); height:var(--avatar-size);
-  margin-right:6px; margin-top:var(--avatar-offset-y);
+  width:var(--avatar-size, 40px); min-width:var(--avatar-size, 40px); height:var(--avatar-size, 40px);
+  margin-right:6px; margin-top:var(--avatar-offset-y, 8px);
 }
 .avatar-col{
   display:flex; align-items:center; justify-content:center;
-  border-radius:var(--avatar-radius); overflow:hidden;
+  border-radius:var(--avatar-radius, 50%); overflow:hidden;
   border:1px solid rgba(255,255,255,0.12); background:rgba(212,175,55,0.10);
   cursor:pointer;
 }
@@ -469,7 +513,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .name{ font-size:11px; color:#cfcfcf; letter-spacing:.2px; user-select:none; }
 .name:hover{ text-decoration:underline; cursor:pointer; }
 
-/* 말풍선 + 시간 */
 .bubble-row{ display:flex; align-items:flex-end; gap:6px; }
 .bubble-row.mine-row{ justify-content:flex-end; }
 .bubble{
@@ -482,10 +525,8 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .other-bubble{ background:var(--bubble-other); }
 .my-bubble{ background:var(--bubble-me); border-color:#f6e6ad; }
 
-/* 이미지 메시지 */
 .chat-image{ max-width:150px; max-height:150px; border-radius:10px; cursor:pointer; display:block; box-shadow:0 1px 0 rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06); }
 
-/* 시간/읽음 */
 .time{ font-size:var(--fz-time); color:var(--color-muted); white-space:nowrap; user-select:none; }
 .right-time{ align-self:flex-end; margin:0 0 2px 2px; }
 .read-flag{
@@ -503,10 +544,11 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border:1px solid rgba(230,199,102,0.35); border-radius:999px; padding:4px 10px; line-height:1.2;
 }
 
-/* 입력 영역 */
-.chat-input-wrapper{ 
-  position: fixed; bottom:0; left:0; right:0; z-index: 9;
-  background:var(--page-bg); border-top:1px solid rgba(255,255,255,.06); 
+/* ───────── Input area ───────── */
+.chat-input-wrapper{
+  position: relative; z-index: 3;
+  background:var(--page-bg); border-top:1px solid rgba(255,255,255,.06);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
 }
 .chat-input{
   display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm);
@@ -516,7 +558,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .chat-input ion-button[fill="outline"]{ --border-color:var(--gold-500); --color:#fff; --background:transparent; --background-hover:#1a1a1a; --border-radius:9px; min-height:26px; font-size:13px; border:1px solid var(--gold-500); }
 .chat-input ion-button[color="primary"]{ --background:var(--gold-500); --color:#111; --border-radius:10px; min-height:26px; }
 
-/* textarea */
 .chat-input textarea{
   flex:1 1 auto; padding:6px 8px; border:1.5px solid #333; border-radius:9px; margin:0;
   font-size:var(--fz-base); background:#ffffff; color:#000000; resize:none; line-height:1.4;
@@ -525,15 +566,14 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .chat-input textarea::placeholder{ color:#7a7a7a; }
 .chat-input textarea:focus{ outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500); }
 
-/* 이모지 */
 .emoji-picker-wrapper{
   position:absolute; left:var(--gap-md);
-  bottom:calc(46px + env(safe-area-inset-bottom,0px));
+  bottom: calc(100% + 8px);
   z-index:999; background:#111; border:1px solid var(--gold-500);
   border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5);
 }
 
-/* 이미지 모달: 화면 중앙, 입력바 위로 */
+/* ───────── Modal ───────── */
 .image-modal{
   position: fixed; inset: 0; z-index: 9999;
   display:flex; align-items:center; justify-content:center;

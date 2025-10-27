@@ -80,7 +80,9 @@
             android:launchMode="singleTask"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation">
+
 
             <!-- 일반 런처 -->
             <intent-filter>

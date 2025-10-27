@@ -16,7 +16,7 @@
   overscroll-behavior: contain;
 
   /* ✅ 블랙+골드 테마에 맞춤 */
-  background-color: #121212; /* 다크 베이스 */
+  background-color: #121212; /* 다크 베이스 #121212*/
   /* border: 2px solid red; */ /* 디버그 완료 후 제거 */
 
   padding: 8px;
@@ -28,6 +28,6 @@
 .main-page::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
 
 @media (max-width: 360px) {
-  .main-page { padding: 6px; }
+  .main-page { padding: px; }
 }
 </style>
