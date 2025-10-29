@@ -1,6 +1,6 @@
 <!-- src/components/04310_Page3_list/Page_Send.vue -->
 <template>
-  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정 (중첩 안전) -->
+  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정 (중첩 안전) 
   <ion-header translucent="true" slot="fixed">
     <ion-toolbar class="section-toolbar" role="heading" aria-level="2">
       <div class="section-header">
@@ -12,7 +12,15 @@
       </div>
     </ion-toolbar>
   </ion-header>
+-->
 
+  <div class="section-header">
+    <ion-icon :icon="icons.sendOutline" class="section-icon" aria-hidden="true" />
+    <h3 class="section-title">
+      보낸 친구 신청
+      <span class="count">({{ pendingCount }})</span>
+    </h3>
+  </div>
   <!-- ✅ 본문: 상위 IonContent가 스크롤 담당 -->
   <div class="sent-wrapper">
     <div class="page-container">
@@ -223,7 +231,11 @@ onMounted(async ()=>{
   border-bottom: 1px solid var(--border);
 }
 .section-header{
-  display:flex; align-items:center; gap:10px; padding:10px 12px;
+  display:flex; align-items:center; gap:10px;
+  padding:8px 10px; margin:0px 10px 0px 10px;
+  border-left:4px solid var(--gold);
+  background:#000000; border-radius:10px;
+  box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
 }
 .section-title{ display:flex; gap:8px; margin:0; color:var(--gold); font-weight:800; font-size:15px; }
 .section-icon{ font-size:18px; color:var(--gold); }

@@ -65,7 +65,7 @@ const menuItems = [
  // { name: 'Premium', path: '/home/0page', icon: diamondOutline },
  // { name: 'Search', path: '/home/2page', icon: locateOutline },
   { name: 'Search', path: '/home/targetpage', icon: diamondOutline },
-  { name: 'all', path: '/home/1page', icon: warningOutline },
+ // { name: 'all', path: '/home/1page', icon: warningOutline },
   { name: 'List', path: '/home/3page', icon: peopleOutline },
   { name: 'Chat', path: '/home/4page', icon: chatbubblesOutline },
   { name: 'Profile', path: '/home/6page', icon: personCircleOutline },

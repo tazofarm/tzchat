@@ -599,8 +599,8 @@ ion-content {
 
 /* ✅ target.vue와 동일한 패딩 규칙(좌우 여백 제거) */
 .no-gutter {
-  --padding-start: 0;
-  --padding-end: 0;
+  --padding-start: 10px;
+  --padding-end: 10px;
   --padding-top: 0;
   --padding-bottom: 0;
 }
@@ -611,6 +611,7 @@ ion-content {
   display: flex;
   justify-content: center;
   padding: 0 12px 16px;
+  height : 100px;
 }
 
 /* 공통 카드형 버튼 */

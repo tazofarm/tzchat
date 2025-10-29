@@ -1,6 +1,6 @@
 <!-- 받은 친구 신청 전용 페이지 - 중첩 안전 고정 헤더(A안 의미 유지: 헤더 고정 + 본문 스크롤은 상위가 담당) -->
 <template>
-  <!-- ✅ 상단 고정 헤더: slot="fixed"로 상위 IonContent 위에 고정 -->
+  <!-- ✅ 상단 고정 헤더: slot="fixed"로 상위 IonContent 위에 고정 
   <ion-header translucent="true" slot="fixed">
     <ion-toolbar>
       <div class="section-header" role="heading" aria-level="2">
@@ -12,8 +12,16 @@
       </div>
     </ion-toolbar>
   </ion-header>
+  -->
 
   <!-- ✅ 본문: 상위 IonContent가 스크롤을 관리 -->
+       <div class="section-header" role="heading" aria-level="2">
+        <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
+        <h3 class="section-title">
+          받은 친구 신청
+          <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
+        </h3>
+      </div>
   <div class="receive-only-wrapper">
     <UserList
       :key="usersKey"
@@ -349,9 +357,9 @@ watch(()=>receivedRequests.value.length, ()=>updateBadge())
 /* 상단 헤더 카드 */
 .section-header{
   display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:6px 10px 8px 10px;
+  padding:8px 10px; margin:0px 10px 0px 10px;
   border-left:4px solid var(--gold);
-  background:#0f0f0f; border-radius:10px;
+  background:#000000; border-radius:10px;
   box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
 }
 .section-title{

@@ -80,9 +80,10 @@
             android:launchMode="singleTask"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:resizeableActivity="true"
-            android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation">
-
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:windowLayoutInDisplayCutoutMode="shortEdges"
+            tools:replace="android:windowSoftInputMode">
 
             <!-- 일반 런처 -->
             <intent-filter>
@@ -90,12 +91,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- ✅ tzchat:// 딥링크 처리 (예: tzchat://chat/<roomId>, tzchat://friends/received) -->
+            <!-- ✅ tzchat:// 딥링크 처리 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- 호스트를 고정하지 않고 scheme만으로 수신 (필요 시 host/path 추가 제한 가능) -->
                 <data android:scheme="tzchat" />
             </intent-filter>
         </activity>

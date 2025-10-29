@@ -981,7 +981,7 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
   --padding-end: 8px;
   --padding-top: 2px;
   --padding-bottom: 2px;
-  font-size: 0.8rem;
+  font-size: 1.0rem;
   height: auto;
   min-height: unset;
   line-height: 1.2;

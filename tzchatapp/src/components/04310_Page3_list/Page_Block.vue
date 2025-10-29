@@ -1,6 +1,6 @@
 <!-- 차단 리스트 - 중첩 안전 고정 헤더 버전 (ion-header slot="fixed" + 상위 IonContent 스크롤) -->
 <template>
-  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정 -->
+  <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정
   <ion-header translucent="true" slot="fixed">
     <ion-toolbar class="section-toolbar" role="heading" aria-level="2">
       <div class="section-header">
@@ -12,6 +12,15 @@
       </div>
     </ion-toolbar>
   </ion-header>
+  -->
+
+  <div class="section-header">
+    <ion-icon :icon="icons.closeCircleOutline" class="section-icon danger" aria-hidden="true" />
+    <h3 class="section-title">
+      차단 리스트
+      <span class="count">({{ blocksCount }})</span>
+    </h3>
+  </div>
 
   <!-- ✅ 본문: 상위 IonContent가 스크롤 담당 -->
   <div class="blocks-only-wrapper">
@@ -189,9 +198,9 @@ onMounted(async ()=>{
 }
 .section-header{
   display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:6px 10px 8px 10px;
+  padding:8px 10px; margin:0px 10px 0px 10px;
   border-left:4px solid var(--gold);
-  background:#0f0f0f; border-radius:10px;
+  background:#000000; border-radius:10px;
   box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
 }
 .section-title{

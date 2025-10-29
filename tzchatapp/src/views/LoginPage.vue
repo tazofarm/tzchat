@@ -1,51 +1,67 @@
 <template>
   <div class="login-container">
     <div class="login-box">
+      <!-- 뒤로가기 버튼 
+      <IonButtons>
+        <IonButton class="back-btn" @click="goBack">← 뒤로가기</IonButton>
+      </IonButtons>
+-->
       <br /><br />
       <h1>Yes? Yes!</h1>
       <h2>네네챗</h2>
       <br /><br />
+      <h2>로그인</h2>
+      <br />
 
       <!-- 로그인 폼 -->
       <form @submit.prevent="login" class="login-form" autocomplete="on">
+        <!-- 아이디 입력 -->
+        <div class="form-group">
+          <label for="login-username">아이디</label>
+          <input
+            id="login-username"
+            name="username"
+            type="text"
+            placeholder="아이디"
+            v-model="username"
+            autocomplete="username"
+            required
+          />
+        </div>
 
-        <!--
-        <button
-          type="button"
-          :disabled="submitting"
-          @click="goLoginauto"
-        >
-          {{ submitting ? '로그인 중...' : 'Tester 자동로그인' }}
-        </button>
-<br><br>-->
+        <!-- 비밀번호 입력 -->
+        <div class="form-group">
+          <label for="login-password">비밀번호</label>
+          <input
+            id="login-password"
+            name="password"
+            type="password"
+            placeholder="비밀번호"
+            v-model="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
 
-        <button
-          type="button"
-          :disabled="submitting"
-          @click="goLoginmain"
-        >
+        <!-- 로그인 버튼 -->
+        <button type="submit" :disabled="submitting">
           {{ submitting ? '로그인 중...' : '로그인' }}
         </button>
-
-
-
-
-        <br><br>
-
-        <button
-          type="button"
-          :disabled="submitting"
-          @click="goLoginTester"
-        >
-          {{ submitting ? '로그인 중...' : 'Tester 전용로그인' }}
-
-        </button>
-
-
-
-
-        
       </form>
+
+      <!-- 에러/안내 메시지 -->
+      <p class="error" v-if="message">{{ message }}</p>
+
+      <!-- 회원가입 링크 -->
+      <div class="link-container">
+        <p>계정이 없으신가요? <router-link to="/signup">회원가입</router-link></p>
+      </div>
+
+      <!-- 비밀번호 모를때, Pass 로그인 -->
+      <div class="link-container">
+        <p>비밀번호를 잊으셨나요 ? <router-link to="/signup">P/W 찾기</router-link></p>
+      </div>
+
     </div>
   </div>
 </template>
@@ -53,81 +69,98 @@
 <script setup lang="ts">
 /**
  * LoginPage.vue
- * - 이미 로그인인 경우에도 약관 동의 상태를 확인하여 /consents로 라우팅
- * - 로그인 직후에도 동일 로직 재사용
+ * - 인터셉터 영향(자동 리다이렉트 등) 없이 /api/me를 '프로브'로 검증
+ * - 로그인 응답에서 JWT 토큰 키를 광범위하게 탐색하여 저장(쿠키에 의존X)
+ * - 성공/실패를 명확히 메시지로 안내
  */
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api, { auth as AuthAPI } from '@/lib/api'
+import api, { auth as AuthAPI, getAgreementStatus, setAuthToken } from '@/lib/api'
 import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
+import { IonButtons, IonButton } from '@ionic/vue'
 
 const router = useRouter()
 const route = useRoute()
-const submitting = ref(false)
 
-// ✅ 공통: 동의 상태 확인 후 목적지 결정
-async function redirectConsideringConsent(defaultRedirect = '/home/6page') {
+// 사용자 입력값
+const username = ref<string>('') 
+const password = ref<string>('') 
+const message = ref<string>('') 
+const submitting = ref<boolean>(false) 
+
+function redirectTarget() {
+  return (typeof route.query.redirect === 'string' && route.query.redirect)
+    ? String(route.query.redirect)
+    : '/home/6page'
+}
+function redirectAfterLogin() {
+  router.push(redirectTarget())
+}
+
+/** 뒤로가기 동작 */
+const goBack = () => {
+  if (window.history.length > 1) router.back()
+  else router.push('/home/6page') // 히스토리 없을 때 폴백
+}
+
+// ===== 진단: 실제 baseURL 로그 =====
+function debugBaseURL() {
   try {
-    const { data } = await api.get('/api/terms/agreements/status') // { ok, data: { pending, items } }
-    const pending = data?.data?.pending || []
-    const pendingRequired = pending.filter((p: any) => p?.isRequired)
-
-    if (pendingRequired.length > 0) {
-      // 필수 동의가 남아있으면 /consents로 이동
-      const redirectTo =
-        (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
-      router.replace({ path: '/consents', query: { redirect: redirectTo } })
-    } else {
-      // 없으면 원래 목적지로
-      const redirectTo =
-        (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
-      router.replace(redirectTo)
-    }
+    const base = api?.defaults?.baseURL || '(unknown)'
+    const mode = (import.meta as any)?.env?.MODE || '(unknown)'
+    const viteMode = (import.meta as any)?.env?.VITE_MODE || '(unknown)'
+    const apiEnv = (import.meta as any)?.env?.VITE_API_BASE_URL
+    const wsEnv  = (import.meta as any)?.env?.VITE_WS_BASE
+    console.log('[HTTP][CFG][FINAL]', { mode, viteMode, baseURL_from_instance: base, VITE_API_BASE_URL: apiEnv, VITE_WS_BASE: wsEnv })
   } catch (e: any) {
-    // 상태 조회 실패 시에는 기존 플로우로 진행
-    const redirectTo =
-      (typeof route.query.redirect === 'string' && route.query.redirect) || defaultRedirect
-    router.replace(redirectTo)
+    console.log('[HTTP][CFG][ERR] debugBaseURL', { message: e?.message })
   }
 }
-function goLoginauto() {
-  if (submitting.value) return
-  router.push('/loginauto')
-}
-function goLoginmain() {
-  if (submitting.value) return
-  router.push('/loginmain')
-}
-function goLoginTester() {
-  if (submitting.value) return
-  router.push('/logintester')
+
+/** axios 인터셉터 영향을 피해서 /api/me 상태를 확인하는 프로브 */
+async function meProbe(): Promise<{ ok: boolean; data?: any; status: number; reason?: string }> {
+  const base = (api?.defaults?.baseURL || '').replace(/\/+$/, '')
+  const url = `${base}/api/me`
+  try {
+    // 토큰이 있으면 Authorization 추가, 없으면 쿠키만으로 시도
+    const token = (() => {
+      try { return localStorage.getItem('TZCHAT_AUTH_TOKEN') } catch { return null }
+    })()
+    const headers: Record<string, string> = { 'Accept': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers,
+      cache: 'no-store',
+    })
+    const status = res.status
+    let data: any = null
+    try { data = await res.json() } catch { /* ignore */ }
+
+    if (status >= 200 && status < 300) {
+      return { ok: true, data, status }
+    }
+    return { ok: false, data, status, reason: data?.message || data?.error || `HTTP ${status}` }
+  } catch (e: any) {
+    return { ok: false, status: 0, reason: e?.message || 'network error' }
+  }
 }
 
-// 진입 시 세션/JWT 확인 → 이미 로그인 상태라면 동의 상태 체크 뒤 라우팅
+// 진입 시 세션/JWT 확인(401이면 정상 흐름) — 인터셉터 미사용 프로브
 onMounted(async () => {
-  try {
-    await api.get('/api/me')
-    // ✅ 이미 로그인 → 동의 상태 확인 후 라우팅
-    await redirectConsideringConsent('/home/6page')
-  } catch (e: any) {
-    if (e?.response?.status === 401) {
-      // 미로그인 → 로그인 진행 가능
-      // (화면 유지만, 추가 동작 없음)
-    } else {
-      console.log('[UI][ERR] /me precheck error', {
-        code: e?.code,
-        status: e?.response?.status,
-        msg: e?.message
-      })
-    }
+  debugBaseURL()
+  const probe = await meProbe()
+  if (probe.ok) {
+    console.log('[UI][RES] already signed-in', { user: probe.data?.user?.username })
+    await checkPendingAgreementsOrRedirect()
+  } else {
+    console.log('[UI][INFO] not signed-in (probe)', probe)
   }
 })
 
-// (선택) 사용자/비밀번호 입력 방식 로그인 지원 시 사용할 수 있는 함수
-const username = ref<string>('')  // 현재 화면에는 입력 UI 없음
-const password = ref<string>('')  // 현재 화면에는 입력 UI 없음
-const message  = ref<string>('')
-
+/** 로그인 함수 */
 const login = async () => {
   if (submitting.value) return
   submitting.value = true
@@ -143,21 +176,51 @@ const login = async () => {
 
     // 로그인 요청
     const res = await AuthAPI.login({ username: id, password: pw })
+    // ▲ 주의: 일부 서버는 쿠키만 내려주고 토큰을 바디에 안 줄 수 있음
+    // 토큰을 다양한 키에서 최대한 찾아서 저장 (쿠키 의존 최소화)
+    const body: any = res?.data ?? {}
+    const tokenCandidates = [
+      body?.token,
+      body?.data?.token,
+      body?.accessToken,
+      body?.jwt,
+      body?.data?.accessToken,
+    ].filter(Boolean)
+    if (tokenCandidates.length > 0) {
+      try { setAuthToken(String(tokenCandidates[0])) } catch {}
+    }
     password.value = ''
 
-    // 소켓 인증 반영
+    // 소켓 인증 반영(실패해도 로그인 흐름은 계속)
     try {
       const s = getSocket()
       if (s && s.connected) reconnectSocket()
       else connectSocket()
-    } catch {}
+    } catch (sockErr: any) {
+      console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
+    }
 
-    // /me 재검증
-    await api.get('/api/me')
+    // 로그인 직후 /api/me 재검증 — 인터셉터 미사용 프로브
+    const probe = await meProbe()
+    if (!probe.ok) {
+      // 여기서 막히면, 쿠키 미전송/토큰 미발급/탈퇴차단 가능성 중 하나
+      message.value =
+        probe.status === 401
+          ? '로그인 정보 확인 실패(401). 개발환경에서는 쿠키/토큰 정책 영향일 수 있어요. 다시 시도해주세요.'
+          : `로그인 확인 실패: ${probe.reason || probe.status}`
+      return
+    }
+    console.log('[UI][RES] /me after login', { user: probe.data?.user?.username })
+    message.value = (res?.data as any)?.message || (res?.data as any)?.msg || '로그인 되었습니다.'
 
-    // ✅ 로그인 직후에도 동의 상태 확인 → 라우팅
-    await redirectConsideringConsent('/home/6page')
+    // ✅ 재동의 필요 여부 확인 → 전용 동의 페이지 or 목적지
+    await checkPendingAgreementsOrRedirect()
   } catch (err: any) {
+    console.error('[HTTP][ERR] /login', {
+      status: err?.response?.status,
+      data: err?.response?.data,
+      msg: err?.message,
+    })
     const status = err?.response?.status
     if (status === 401) {
       message.value = err.response?.data?.message || '아이디/비밀번호를 확인해주세요.'
@@ -170,6 +233,29 @@ const login = async () => {
     }
   } finally {
     submitting.value = false
+  }
+}
+
+/** 활성 필수 동의(pending) 있으면 전용 페이지로 라우팅, 없으면 목적지로 이동 */
+async function checkPendingAgreementsOrRedirect() {
+  try {
+    const resp: any = await getAgreementStatus()
+    const pending: any[] =
+      resp?.data?.pending ??
+      resp?.pending ??
+      resp?.data?.data?.pending ?? // 혹시 모를 케이스 대비
+      []
+
+    if (Array.isArray(pending) && pending.length > 0) {
+      // router/index.ts 기준: AgreementPagePublic
+      router.push({ name: 'AgreementPagePublic', query: { return: redirectTarget() } })
+    } else {
+      redirectAfterLogin()
+    }
+  } catch (e: any) {
+    console.log('[UI][ERR] getAgreementStatus', { msg: e?.message, data: e?.response?.data })
+    // 문제가 있어도 사용자 흐름 막지 않도록 목적지로 이동
+    redirectAfterLogin()
   }
 }
 </script>

@@ -12,6 +12,8 @@ import {
   toastController,
 } from '@ionic/vue'
 
+
+//로그인 전
 import LoginPage from '@/views/LoginPage.vue'
 import LoginTestPage from '@/views/LoginTestPage.vue'
 import LoginMainPage from '@/views/LoginMainPage.vue'
@@ -20,32 +22,40 @@ import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
 
 
-
+//삭제예정
 import Page0 from '@/components/03050_pages/del/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
 import Page2 from '@/components/03050_pages/del/2_target.vue'
-import Pagetarget from '@/components/03050_pages/2_target_merge.vue'
-import Page3 from '@/components/03050_pages/3_list.vue'
-import Page4 from '@/components/03050_pages/4_chatroom.vue'
 import Page5 from '@/components/03050_pages/del/5_test.vue'
-import Page6 from '@/components/03050_pages/6_profile.vue'
-import Page7 from '@/components/03050_pages/7_setting.vue'
 import Page91 from '@/components/03050_pages/del/9_test1.vue'
 import Page92 from '@/components/03050_pages/del/9_test2.vue'
 import Page93 from '@/components/03050_pages/del/9_test3.vue'
 
+
+//Topmenu
+import Pagetarget from '@/components/03050_pages/2_target_merge.vue'
+import Page3 from '@/components/03050_pages/3_list.vue'
+import Page4 from '@/components/03050_pages/4_chatList.vue'
+import Page6 from '@/components/03050_pages/6_profile.vue'
+import Page7 from '@/components/03050_pages/7_setting.vue'
+
+
+//list_sub
 import Page31 from '@/components/04310_Page3_list/Page_Block.vue'
 import Page32 from '@/components/04310_Page3_list/Page_Friend.vue'
 import Page33 from '@/components/04310_Page3_list/Page_Receive.vue'
 import Page34 from '@/components/04310_Page3_list/Page_Send.vue'
 
+
+// important_parts
 import PageuserProfile from '@/components/02010_minipage/mini_profile/PageuserProfile.vue'
-
 import PagepremiumProfile from '@/components/02010_minipage/mini_profile/PagepremiumProfile.vue'
-
 import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
+
+// notice
 import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage.vue'
 
+// setting
 import setting01 from '@/components/04710_Page7_setting/setlist/0001_s.vue'
 import setting02 from '@/components/04710_Page7_setting/setlist/0002_s.vue'
 import setting03 from '@/components/04710_Page7_setting/setlist/0003_s.vue'
@@ -67,6 +77,8 @@ import setting18 from '@/components/04710_Page7_setting/setlist/0018_s.vue'
 import setting19 from '@/components/04710_Page7_setting/setlist/0019_s.vue'
 import setting20 from '@/components/04710_Page7_setting/setlist/0020_s.vue'
 
+
+// admin
 import AdminDashboard from '@/components/04910_Page9_Admin/adminlist/0000_AdminDashboard.vue'
 import Admin01 from '@/components/04910_Page9_Admin/adminlist/0001_a.vue'
 import Admin02 from '@/components/04910_Page9_Admin/adminlist/0002_a.vue'

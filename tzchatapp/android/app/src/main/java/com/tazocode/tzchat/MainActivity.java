@@ -10,11 +10,14 @@ import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.content.pm.ApplicationInfo;
+import android.view.WindowManager;                      // ✅ 추가: 소프트 입력 모드 강제
 
 // ✅ 알림 채널/진동 관련 import
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.media.AudioAttributes;
+
+import androidx.core.view.WindowCompat;               // ✅ 추가: edge-to-edge 적용
 
 public class MainActivity extends BridgeActivity {
 
@@ -23,6 +26,19 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+
+    // ✅ 키보드 모드 강제: adjustResize + stateHidden
+    try {
+      getWindow().setSoftInputMode(
+        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+          | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+      );
+      // ✅ Edge-to-edge 활성화(상/하단 인셋은 Ionic가 처리)
+      WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+      Log.i(TAG, "[BOOT] SoftInput=ADJUST_RESIZE | STATE_HIDDEN, edge-to-edge ON");
+    } catch (Throwable t) {
+      Log.w(TAG, "Failed to set soft input mode or edge-to-edge", t);
+    }
 
     // ✅ 진동 전용 알림 채널 생성 (서버 sender.js의 channelId와 동일해야 함)
     createVibrateOnlyChannel(); // channelId: "chat_messages"

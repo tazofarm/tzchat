@@ -50,17 +50,17 @@
             지역 : {{ user.region1 }} / {{ user.region2 }}
           </p>
 
-          <!-- ✅ 특징: 프리미엄회원 전용 노출 -->
+          <!-- ✅ 특징: 프리미엄회원 전용 노출
           <p class="meta">
             <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
             특징 : {{ viewerIsPremium ? (user.preference || '-') : '🔒' }}
-          </p>
+          </p>-->
 
-          <!-- ✅ 결혼: 프리미엄회원 전용 노출 -->
+          <!-- ✅ 결혼: 프리미엄회원 전용 노출 
           <p class="meta">
             <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
             결혼 : {{ viewerIsPremium ? (user.marriage || '-') : '🔒' }}
-          </p>
+          </p>-->
 
           <p class="meta">
             <ion-icon :icon="icons.chatbubblesOutline" class="row-icon" aria-hidden="true" />
@@ -191,7 +191,7 @@ const viewerIsPremium = computed(() => {
 
   --padding-start:5px;
   --inner-padding-end:5px;
-  --inner-padding-start:0;
+  --inner-padding-start:2px;
 
   color:#d7d7d9;
   transition:background .18s ease, transform .06s ease;
@@ -205,7 +205,7 @@ const viewerIsPremium = computed(() => {
 
 /* 아바타 */
 .list-avatar{
-  width:110px; height:110px; min-width:64px; margin-right:20px;
+  width:100px; height:100px; min-width:64px;  margin-right:20px;
   display:flex; align-items:center; justify-content:center;
   border-radius:10%; overflow:hidden;
   border:1px solid rgba(212,175,55,.18);

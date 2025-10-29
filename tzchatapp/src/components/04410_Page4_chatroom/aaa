@@ -1,16 +1,17 @@
 <template>
   <ion-page>
-    <!-- 상단 고정 헤더 -->
+    <!-- ✅ 상단 고정 헤더 (A안: ion-header + ion-content) -->
     <ion-header :translucent="true">
       <ion-toolbar class="chat-toolbar">
         <div class="chatroom-header" @click="closeEmojiIfOpen">
-          <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화</span>
+          <span class="chat-title" @click="goToPartnerProfile">{{ partnerNickname }} 님과의 대화2</span>
           <ion-button size="small" fill="clear" @click="goBack" aria-label="뒤로가기">나가기</ion-button>
         </div>
       </ion-toolbar>
     </ion-header>
 
-    <!-- 본문: 메시지 스크롤 + 하단 입력창(플로우) -->
+    <!-- ✅ 본문: 메시지 영역 전담 스크롤 (+ 입력창은 하단 배치) -->
+    <!-- [키보드] ion-content 자체는 100%를 유지하고, 내부 스크롤 영역(.chat-messages)만 패딩/높이 보정 -->
     <ion-content class="chat-content">
       <div class="chatroom-container">
         <!-- 메시지 리스트 (내부 스크롤 전담) -->
@@ -26,14 +27,14 @@
             class="message-row"
             :class="{ mine: item.type==='message' && isMine(item) }"
           >
-            <!-- 날짜 구분선 -->
+            <!-- 날짜 구분선 (⬅ 왼쪽 정렬) -->
             <template v-if="item.type === 'divider'">
               <div class="date-divider" role="separator" :aria-label="`타임라인 ${item.label}`">
                 <span class="date-chip">{{ item.label }}</span>
               </div>
             </template>
 
-            <!-- 내 메시지 -->
+            <!-- ░ 내 메시지 (오른쪽 정렬, 그룹 마지막만 시간/안읽음) ░ -->
             <template v-else-if="isMine(item)">
               <div class="my-message">
                 <div class="bubble-row mine-row">
@@ -42,6 +43,7 @@
                     class="read-flag"
                     aria-label="상대가 아직 읽지 않음"
                   >안읽음</span>
+
                   <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
 
                   <div class="bubble my-bubble">
@@ -56,7 +58,7 @@
               </div>
             </template>
 
-            <!-- 상대 메시지 -->
+            <!-- ░ 상대 메시지 (아바타/닉네임은 그룹 첫 메시지만, 시간은 마지막만) ░ -->
             <template v-else>
               <div class="other-message">
                 <div
@@ -97,8 +99,9 @@
           </div>
         </div>
 
-        <!-- 하단 입력창 (플로우 하단) -->
-        <div class="chat-input-wrapper" ref="composerWrapperRef">
+        <!-- 입력창 (하단 배치, 페이지 플로우 안) -->
+        <!-- [키보드] .chat-input-wrapper는 안전영역 + 키보드 높이를 고려한 여백을 적용 -->
+        <div class="chat-input-wrapper">
           <div v-if="showEmoji" class="emoji-picker-wrapper" @click.stop>
             <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
           </div>
@@ -114,7 +117,7 @@
               aria-label="이모지 선택"
             >😊</ion-button>
 
-            <!-- textarea 자동 높이 & 최대 높이 동적 제한 -->
+            <!-- [키보드] textarea 자동 높이 & 최대 높이 동적 제한 (CSS 변수 --composer-max 사용) -->
             <textarea
               ref="textareaRef"
               v-model="newMessage"
@@ -139,7 +142,7 @@
         </div>
       </div>
 
-      <!-- 이미지 확대 팝업 -->
+      <!-- 이미지 확대 팝업 (화면 중앙 고정) -->
       <transition name="fade">
         <div
           v-if="enlargedImage"
@@ -157,6 +160,26 @@
           </div>
         </div>
       </transition>
+
+      <!-- ✅ [DEV] 가상 키보드 오버레이 -->
+      <div v-if="devKbEnabled" class="kb-dev-overlay" :style="{ height: devKbHeight + 'px' }" aria-label="개발용 가상 키보드">
+        <div class="kb-dev-toolbar">
+          <span class="kb-label">KB: {{ devKbHeight }}px</span>
+          <input type="range" min="180" max="420" step="2" v-model.number="devKbHeight" @input="applyDevKb" />
+          <ion-button size="small" fill="outline" class="kb-close" @click="toggleDevKb(false)">닫기</ion-button>
+        </div>
+      </div>
+
+      <!-- ✅ [DEV] 토글 버튼 (좌측 하단 고정 / 웹 전용) -->
+      <button
+        v-if="!isNativeApp && showDevToggle"
+        class="kb-toggle"
+        type="button"
+        @click="toggleDevKb(!devKbEnabled)"
+        aria-label="개발용 키보드 토글"
+      >
+        KB
+      </button>
     </ion-content>
   </ion-page>
 </template>
@@ -164,7 +187,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { IonPage, IonHeader, IonToolbar, IonContent, IonButton } from '@ionic/vue'
-import { Keyboard } from '@capacitor/keyboard'
+import { Keyboard } from '@capacitor/keyboard'   // [키보드] Capacitor Keyboard
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
 import { connectSocket, getSocket } from '@/lib/socket'
@@ -187,7 +210,6 @@ const messages = ref([])
 const newMessage = ref('')
 const chatScroll = ref(null)
 const textareaRef = ref(null)
-const composerWrapperRef = ref(null)
 const showEmoji = ref(false)
 const fileInput = ref(null)
 const enlargedImage = ref('')
@@ -331,19 +353,11 @@ const onPaste=async(e)=>{
   }
 }
 
+// 채팅 화면 클릭 시 이모지 접기
 const closeEmojiIfOpen = async ()=>{
   if(showEmoji.value){
     showEmoji.value=false
     await focusComposer(0)
-  }
-}
-
-const toggleEmoji = ()=>{
-  showEmoji.value = !showEmoji.value
-  if (showEmoji.value) {
-    requestAnimationFrame(autoResizeComposer)
-  } else {
-    requestAnimationFrame(() => textareaRef.value?.focus())
   }
 }
 
@@ -359,7 +373,7 @@ const insertEmoji=(ev)=>{
   if(emoji){
     newMessage.value+=emoji
     requestAnimationFrame(()=>textareaRef.value?.focus())
-    autoResizeComposer()
+    autoResizeComposer() // [키보드] 이모지 입력 시 높이 재계산
   }
 }
 const scrollToBottom=async()=>{ await nextTick(); const el=chatScroll.value; if(el) el.scrollTop=el.scrollHeight }
@@ -373,109 +387,133 @@ const markAsReadNow=async()=>{ try{ if(!roomId||!myId.value) return; const r=awa
 const seenMsgIds=new Set()
 const pushMessageSafe=(m)=>{ const id=m?._id; if(!id||seenMsgIds.has(id)) return; seenMsgIds.add(id); messages.value.push(m); if(seenMsgIds.size>1000){ const fid=messages.value[0]?._id; if(fid) seenMsgIds.delete(fid) } }
 
-// ===== [키보드] 가상 키보드 대응 =====
+// ===== [키보드] 가상 키보드 대응 로직 =====
+// 전역 CSS 변수:
+//   --kb: 키보드 높이(px) 추정치
+//   --composer-max: 입력창 textarea 최대 높이(px)
+//   --vh: 실제 가시 뷰포트 높이(px) (Android/Web 보정용)
 let removeKeyboardListeners = null
-let vv = null
-let baseVh = 0
+let vv = null                // visualViewport
+let baseVh = 0               // 키보드 닫힌 상태의 기준 뷰포트 높이
 let kbOpen = false
 
 const setCssVar = (name, value) => document.documentElement.style.setProperty(name, value)
 
-// textarea 자동 리사이즈 (+ 최대 높이 제한) + 입력창 높이 반영
+// [키보드] textarea 자동 리사이즈 (+ 최대 높이 제한)
 const autoResizeComposer = () => {
   const el = textareaRef.value
   if (!el) return
   el.style.height = 'auto'
-  const line = Math.max(32, Math.min(el.scrollHeight, getComposerMaxPx()))
+  const line = Math.max(32, Math.min(el.scrollHeight, getComposerMaxPx())) // 최소 32px, 최대 --composer-max
   el.style.height = line + 'px'
-  updateComposerHeight()
 }
 
-// 입력창 wrapper 실제 높이를 CSS 변수로 반영 → 리스트 하단 여백으로 사용
-const updateComposerHeight = () => {
-  const wrap = composerWrapperRef.value
-  if (!wrap) return
-  const h = Math.round(wrap.getBoundingClientRect().height)
-  setCssVar('--composer-h', `${h}px`)
-}
+// === 입력창 높이 튜닝 포인트 ===
+const COMPOSER_MAX_CLOSED = 120            // 키보드가 닫혀 있을 때 기본 최대높이(px)
+const COMPOSER_MAX_OPEN_RATIO = 0.33       // 키보드가 열려 있을 때, 화면(vh) 대비 최대 비율
 
-const COMPOSER_MAX_CLOSED = 120
-const COMPOSER_MAX_OPEN_RATIO = 0.33
-
+// [키보드] 현재 --composer-max 픽셀값 계산
 const getComposerMaxPx = () => {
   const vh = Number(getComputedStyle(document.documentElement).getPropertyValue('--vh').replace('px','')) || window.innerHeight
   return kbOpen ? Math.round(vh * COMPOSER_MAX_OPEN_RATIO) : COMPOSER_MAX_CLOSED
 }
 
+// [키보드] 상태 갱신 (열림/닫힘, 높이 계산, CSS 변수 반영)
 const updateKeyboardState = (kbHeightPx = 0) => {
   kbOpen = kbHeightPx > 0
-  // --kb는 더 이상 여백에 사용하지 않지만, 필요 시 디버깅용으로 유지
   setCssVar('--kb', kbOpen ? `${kbHeightPx}px` : '0px')
   setCssVar('--composer-max', `${getComposerMaxPx()}px`)
-  updateComposerHeight()
   scrollToBottom()
+  autoResizeComposer()
 }
 
-// visualViewport 기반 추정
+// ===== [DEV] 가상 키보드 강제 주입 =====
+const isNativeApp = !!(window?.Capacitor?.isNativePlatform?.() || window?.Capacitor?.isNative)
+const devKbEnabled = ref(false)
+const devKbHeight = ref(300)
+const showDevToggle = ref(false)
+
+const toggleDevKb = (v) => {
+  devKbEnabled.value = !!v
+  if (devKbEnabled.value) applyDevKb()
+  else updateKeyboardState(0)
+}
+const applyDevKb = () => {
+  updateKeyboardState(Math.round(devKbHeight.value || 0))
+}
+
+// [키보드] visualViewport 기반 높이 추정 (웹/안드로이드에서 유용)
 const handleViewportResize = () => {
   if (!vv) return
+  if (devKbEnabled.value) return // DEV 강제 모드면 무시
   const current = Math.round(vv.height)
   setCssVar('--vh', `${current}px`)
-  const SLOP = 8
+  const SLOP = 12
   const kbHeight = Math.max(0, Math.round(baseVh - current) + SLOP)
   updateKeyboardState(kbHeight)
 }
 
+// 라이프사이클
 onMounted(async()=>{
   socket=connectSocket()
   window.addEventListener('paste', onPaste)
   await loadMessages()
 
-  // 초기 CSS 변수
+  // ===== [키보드] 초기 CSS 변수 초기화 =====
   setCssVar('--kb','0px')
   setCssVar('--composer-max','110px')
-  setCssVar('--vh', `${window.innerHeight}px`)
-  updateComposerHeight()
+  setCssVar('--vh', `${window.innerHeight}px`) // fallback
 
-  // Capacitor Keyboard: 웹뷰 리사이즈 방식 (화면을 키보드 높이만큼 줄임)
+  // ✅ Dev 토글은 웹에서만 노출
+  showDevToggle.value = !isNativeApp
+  // URL 파라미터로 자동 활성화 (?kbdev=1)
   try {
-    await Keyboard.setResizeMode({ mode: 'native' })
-    await Keyboard.setScroll({ isDisabled: true })
-  } catch (e) {}
+    const u = new URL(window.location.href)
+    if (u.searchParams.get('kbdev') === '1' && !isNativeApp) toggleDevKb(true)
+  } catch {}
 
-  // visualViewport 리스너
+  // ===== [키보드] visualViewport 리스너 (웹/안드로이드 보정) =====
   if (window.visualViewport) {
     vv = window.visualViewport
-    baseVh = Math.round(vv.height)
+    baseVh = Math.round(vv.height)  // 키보드 닫힌 기준값
     vv.addEventListener('resize', handleViewportResize)
-    vv.addEventListener('scroll', handleViewportResize)
+    vv.addEventListener('scroll', handleViewportResize) // 일부 기기에서 키보드 표시 시 viewport scroll 이벤트가 옴
   } else {
+    // fallback 기준값
     baseVh = window.innerHeight
-    const onResize = () => {
+    window.addEventListener('resize', () => {
+      if (devKbEnabled.value) return // DEV 강제 모드면 무시
       setCssVar('--vh', `${window.innerHeight}px`)
       const kbHeight = Math.max(0, baseVh - window.innerHeight)
       updateKeyboardState(kbHeight)
-    }
-    window.addEventListener('resize', onResize)
+    })
   }
 
-  // Capacitor Keyboard 이벤트
+  // ===== [키보드] Capacitor Keyboard 이벤트 =====
   try {
     const listeners = []
+    // iOS: keyboardWillShow/WillHide, Android/web: DidShow/DidHide가 더 신뢰될 수 있음
     listeners.push(await Keyboard.addListener('keyboardWillShow', ({ keyboardHeight }) => {
+      if (devKbEnabled.value) return
       updateKeyboardState(Math.round(keyboardHeight || 0))
     }))
     listeners.push(await Keyboard.addListener('keyboardWillHide', () => {
+      if (devKbEnabled.value) return
       updateKeyboardState(0)
     }))
     listeners.push(await Keyboard.addListener('keyboardDidShow', ({ keyboardHeight }) => {
+      if (devKbEnabled.value) return
       updateKeyboardState(Math.round(keyboardHeight || 0))
     }))
     listeners.push(await Keyboard.addListener('keyboardDidHide', () => {
+      if (devKbEnabled.value) return
       updateKeyboardState(0)
     }))
+
     removeKeyboardListeners = () => listeners.forEach(l => l?.remove?.())
-  } catch (e) {}
+  } catch (e) {
+    // 플러그인 미존재 시 무시
+  }
 
   socket.emit('joinRoom',roomId)
   socket.on('chatMessage',(msg)=>{
@@ -509,7 +547,6 @@ onUnmounted(() => {
 })
 
 watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
-watch(showEmoji, async ()=>{ await nextTick(); updateComposerHeight() })
 
 // 네비게이션
 const goBack=()=>router.push('/home/4page')
@@ -517,26 +554,23 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 </script>
 
 <style scoped>
-/* 상단 여백 강제 제거: 헤더를 최상단으로 붙임 */
-:deep(ion-header){ padding-top:0 !important; --ion-safe-area-top:0px; }
-:deep(ion-toolbar){ --padding-top:0 !important; --min-height:44px; }
+/* ───────── Layout containers ───────── */
+/* === 상단바를 완전히 위로 붙이기(여백 제거) === */
+/* iOS/웹에서 생기는 safe-area 상단 여백 무시 */
+:host { --ion-safe-area-top: env(safe-area-inset-top, 48px); }
+/* ion-header/ion-toolbar의 상단 패딩을 강제로 0 */
+:deep(ion-header) { padding-top: env(safe-area-inset-top, 38px) !important; }
+:deep(ion-toolbar) { --padding-top: env(safe-area-inset-top, 48px); --min-height: 44px; }
 
-
-
-
-/* ion-content 내부 여백 제거 & 키보드 리사이즈 반영 */
+/* ion-content 자체 상·하 패딩도 0 고정 */
 .chat-content {
   --padding-top: 0px;
   --padding-bottom: 0px;
-  display: flex;
-  flex-direction: column;
-  height: auto;
-  flex: 1;
   background: var(--page-bg, #0b0b0b);
 }
 
-/* 컨테이너는 flex column으로 전체 영역 차지 */
 .chatroom-container{
+  /* ion-content 내부에서 전체 높이 차지하여 내부 스크롤을 위임 */
   display:flex; flex-direction:column;
   height:100%; min-height:100%;
   width:100%;
@@ -547,59 +581,59 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   --page-bg:#0b0b0b; --section-bg:#0b0b0b;
   --bubble-other:#f1f3f4; --bubble-me:#ffefb3;
   --radius:10px; --radius-lg:14px;
-  --gap-xxs:4px; --gap-xs:6px; --gap-sm:6px; --gap-md:10px;
+  --gap-xxs:4px; --gap-xs:6px; --gap-sm:2px; --gap-md:10px;
   --fz-base:13px; --fz-time:11px; --fz-title:14px;
 }
 
-/* Header 를 더 위로 밀착 */
+/* ───────── Header (fixed via ion-header) ───────── */
 .chat-toolbar{
   --background: #0b0b0b;
   --border-color: rgba(255,255,255,.06);
-  --min-height: 44px;
   border-bottom: 1px solid rgba(255,255,255,.06);
 }
+
 .chatroom-header {
+  /* 이제 sticky 아님: ion-header가 고정 */
   display:flex; align-items:center; gap:var(--gap-sm);
   height:44px; padding: var(--gap-md);
   background:#0b0b0b;
   box-sizing:border-box;
-  /* 상단 여백 제거 */
-  /* padding-top: calc(env(safe-area-inset-top, 0px) - 0px); */
 }
 .chatroom-header ion-button{
   --padding-start:6px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500);
   --background:transparent; --border-color:transparent;
-  min-height:30px; font-size:16px; margin-left:auto;
+  min-height:30px; font-size:13px; margin-left:auto;
 }
-.chat-title{
-  font-weight:800;
-  letter-spacing:.2px;
-  color:var(--gold-500);
-  font-size:16px; /* 🔹글씨 크기 키움 (기존 var(--fz-title) ≈ 14px) */
-  line-height:2.15;
-  cursor:pointer;
-  margin-left:8px;
-}
-/* Messages (inner scroll) */
+.chat-title{ font-weight:800; letter-spacing:.2px; color:var(--gold-500); font-size:var(--fz-title); line-height:2.15; cursor:pointer;  margin-left: 8px; }
+
+/* ───────── Messages (inner scroll) ───────── */
 .chat-messages{
   flex:1 1 0; min-height:0;
   overflow:auto; -webkit-overflow-scrolling:touch;
   padding: var(--gap-md);
-  /* 리스트 바닥 여백 = 실제 입력창 높이만큼 확보 (키보드 높이 추가 금지) */
-  padding-bottom: 4px; /* 또는 0px */
+  /* ✅ 기본 8px + 키보드가 있을 때만 추가 공간 */
+  padding-bottom: calc(var(--kb, 0px) + var(--chat-bottom-gap, 0px));
   background:var(--section-bg);
   scrollbar-gutter:stable;
+
+  /* [키보드] 모바일 스크롤 점프 방지 */
   overscroll-behavior: contain;
   touch-action: manipulation;
 }
-.chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
 
+.chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
+.chat-messages{
+  /* === 채팅 리스트 바닥 여백 튜닝 포인트 ===
+     --chat-bottom-gap 기본값(8px)을 12~20px로 올리면, 키보드 올라와도 리스트가
+     더 위로 떠서 마지막 메시지가 숨지지 않습니다. */
+  padding-bottom: calc(var(--kb, 0px) + var(--chat-bottom-gap, 6px));
+}
 .message-row{ margin-bottom:var(--gap-xs); }
 
 .other-message,.my-message{ display:flex; gap:var(--gap-xxs); }
 .my-message{ width:100%; justify-content:flex-end; align-items:flex-end; }
-.other-message{ justify-content:flex-start; align-items:flex-start; }
 
+.other-message{ justify-content:flex-start; align-items:flex-start; }
 .avatar-col,
 .avatar-spacer{
   width:var(--avatar-size, 40px); min-width:var(--avatar-size, 40px); height:var(--avatar-size, 40px);
@@ -614,7 +648,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .avatar-fallback{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#222; color:#eee; font-weight:800; font-size:12px; }
 .avatar-col :deep(.viewer-host){ width:100%; height:100%; }
 .avatar-col :deep(.avatar){ width:100%!important; height:100%!important; object-fit:cover; border-radius:0!important; box-shadow:none!important; pointer-events:none; }
-
 .content-col{ display:flex; flex-direction:column; max-width:min(78%,560px); }
 .name-line{ margin:0 0 2px 4px; }
 .name{ font-size:11px; color:#cfcfcf; letter-spacing:.2px; user-select:none; }
@@ -634,41 +667,41 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 
 .chat-image{ max-width:150px; max-height:150px; border-radius:10px; cursor:pointer; display:block; box-shadow:0 1px 0 rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06); }
 
-.time{ font-size:var(--fz-time); color:#9aa0a6; white-space:nowrap; user-select:none; }
+.time{ font-size:var(--fz-time); color:var(--color-muted); white-space:nowrap; user-select:none; }
 .right-time{ align-self:flex-end; margin:0 0 2px 2px; }
 .read-flag{
   font-size:var(--fz-time); color:#1f1f1f; background:#fff3f3; border:1px solid #ffc9c9;
   border-radius:999px; padding:2px 6px; margin-left:4px; line-height:1.3; user-select:none;
 }
 
-/* 날짜 구분선 — 왼쪽 정렬 */
+/* 날짜 구분선 — ⬅ 왼쪽 정렬 */
 .date-divider{
   display:flex; align-items:center; justify-content:flex-start; gap:60px; margin:10px 0;
 }
-.date-divider::before{ content:""; flex:0 0 36px; }
+.date-divider::before{ content:""; flex:0 0 36px; } /* 아바타 폭만큼 여백 */
 .date-chip{
   font-size:12px; color:#e6c766; background:rgba(230,199,102,0.08);
   border:1px solid rgba(230,199,102,0.35); border-radius:999px; padding:4px 10px; line-height:1.2;
 }
 
-/* 입력창: safe-area만 유지(키보드 높이 추가 금지) → 키보드에 최대한 밀착 */
-/* 입력창: 홈바가 0으로 리포트되는 기기 대비해 "최소 56px" 확보 */
-.chat-input-wrapper {
-  position: sticky;         /* ⬅️ 뷰포트 하단에 안정적으로 붙습니다 */
-  bottom: 0;
-  z-index: 3;
-  background: var(--page-bg);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 80px); /* 필요시 60~64px로 더 올려도 됨 */
+/* ───────── Input area ───────── */
+/* === 하단 입력창을 더 아래로(바닥에 더 붙게) === */
+/* safe-area가 필요 없으면 0~2px로 줄이세요 */
+.chat-input-wrapper{
+  position: relative; z-index: 3;
+  background:var(--page-bg); border-top:1px solid rgba(255,255,255,.06);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px); /* 6px → 2px */
 }
 
+/* (선택) 키보드가 닫혀 있을 때 리스트 바닥 여백도 더 줄이고 싶으면
+   --chat-bottom-gap 기본값을 낮추세요. */
+.chat-messages{
+  padding-bottom: calc(var(--kb, 0px) + var(--chat-bottom-gap, 2px)); /* 16px → 8px */
+}
 .chat-input{
   display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm);
-  padding:8px var(--gap-md);              /* ⬅️ 내부 여백 소폭 ↑ */
-  background:var(--page-bg); box-sizing:border-box;
+  padding:var(--gap-sm) var(--gap-md); background:var(--page-bg); box-sizing:border-box;
 }
-
-
 .chat-input ion-button.icon-btn{ --padding-start:4px; --padding-end:4px; width:34px; min-width:34px; font-size:16px; --border-color:var(--gold-500); --background:transparent; --background-hover:#1a1a1a; }
 .chat-input ion-button[fill="outline"]{ --border-color:var(--gold-500); --color:#fff; --background:transparent; --background-hover:#1a1a1a; --border-radius:9px; min-height:26px; font-size:13px; border:1px solid var(--gold-500); }
 .chat-input ion-button[color="primary"]{ --background:var(--gold-500); --color:#111; --border-radius:10px; min-height:26px; }
@@ -676,14 +709,13 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .chat-input textarea{
   flex:1 1 auto; padding:6px 8px; border:1.5px solid #333; border-radius:9px; margin:0;
   font-size:var(--fz-base); background:#ffffff; color:#000000; resize:none; line-height:1.4;
-  min-height:32px;
-  max-height: var(--composer-max, 110px);
+  min-height:32px; /* [키보드] 최소 높이 */
+  max-height: var(--composer-max, 110px); /* [키보드] 동적 최대 높이 */
   box-shadow:0 0 0 2px rgba(212,175,55,0.08);
 }
 .chat-input textarea::placeholder{ color:#7a7a7a; }
 .chat-input textarea:focus{ outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500); }
 
-/* 이모지 피커 */
 .emoji-picker-wrapper{
   position:absolute; left:var(--gap-md);
   bottom: calc(100% + 8px);
@@ -691,7 +723,7 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5);
 }
 
-/* Modal */
+/* ───────── Modal ───────── */
 .image-modal{
   position: fixed; inset: 0; z-index: 9999;
   display:flex; align-items:center; justify-content:center;
@@ -709,5 +741,42 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   position:absolute; top:-10px; right:-10px; width:32px; height:32px;
   border:none; border-radius:50%; background:#000; color:#fff; font-size:20px;
   display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+
+/* ===== [DEV] 가상 키보드 오버레이 ===== */
+.kb-dev-overlay{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 9998;
+  background: rgba(20,20,20,.96);
+  border-top: 2px dashed rgba(212,175,55,.6);
+  pointer-events: none; /* 오버레이는 클릭 통과 */
+}
+.kb-dev-toolbar{
+  position: absolute;
+  top: -42px; left: 8px;
+  height: 36px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,.75);
+  border: 1px solid rgba(212,175,55,.5);
+  border-radius: 8px;
+  pointer-events: auto;  /* 툴바만 조작 가능 */
+}
+.kb-dev-toolbar input[type="range"]{ width: 160px; }
+.kb-label{ font-size: 12px; color: #e8d48a; }
+
+/* 좌측 하단 Dev 토글 버튼 */
+.kb-toggle{
+  position: fixed;
+  left: 10px; bottom: 10px;
+  z-index: 9999;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(212,175,55,.7);
+  background: #0b0b0b;
+  color: #e8d48a;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
 }
 </style>

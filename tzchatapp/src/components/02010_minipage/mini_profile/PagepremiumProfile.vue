@@ -479,7 +479,7 @@ function goBack() { router.back() }
   --gold-2: #c19b2e;
 }
 
-.page-wrapper { background: var(--bg); min-height: 100dvh; min-height: -webkit-fill-available; box-sizing: border-box; padding: 12px; color: var(--text); width: 100%; overflow-x: hidden; }
+.page-wrapper { background: var(--bg); min-height: 100dvh; min-height: -webkit-fill-available; box-sizing: border-box; padding: 0px; color: var(--text); width: 100%; overflow-x: hidden; }
 .container{ max-width: 780px; margin: 0 auto; padding: 12px; box-sizing: border-box; }
 
 .card { background: var(--card); border: 1px solid var(--divider); border-radius: 14px; padding: 14px; box-shadow: 0 0 0 1px #000 inset; }

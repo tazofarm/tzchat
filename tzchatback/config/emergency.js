@@ -5,7 +5,7 @@
 // -------------------------------------------------------------
 
 // ✅ 환경변수 우선, 없으면 기본 3600초(1시간). 테스트 시 .env에 60으로 지정
-const EMERGENCY_DURATION_SECONDS = parseInt(process.env.EMERGENCY_DURATION_SECONDS || '600', 10);
+const EMERGENCY_DURATION_SECONDS = parseInt(process.env.EMERGENCY_DURATION_SECONDS || '3600', 10);
 
 // ⏱️ 남은 시간 계산기
 function computeRemaining(activatedAt, nowMs = Date.now(), durationSec = EMERGENCY_DURATION_SECONDS) {
