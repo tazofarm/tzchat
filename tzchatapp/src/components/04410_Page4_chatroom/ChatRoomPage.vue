@@ -409,9 +409,10 @@ const getComposerMaxPx = () => {
 
 const updateKeyboardState = (kbHeightPx = 0) => {
   kbOpen = kbHeightPx > 0
-  // --kb는 더 이상 여백에 사용하지 않지만, 필요 시 디버깅용으로 유지
   setCssVar('--kb', kbOpen ? `${kbHeightPx}px` : '0px')
   setCssVar('--composer-max', `${getComposerMaxPx()}px`)
+  // 키보드 상태에 따른 홈바 여유 패딩 (열린다음 메세지와 키보드 사이 간격 앞쪽 4가 그거야)
+  setCssVar('--homebar-pad', kbOpen ? '4px' : '80px')
   updateComposerHeight()
   scrollToBottom()
 }
@@ -431,10 +432,11 @@ onMounted(async()=>{
   window.addEventListener('paste', onPaste)
   await loadMessages()
 
-  // 초기 CSS 변수
+  // onMounted 내부 초기 설정 부분
   setCssVar('--kb','0px')
   setCssVar('--composer-max','110px')
   setCssVar('--vh', `${window.innerHeight}px`)
+  setCssVar('--homebar-pad','80px')  // ⬅️ 키보드 닫힘 기본값
   updateComposerHeight()
 
   // Capacitor Keyboard: 웹뷰 리사이즈 방식 (화면을 키보드 높이만큼 줄임)
@@ -506,7 +508,9 @@ onUnmounted(() => {
   removeKeyboardListeners?.()
   setCssVar('--kb','0px')
   setCssVar('--composer-max','110px')
+  setCssVar('--homebar-pad','80px') // ⬅️ 리셋(선택)
 })
+
 
 watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
 watch(showEmoji, async ()=>{ await nextTick(); updateComposerHeight() })
@@ -651,15 +655,15 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border:1px solid rgba(230,199,102,0.35); border-radius:999px; padding:4px 10px; line-height:1.2;
 }
 
-/* 입력창: safe-area만 유지(키보드 높이 추가 금지) → 키보드에 최대한 밀착 */
-/* 입력창: 홈바가 0으로 리포트되는 기기 대비해 "최소 56px" 확보 */
+/* 홈바 여유패딩을 변수로 치환: 키보드 상태에 따라 JS에서 갱신 */
 .chat-input-wrapper {
-  position: sticky;         /* ⬅️ 뷰포트 하단에 안정적으로 붙습니다 */
+  position: sticky;
   bottom: 0;
   z-index: 3;
   background: var(--page-bg);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 80px); /* 필요시 60~64px로 더 올려도 됨 */
+  /* 키보드 닫힘(80px) / 열림(8px) 을 JS에서 --homebar-pad로 제어 */
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--homebar-pad, 80px));
 }
 
 .chat-input{
