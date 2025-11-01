@@ -1,20 +1,23 @@
-// src/lib/socket.ts
 import { io } from 'socket.io-client'
 import type { Socket, ManagerOptions, SocketOptions } from 'socket.io-client'
 
-// ✅ Vite는 "직접 접근"에만 .env를 주입합니다.
+/**
+ * 환경변수 주입 (Vite)
+ * - VITE_WS_BASE / VITE_SOCKET_BASE : 소켓 서버 오리진 (http/https/ws/wss)
+ * - VITE_SOCKET_PATH                : 소켓 경로 (기본 /socket.io)
+ * - VITE_MODE / MODE                : 현재 빌드/실행 모드
+ */
 const {
-  MODE: VITE_BUILD_MODE,         // Vite가 넣어주는 모드
-  VITE_MODE,                     // 우리가 추가로 쓰는 모드 키(있으면 사용)
+  MODE: VITE_BUILD_MODE,
+  VITE_MODE,
   VITE_WS_BASE,
   VITE_SOCKET_BASE,
+  VITE_SOCKET_PATH,
 } = import.meta.env as any
 
-// 모드 문자열
 const MODE = String(VITE_MODE || VITE_BUILD_MODE || '')
-
-// .env에서 직접 읽기 (정적 접근)
 const WS_BASE = String(VITE_WS_BASE || VITE_SOCKET_BASE || '').trim()
+const SOCKET_PATH = String(VITE_SOCKET_PATH || '/socket.io').trim()
 
 let socket: Socket | null = null
 let listenersBound = false
@@ -22,11 +25,11 @@ let currentOrigin: string | null = null
 
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 
-// http(s)와 ws(s) 모두 허용 (운영은 wss:// 권장)
+/** util */
 function isSocketOrigin(u: string): boolean { return /^(https?:|wss?:)\/\//i.test(u || '') }
 function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
 
-// .env가 있으면 엄격 검사 통과, 없거나 형식이 틀리면 명확히 실패
+/** 환경 검사: 오리진 필수 */
 ;(function assertEnv() {
   if (!WS_BASE) {
     throw new Error(
@@ -49,21 +52,27 @@ function getToken(): string | null {
 function buildOptions(): Partial<ManagerOptions & SocketOptions> {
   const token = getToken()
   const opts: Partial<ManagerOptions & SocketOptions> = {
-    path: '/socket.io',
+    path: SOCKET_PATH,
     transports: ['websocket', 'polling'],
     upgrade: true,
     rememberUpgrade: true,
     withCredentials: true,
+
+    // 재연결 정책
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 800,
     reconnectionDelayMax: 8000,
     randomizationFactor: 0.5,
     timeout: 30000,
-    // autoConnect 기본 true (명시 안 함). 필요 시 앱 엔트리에서 connectSocket() 1회 호출.
+
+    // 연결 제어: 앱 엔트리에서 connectSocket()로만 연결되도록
+    autoConnect: false,
+
+    // 인증 토큰 전달 (socket.handshake.auth)
     auth: token ? { token } : undefined,
   }
-  console.log('[Socket][CFG]', { MODE, TARGET_ORIGIN, hasToken: !!token, path: opts.path })
+  console.log('[Socket][CFG]', { MODE, TARGET_ORIGIN, SOCKET_PATH, hasToken: !!token })
   return opts
 }
 
@@ -72,48 +81,60 @@ function bindCoreListeners(sock: Socket, originStr: string) {
   listenersBound = true
 
   sock.on('connect', () => {
-    console.log('✅ [Socket] connected:', sock.id, '| origin:', originStr, '| transport:', sock.io.engine.transport.name)
+    // @ts-ignore
+    const tr = sock.io?.engine?.transport?.name
+    console.log('✅ [Socket] connected:', sock.id, '| origin:', originStr, '| transport:', tr)
   })
+
   sock.on('connect_error', (err: any) => {
     console.error('❌ [Socket] connect_error:', err?.message || err)
   })
+
   sock.on('error', (err: any) => {
     console.error('❌ [Socket] error:', err?.message || err)
   })
+
   sock.io.on('reconnect_attempt', (attempt) => {
     console.log('↻ [Socket] reconnect_attempt:', attempt)
   })
+
   sock.io.on('reconnect', (n) => {
-    console.log('🔁 [Socket] reconnected:', n, '| transport:', sock.io.engine.transport.name)
+    // @ts-ignore
+    const tr = sock.io?.engine?.transport?.name
+    console.log('🔁 [Socket] reconnected:', n, '| transport:', tr)
   })
+
   sock.io.on('reconnect_error', (err) => {
     console.warn('⚠️ [Socket] reconnect_error:', (err as any)?.message || err)
   })
+
   sock.io.on('reconnect_failed', () => {
     console.warn('⛔ [Socket] reconnect_failed (no more attempts)')
   })
+
   sock.on('disconnect', (reason: string) => {
     console.warn('⚠️ [Socket] disconnected:', reason)
   })
 }
 
-/** 앱 전역에서 1회 호출 권장 */
+/** 앱 전역에서 1회 호출 권장: 실제 연결 수행 */
 export function connectSocket(): Socket {
   const options = buildOptions()
 
-  // 동일 오리진 + 기존 소켓 있으면 그대로 재사용
+  // 동일 오리진 + 기존 소켓 있으면 재사용
   if (socket && currentOrigin === TARGET_ORIGIN) {
     const token = getToken()
     ;(socket as any).auth = token ? { token } : undefined
+
     if (!socket.connected) {
-      console.log('[Socket] reconnecting existing socket...')
+      console.log('[Socket] connecting existing socket...')
       socket.connect()
     }
     bindCoreListeners(socket, TARGET_ORIGIN)
     return socket
   }
 
-  // 오리진 변경 시에만 clean shutdown
+  // 오리진 변경 또는 최초 연결: 기존 소켓 clean-up
   if (socket) {
     try { socket.off() } catch {}
     try { socket.disconnect() } catch {}
@@ -121,16 +142,19 @@ export function connectSocket(): Socket {
     listenersBound = false
   }
 
-  console.log('[Socket] connecting...', { origin: TARGET_ORIGIN, path: options.path })
+  console.log('[Socket] create & connect...', { origin: TARGET_ORIGIN, path: options.path })
   socket = io(TARGET_ORIGIN, options)
   currentOrigin = TARGET_ORIGIN
+
   bindCoreListeners(socket, TARGET_ORIGIN)
+  socket.connect() // autoConnect:false 이므로 명시적으로 연결
   return socket!
 }
 
+/** 현재 소켓 얻기 (없을 수 있음) */
 export function getSocket(): Socket | null { return socket }
 
-/** 의도적으로 완전 종료할 때만 사용 (로그아웃 등) */
+/** 의도적 완전 종료 (로그아웃 등) */
 export function disconnectSocket(): void {
   if (!socket) return
   try {
@@ -147,27 +171,25 @@ export function disconnectSocket(): void {
 }
 
 /**
- * 새 토큰 반영을 위한 재연결/재설정
- * - origin 변경이 없다면 끊지 않습니다.
- * - 서버가 지원한다면 'auth:refresh' 커스텀 이벤트로 전달(선택적).
+ * 재연결/재설정
+ * - origin 변경이 없다면 연결 끊지 않음
+ * - 서버가 지원하면 'auth:refresh'로 토큰 갱신 알림
  */
 export function reconnectSocket(newOrigin?: string): Socket {
   const nextOrigin = (newOrigin && isSocketOrigin(newOrigin))
     ? originOf(new URL(newOrigin))
     : TARGET_ORIGIN
 
-  // ✅ 동일 오리진이면 끊지 않고 토큰만 갱신/필요 시 connect
   if (socket && currentOrigin === nextOrigin) {
     try {
       const token = getToken()
       ;(socket as any).auth = token ? { token } : undefined
       if (socket.connected) {
-        // 서버 미들웨어가 토큰 재인증을 지원한다면 이 이벤트를 수신해서 처리
         socket.emit?.('auth:refresh', { token })
-        console.log('[Socket] token refreshed without disconnect', { hasToken: !!token })
+        console.log('[Socket] token refreshed (same origin, no disconnect)', { hasToken: !!token })
       } else {
-        socket.connect()
         console.log('[Socket] connect (same origin, was disconnected)')
+        socket.connect()
       }
     } catch (e: any) {
       console.warn('[Socket] reconnect (same origin) error:', e?.message)
@@ -175,26 +197,24 @@ export function reconnectSocket(newOrigin?: string): Socket {
     return socket!
   }
 
-  // 🔄 오리진이 바뀌는 경우에만 재생성
+  // 오리진이 바뀌는 경우에만 재생성
   disconnectSocket()
   const options = buildOptions()
-  console.log('[Socket] reconnecting with new origin...', { from: currentOrigin, to: nextOrigin, path: options.path })
+  console.log('[Socket] reconnect with new origin...', { from: currentOrigin, to: nextOrigin, path: options.path })
   socket = io(nextOrigin, options)
   currentOrigin = nextOrigin
   bindCoreListeners(socket, nextOrigin)
+  socket.connect()
   return socket!
 }
 
-/**
- * 토큰만 갱신 (동일 오리진에서 끊지 않음)
- */
+/** 동일 오리진에서 토큰만 갱신 (연결 유지) */
 export function refreshSocketAuth(): void {
   if (!socket) return
   const token = getToken()
   try {
     ;(socket as any).auth = token ? { token } : undefined
     console.log('[Socket] auth refreshed (no reconnect)', { hasToken: !!token })
-    // 서버가 토큰 재인증 이벤트를 지원한다면 사용
     if (socket.connected) {
       socket.emit?.('auth:refresh', { token })
     }

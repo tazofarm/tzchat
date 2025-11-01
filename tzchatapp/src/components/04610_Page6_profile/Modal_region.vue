@@ -25,7 +25,7 @@
       <p v-if="successMsg" class="success-msg" role="status">{{ successMsg }}</p>
 
       <div class="button-group">
-        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
+        
         <ion-button
           expand="block"
           color="primary"
@@ -34,6 +34,7 @@
         >
           {{ isSubmitting ? '수정 중…' : '수정' }}
         </ion-button>
+        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
       </div>
     </div>
   </div>

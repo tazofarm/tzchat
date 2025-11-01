@@ -23,8 +23,9 @@
 
       <!-- 버튼: 가로 2분할(좌 닫기 / 우 수정) -->
       <div class="button-group">
-        <ion-button expand="block" class="btn-close" @click="$emit('close')">닫기</ion-button>
+        
         <ion-button expand="block" class="btn-submit" @click="submit">수정</ion-button>
+        <ion-button expand="block" class="btn-close" @click="$emit('close')">닫기</ion-button>
       </div>
     </div>
   </div>

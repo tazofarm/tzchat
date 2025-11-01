@@ -27,7 +27,7 @@
         :disabled="isSubmitting"
         @keydown.enter.prevent="submitNickname"
         aria-label="새 닉네임"
-      />
+      /> 
 
       <!-- 결과 메시지 -->
       <p v-if="errorMsg" class="error-msg" role="alert">{{ errorMsg }}</p>
@@ -35,14 +35,7 @@
 
       <!-- 버튼 그룹 (가로 고정: 닫기 | 수정) -->
       <div class="button-group">
-        <ion-button
-          expand="block"
-          color="medium"
-          @click="onClose"
-          :disabled="isSubmitting"
-        >
-          닫기
-        </ion-button>
+
 
         <ion-button
           expand="block"
@@ -51,6 +44,14 @@
           :disabled="isSubmitting"
         >
           {{ isSubmitting ? '수정 중…' : '수정' }}
+        </ion-button>
+        <ion-button
+          expand="block"
+          color="medium"
+          @click="onClose"
+          :disabled="isSubmitting"
+        >
+          닫기
         </ion-button>
       </div>
     </div>

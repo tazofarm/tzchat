@@ -21,9 +21,10 @@
 
         <!-- ✅ 버튼 그룹: 초기화 적용하기 닫기 -->
         <div class="button-group">
-          <ion-button class="small-btn" @click="onClose" color="medium">닫기</ion-button>
-          <ion-button class="small-btn" @click="resetSelection" color="primary">초기화</ion-button>
           <ion-button class="small-btn" @click="applySelection" color="danger">적용하기</ion-button>
+          
+          <ion-button class="small-btn" @click="resetSelection" color="primary">초기화</ion-button>
+          <ion-button class="small-btn" @click="onClose" color="medium">닫기</ion-button>
          
         </div>
 

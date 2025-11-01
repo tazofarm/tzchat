@@ -107,6 +107,40 @@ function safeRedirect(path: string) {
   }
 }
 
+// ✅ [추가] 지갑 변경 브로드캐스트 유틸 (전역 이벤트)
+function emitWalletUpdate(detail: any) {
+  try {
+    window.dispatchEvent(new CustomEvent('api:wallet', { detail }))
+  } catch {}
+}
+
+// ✅ [추가] 응답 바디/헤더에서 wallet 추출
+function extractWalletFromResponse(res: AxiosResponse): any | null {
+  const body = res?.data
+  const bodyWallet =
+    body?.wallet ??
+    body?.data?.wallet ??
+    body?.user?.wallet ??
+    body?.data?.user?.wallet
+  if (bodyWallet && typeof bodyWallet === 'object') return bodyWallet
+
+  const h = res?.headers || {}
+  const toNum = (v: any) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : undefined
+  }
+  const wFromHeader = {
+    heart: toNum(h['x-wallet-heart']),
+    star:  toNum(h['x-wallet-star']),
+    ruby:  toNum(h['x-wallet-ruby']),
+  }
+  const hasAny =
+    typeof wFromHeader.heart === 'number' ||
+    typeof wFromHeader.star === 'number' ||
+    typeof wFromHeader.ruby === 'number'
+  return hasAny ? wFromHeader : null
+}
+
 // 요청 인터셉터: 토큰 부착
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAuthToken()
@@ -117,9 +151,14 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config
 })
 
-// 응답 인터셉터: 401/423 처리 + 로깅
+// ✅ 응답 인터셉터: wallet 변화 브로드캐스트 + 401/423 처리 + 로깅
 api.interceptors.response.use(
-  (res: AxiosResponse) => res,
+  (res: AxiosResponse) => {
+    // 지갑 변화가 응답에 포함되면 전역 이벤트로 통지 → main.ts에서 Pinia 반영
+    const w = extractWalletFromResponse(res)
+    if (w) emitWalletUpdate(w)
+    return res
+  },
   (err: AxiosError) => {
     const status = err.response?.status
     const data: any = err.response?.data

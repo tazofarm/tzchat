@@ -66,14 +66,8 @@
 
       <!-- 액션 영역 -->
       <div class="card pf-scope">
-        <!-- ✅ 3열 그리드 배치
-             1열: 버튼A(두 줄 높이로 세로 확장)
-             2~3열(상단): 대화하기(두 칸 가로 확장)
-             2열(하단): 차단하기
-             3열(하단): 신고하기 -->
         <div class="action-grid" role="group" aria-label="사용자 액션">
 
-          <!-- ░ 버튼A (친구신청/신청취소/수락하기/친구삭제/차단해제) : 왼쪽, 두 줄 높이 -->
           <!-- 수락하기 -->
           <ion-button
             v-if="!user.isFriend && hasIncomingRequest && !user.isBlocked"
@@ -86,7 +80,7 @@
             수락하기
           </ion-button>
 
-          <!-- 친구신청 -->
+          <!-- 일반 친구신청 -->
           <ion-button
             v-else-if="!user.isFriend && !hasPendingRequest && !hasIncomingRequest && !user.isBlocked"
             type="button"
@@ -95,7 +89,10 @@
             @click="onOpenFriendRequest"
           >
             <IonIcon :icon="icons.personAddOutline" class="btn-icon" />
-            친구신청
+            <div class="btn-text">
+              <div>친구신청</div>
+              <div>❤️20</div>
+            </div>
           </ion-button>
 
           <!-- 신청취소 -->
@@ -134,7 +131,7 @@
             차단해제
           </ion-button>
 
-          <!-- ░ 대화하기 : 오른쪽 상단, 두 칸 가로 확장 -->
+          <!-- 대화하기 -->
           <ion-button
             type="button"
             class="btn-primary slot-chat"
@@ -145,7 +142,7 @@
             대화하기
           </ion-button>
 
-          <!-- ░ 차단하기 : 오른쪽 하단-왼쪽 칸 -->
+          <!-- 차단하기 -->
           <ion-button
             v-if="!user.isBlocked"
             type="button"
@@ -157,7 +154,7 @@
             차단하기
           </ion-button>
 
-          <!-- ░ 신고하기 : 오른쪽 하단-오른쪽 칸 -->
+          <!-- 신고하기 -->
           <ion-button
             type="button"
             class="btn-secondary slot-report"
@@ -181,18 +178,17 @@
         </div>
       </div>
 
-      <!-- 친구 신청 모달 -->
-      <div v-if="showRequestModal" class="popup-overlay" role="presentation" @click.self="onCloseFriendRequest">
-        <div class="popup-content" role="dialog" aria-modal="true" aria-labelledby="fr-modal-title">
-          <h3 id="fr-modal-title">친구 신청</h3>
-          <textarea v-model="requestMessage" class="request-input" placeholder="인사말을 입력하세요 (선택)" rows="4"></textarea>
-          <div class="footer-btns">
-            <ion-button type="button" class="btn-primary" expand="block" :disabled="isSubmitting" @click="sendFriendRequest">신청 보내기</ion-button>
-            <ion-button type="button" class="btn-muted"   expand="block" :disabled="isSubmitting" @click="onCloseFriendRequest">취소</ion-button>
-          </div>
-        </div>
-      </div>
-
+      <!-- ✅ 일반 친구 신청 모달 (필수 prop toNickname 전달 + submitted 패턴) -->
+      <ModalFriendRequest
+        v-if="showRequestModal"
+        :key="user._id"
+        :to-user-id="String(user._id || route.params.id || '')"
+        :to-nickname="user.nickname || user.username || '-'"
+        :default-message="''"
+        @submitted="onAfterFriendRequest"
+        @cancel="onCloseFriendRequest"
+        @close="onCloseFriendRequest"
+      />
     </div>
   </div>
 </template>
@@ -204,6 +200,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from '@/lib/api'
 import { isAxiosError } from 'axios'
 import ProfilePhotoViewer from '@/components/02010_minipage/mini_profile/ProfilePhotoViewer.vue'
+import ModalFriendRequest from '@/components/02010_minipage/mini_profile/Modal_FriendRequest.vue'
 
 import {
   personCircleOutline,
@@ -277,7 +274,6 @@ const isPremium = viewerIsPremium
 
 const showIntroModal = ref(false)
 const showRequestModal = ref(false)
-const requestMessage = ref('')
 
 const isSubmitting = ref(false)
 const hasPendingRequest = ref(false)
@@ -289,6 +285,17 @@ function extractError(e: unknown) {
   if (isAxiosError(e)) return e.response?.data ?? e.message
   if (e instanceof Error) return e.message
   try { return JSON.stringify(e) } catch { return String(e) }
+}
+
+async function onAfterFriendRequest(payload?: any) {
+  const reqId = payload?.requestId ?? null
+  if (reqId) {
+    pendingRequestId.value = String(reqId)
+    hasPendingRequest.value = true
+  } else {
+    await syncPendingRequestState()
+  }
+  showRequestModal.value = false
 }
 
 function openIntroModal() { showIntroModal.value = true }
@@ -362,23 +369,9 @@ onMounted(async () => {
 
 function onOpenFriendRequest() {
   if (!user.value._id || user.value.isBlocked || hasPendingRequest.value || hasIncomingRequest.value) return
-  requestMessage.value = ''
   showRequestModal.value = true
 }
 function onCloseFriendRequest() { showRequestModal.value = false }
-
-async function sendFriendRequest() {
-  if (!user.value._id) return
-  try {
-    isSubmitting.value = true
-    const payload = { to: user.value._id, message: requestMessage.value }
-    const res = await axios.post('/api/friend-request', payload, { withCredentials: true })
-    const reqId = res.data?._id ?? res.data?.request?._id ?? null
-    pendingRequestId.value = reqId
-    hasPendingRequest.value = true
-    showRequestModal.value = false
-  } finally { isSubmitting.value = false }
-}
 
 async function cancelFriendRequest() {
   if (!pendingRequestId.value) { await syncPendingRequestState(); if (!pendingRequestId.value) return }
@@ -469,7 +462,7 @@ function goBack() { router.back() }
   --gold: #D4AF37;
   --gold-2: #c19b2e;
 }
- 
+
 .page-wrapper { background: var(--bg); min-height: 100dvh; min-height: -webkit-fill-available; box-sizing: border-box; padding: 0px; color: var(--text); width: 100%; overflow-x: hidden; }
 .container{ max-width: 780px; margin: 0 auto; padding: 12px; box-sizing: border-box; }
 
@@ -497,30 +490,32 @@ function goBack() { router.back() }
 .intro-preview { color: var(--text-dim); display:inline-block; max-width: calc(100% - 80px); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .more-icon { font-size: 14px !important; color: var(--gold) !important; }
 
+/* 모달(소개) 공통 */
 .popup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 9999; }
 .popup-content { width: min(680px, 92%); background: #111; border: 1px solid var(--gold); border-radius: 14px; padding: 14px; color: var(--text); box-sizing: border-box; }
 .popup-content h3 { margin-top: 0; color: var(--text-strong); font-weight: 900; }
 .intro-full { white-space: pre-wrap; color: var(--text); }
 
-.request-input { width: 100%; min-height: 100px; border-radius: 10px; border: 1px solid #333; background: #0f0f0f; color: #eaeaea; padding: 10px; font-size: 14px; box-sizing: border-box; }
-.footer-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-
 /* ===== 버튼 공통 ===== */
 ion-button { --border-radius: 12px; font-weight: 700; --padding-top: 4px; --padding-bottom: 4px; font-size: 10px; }
 
-/* ===== 액션 그리드 (요청 배치 구현) =====
-   [1열] 버튼A(두 줄 높이)
-   [2~3열 상단] 대화하기(두 칸)
-   [2열 하단] 차단하기
-   [3열 하단] 신고하기
-*/
+/* Premium 페이지와 동일한 2줄 텍스트 버튼 레이아웃 */
+.btn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  font-size: 1.0em;
+  margin-top: 2px;
+}
+
+/* ===== 액션 그리드 ===== */
 .action-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  grid-auto-rows: 40px; /* ← 한 줄 높이 */
-  gap: 8px;            /* ← 버튼 사이 간격 */
+  grid-auto-rows: 40px; /* 한 줄 높이 */
+  gap: 8px;
   align-items: stretch;
-
 }
 
 /* 버튼A: 왼쪽, 세로 2행 고정 */
@@ -548,7 +543,6 @@ ion-button { --border-radius: 12px; font-weight: 700; --padding-top: 4px; --padd
 .btn-muted     { --background: transparent; --color: var(--text-dim); --border-color: var(--divider); --border-style: solid; --border-width: 1px; }
 .btn-secondary { --background: #232323; --color: var(--gold); }
 .btn-danger    { --background: #b00020; --color: #fff; }
-
 
 @media (max-width: 360px) {
   .container { padding: 10px; }

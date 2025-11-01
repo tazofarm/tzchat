@@ -1,4 +1,4 @@
-<!-- src/components/04010_Page0_emergency/Emergency.vue -->
+<!-- src/components/03050_pages/2_target_merge.vue -->
 <template>
   <ion-page>
     <!-- ✅ A안: ion-header + ion-content 구조 (헤더 고정) -->
@@ -147,7 +147,7 @@ function goToUserProfile(userId) {
   if (!userId) return
   const id = String(userId)
   const targetPath = emergencyOn.value
-    ? `/home/premuimuser/${id}`  // ✅ Emergency ON → PagepremiumProfile.vue
+    ? `/home/premuimuser/${id}`  // ✅ Emergency ON → PagepremiumProfile.vue (철자 확인 필요)
     : `/home/user/${id}`         // ✅ Emergency OFF → PageuserProfile.vue
   router.push(targetPath)
 }
@@ -280,7 +280,7 @@ async function fetchRelations() {
     const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
     const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
     const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
-    const pendingRecv = recvRes?.data?.pendingIds ?? sentRes?.data ?? []
+    const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []  // ✅ fix: recvRes로 교체
     const chatUserIds = chatsRes?.data?.ids ?? []
 
     excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv, chats: chatUserIds })

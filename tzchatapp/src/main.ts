@@ -16,6 +16,9 @@ import api from '@/lib/api'
 // ✅ 소켓 유틸
 import { connectSocket, getSocket } from '@/lib/socket'
 
+// ✅ 사용자 스토어(소켓 바인딩용)
+import { useUserStore } from '@/store/user'
+
 // ✅ (추가) 안드로이드 권한 유틸
 import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
@@ -140,14 +143,29 @@ async function hasSession(): Promise<boolean> {
   }
 }
 
+/** ✅ 스토어-소켓 바인딩을 보장 (중복 바인딩 방지) */
+function ensureBindUserStoreToSocket() {
+  const sock = getSocket()
+  if (!sock) return
+  const store = useUserStore()
+  // store 내부에서 _socketBound로 중복 방지
+  // @ts-ignore
+  store.bindSocket?.(sock)
+}
+
 async function bootstrapSocketOnce() {
+  // 이미 부트스트랩된 경우에도 바인딩은 보장
   if (window.__TZCHAT_SOCKET_BOOTSTRAPPED__) {
     console.log('🧲 [Socket] bootstrap skipped (flag set).')
+    ensureBindUserStoreToSocket()
     return
   }
+
+  // 소켓이 이미 있으면 재사용 + 바인딩 보장
   if (getSocket()) {
     console.log('🧲 [Socket] bootstrap skipped (socket exists).')
     window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
+    ensureBindUserStoreToSocket()
     return
   }
 
@@ -162,6 +180,7 @@ async function bootstrapSocketOnce() {
   try {
     const sock = connectSocket()
     window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
+    ensureBindUserStoreToSocket()
     console.log('🔌 [Socket] bootstrap connected?', !!sock?.connected)
   } catch (e: any) {
     console.warn('⚠️ [Socket] bootstrap error:', e?.message)
@@ -252,6 +271,17 @@ app.use(IonicVue, { mode: 'md' })
 app.use(pinia)                          // ✅ Pinia 등록
 app.use(router)
 
+/* ✅ 전역 API 지갑 이벤트 수신 → Pinia 반영 (소켓 없이도 즉시 갱신) */
+const userStore = useUserStore()
+window.addEventListener('api:wallet', (e: Event) => {
+  try {
+    const w = (e as CustomEvent).detail
+    if (w && typeof w === 'object') {
+      userStore.updateWallet(w)
+    }
+  } catch {}
+})
+
 registerWebPush()
   .then(() => console.log('🔔 WebPush 등록 플로우 완료(요청/토큰/등록)'))
   .catch(err => console.error('💥 WebPush 등록 실패:', err))
@@ -299,6 +329,7 @@ router.isReady()
       }
     })
 
+    // ✅ 소켓 연결 + 스토어 바인딩을 한 번만 보장
     await bootstrapSocketOnce()
 
     await nextTick()

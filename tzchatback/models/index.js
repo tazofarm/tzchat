@@ -28,6 +28,7 @@ require('./System/Notice');  //역할: 공지사항(활성 기간/노출 제어 
 require('./User/User');  //역할: 회원 기본정보/프로필/검색조건/친구·차단/탈퇴 상태까지 아우르는 핵심 사용자 모델.
 require('./User/DeviceToken'); //역할: 푸시용 디바이스 토큰 관리. 기기·플랫폼별 토큰 1건씩 추적.
 require('./User/DeletionRequest'); //역할: 공개 웹폼 등에서 접수된 “계정 삭제 요청”의 로그/처리상태 보관.
+require('./User/PointLog');  //역할: 포인트로그
 
 
 
@@ -58,6 +59,7 @@ module.exports = {
   DeletionRequest: mongoose.model('DeletionRequest'),
   DeviceToken: mongoose.model('DeviceToken'),
   User: mongoose.model('User'),
+  PointLog: mongoose.model('PointLog'),
 
   //Legal
   Terms: mongoose.model('Terms'),

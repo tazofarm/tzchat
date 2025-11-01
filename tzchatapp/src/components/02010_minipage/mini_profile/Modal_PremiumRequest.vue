@@ -1,16 +1,13 @@
+<!-- @/components/02010_minipage/mini_profile/Modal_PremiumRequest.vue -->
 <template>
   <!-- ✅ 단일 루트 엘리먼트 유지 -->
   <div class="popup-overlay" @click.self="onClose">
     <div class="popup-modal">
       <!-- 헤더 -->
       <div class="modal-header">
-        <h3 class="title">
-          🤝 친구 신청
-          <small class="to-nickname"> {{ toNickname }}</small>
-        </h3>
-        <!-- 라인형 버튼(테마 클래스) 
-        <IonButton size="small" class="btn-outline" @click="onClose">닫기</IonButton>
-        -->
+        <h3 class="title">🤝 프리미엄 신청</h3>
+        <!-- 필요 시 닫기 버튼 복구 -->
+        <!-- <IonButton size="small" class="btn-outline" @click="onClose">닫기</IonButton> -->
       </div>
 
       <!-- 본문 -->
@@ -36,9 +33,16 @@
           :disabled="isSubmitting"
           @click="onSubmit"
         >
-          {{ isSubmitting ? '전송 중...' : '신청하기❤️20' }}
+          {{ isSubmitting ? '전송 중...' : '신청하기❤️40' }}
         </IonButton>
-        <IonButton expand="block" class="btn-muted" @click="onCancel">취소</IonButton>
+        <IonButton
+          expand="block"
+          class="btn-muted"
+          :disabled="isSubmitting"
+          @click="onCancel"
+        >
+          취소
+        </IonButton>
       </div>
     </div>
   </div>
@@ -46,10 +50,11 @@
 
 <script setup>
 // --------------------------------------------------------------
-// Modal_FriendRequest.vue
-// - 친구 신청 모달
-// - 핵심: 성공 시 'submitted' 이벤트로 { requestId } emit
-// - 공통 axios 인스턴스 사용(토큰/쿠키 일원화)
+// Modal_PremiumRequest.vue
+// - 프리미엄 친구 신청 모달
+// - 요청 body key는 `to` 사용 (백엔드 규격 일치)
+// - 공통 axios 인스턴스 사용(토큰/쿠키 처리 일원화)
+// - 부모 이벤트 규격: submitted / cancel / close
 // --------------------------------------------------------------
 import { ref, onMounted } from 'vue'
 import { IonButton } from '@ionic/vue'
@@ -57,32 +62,31 @@ import axios from '@/lib/api' // ✅ 공통 인스턴스
 
 const props = defineProps({
   toUserId: { type: String, required: true },
-  toNickname: { type: String, required: true },
-  // 부모에서 전달할 수도 있는 기본 메시지(없으면 '')
   defaultMessage: { type: String, default: '' }
 })
 
-// ✅ 부모 호환: submitted / cancel / close (requestSent는 하위 호환용)
-const emit = defineEmits(['submitted', 'cancel', 'close', 'requestSent'])
+// 부모로 내보낼 이벤트: 제출 완료/취소/닫기
+const emit = defineEmits(['submitted', 'cancel', 'close'])
 
-const message = ref('')
+const message = ref(props.defaultMessage || '')
 const isSubmitting = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
 
 onMounted(() => {
-  message.value = props.defaultMessage || ''
-  console.log('[ModalFriendRequest] mounted', {
+  console.log('[ModalPremiumRequest] mounted', {
     toUserId: props.toUserId,
-    toNickname: props.toNickname
+    defaultMessage: props.defaultMessage
   })
 })
 
 function onClose () {
+  console.log('[ModalPremiumRequest] close clicked')
   emit('close')
 }
 
 function onCancel () {
+  console.log('[ModalPremiumRequest] cancel clicked')
   emit('cancel')
   emit('close')
 }
@@ -98,35 +102,30 @@ async function onSubmit () {
       to: props.toUserId,              // ✅ 핵심: toUserId → to
       message: message.value || ''
     }
-    console.log('[ModalFriendRequest] submit start', { ...payload, msgLen: message.value.length })
+    console.log('[ModalPremiumRequest] submit start', { ...payload, msgLen: message.value.length })
 
-    // ✅ 공통 인스턴스 사용(Authorization/Cookie 일원화)
-    const { status, data } = await axios.post('/api/friend-request', payload, { withCredentials: true })
-    console.log('[ModalFriendRequest] submit response', { status, data })
+    // ✅ 프리미엄 전용 엔드포인트 호출
+    const { status, data } = await axios.post('/api/friend-request-premium', payload, { withCredentials: true })
+    console.log('[ModalPremiumRequest] submit response', { status, data })
 
-    // ✅ 다양한 응답 포맷에서 requestId 추출
+    successMsg.value = '프리미엄 친구 신청이 전송되었습니다.'
+
+    // 서버가 반환한 요청 id 전달(가능한 키들 안전하게 탐색)
     const requestId =
       data?._id ??
+      data?.id ??
       data?.request?._id ??
-      data?.data?._id ??
-      data?.requestId ??
+      data?.result?._id ??
       null
 
-    successMsg.value = '친구 신청이 전송되었습니다.'
-
-    // ✅ 표준 이벤트로 즉시 부모 갱신 → 버튼이 곧바로 "신청취소"로 전환됨
-    emit('submitted', { requestId })
-
-    // 하위 호환 이벤트(필요시 사용)
-    emit('requestSent', { requestId, raw: data })
-
-    setTimeout(() => emit('close'), 150)
+    emit('submitted', { requestId, raw: data })
+    setTimeout(() => emit('close'), 300)
   } catch (err) {
     const status = err?.response?.status
     const data = err?.response?.data
     const msg = data?.error || data?.message || err?.message || '친구 신청에 실패했습니다.'
     errorMsg.value = msg
-    console.error('[ModalFriendRequest] submit failed:', { status, msg, data })
+    console.error('[ModalPremiumRequest] submit failed:', { status, msg, data })
   } finally {
     isSubmitting.value = false
   }
@@ -173,7 +172,6 @@ async function onSubmit () {
   border-bottom: 1px solid var(--panel-border);
 }
 .title { margin: 0; font-size: 16px; font-weight: 800; color: var(--text); }
-.to-nickname { margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
 
 /* 본문 */
 .modal-body { padding: 12px 2px; }

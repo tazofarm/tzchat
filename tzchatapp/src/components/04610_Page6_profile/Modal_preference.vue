@@ -50,8 +50,9 @@
 
       <!-- 🔸 버튼 그룹 -->
       <div class="button-group">
-        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
+        
         <ion-button expand="block" color="primary" @click="submitPreference">수정</ion-button>
+        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
       </div>
     </div>
   </div>

@@ -9,10 +9,12 @@
 // - [신규] 휴대폰 E.164 정규화 + phoneHash 자동 생성, 조회 최소화(select:false)
 // - [개정] phone 유니크 인덱스: partial index로 변경(값 있을 때만 유니크)
 // - [개정] 필드 단위 unique/index 제거 → 스키마 하단에서 일괄 index 정의(중복 인덱스 경고 해소)
+// - [신규] 포인트 지갑(heart/star/ruby) + lastDailyGrantAt 추가
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const retention = require('@/config/retention'); // DELETION_GRACE_DAYS 사용
+const { getDailyHeartGrant, getHeartCap, isHeartAccumulable } = require('@/config/points'); // ✅ 등급 규칙
 
 // ────────────────────────────────────────────────────────────
 // [서브스키마] 프로필 이미지 문서 구조
@@ -54,9 +56,10 @@ const userSchema = new mongoose.Schema(
     suspended: { type: Boolean, default: false },
 
     // [1] 기본 정보
-    username: { type: String, required: true, unique: true },
-    password: { type: String, required: true, select: true },
-    nickname: { type: String, required: true, unique: true },
+    username: { type: String, required: true },        // ← 필드 레벨 unique 제거
+    password: { type: String, required: true, select: false }, // 기본적으로 응답 제외
+
+    nickname: { type: String, required: true },        // ← 필드 레벨 unique 제거
     birthyear: Number,
     gender: String,
 
@@ -86,6 +89,11 @@ const userSchema = new mongoose.Schema(
     },
     refundCountTotal: { type: Number, default: 0, min: 0 },
 
+    // [신규] 포인트 지갑
+    heart: { type: Number, default: 0, min: 0 }, // 하트(무료/일일지급)
+    star:  { type: Number, default: 0, min: 0 }, // 스타(보상/출석·이벤트)
+    ruby:  { type: Number, default: 0, min: 0 }, // 루비(유료/구매)
+    lastDailyGrantAt: { type: Date, default: null }, // 마지막 하트 지급 기준시각(KST 11:00 경계)
 
     // 다중 검색 지역
     search_regions: {
@@ -167,8 +175,8 @@ const userSchema = new mongoose.Schema(
     deletionDueAt: { type: Date, default: null },
 
     // [탈퇴 관리 필드 - 호환용]
-    isDeleted: { type: Boolean, default: false, index: true },
-    deletedAt: { type: Date, default: null, index: true },
+    isDeleted: { type: Boolean, default: false }, // ← 필드 인덱스 제거
+    deletedAt: { type: Date, default: null },     // ← 필드 인덱스 제거
   },
   {
     timestamps: true, // createdAt, updatedAt 자동 생성/관리
@@ -190,19 +198,30 @@ userSchema.set('toObject', { transform: (_, ret) => removeSensitive(_, ret) });
 // ===== 인덱스 (탈퇴 만기 스캔 최적화 + phone/phoneHash + user_level)
 userSchema.index({ status: 1, deletionDueAt: 1 });
 userSchema.index({ isDeleted: 1, deletionDueAt: 1 });
+
+// username / nickname 유니크는 하단 일괄 정의
+userSchema.index({ username: 1 }, { unique: true, name: 'username_1' });
+userSchema.index({ nickname: 1 }, { unique: true, name: 'nickname_1' });
+
+// 선택: 개별 isDeleted/deletedAt 인덱스(운영상 필요 시 유지)
+userSchema.index({ isDeleted: 1 });
+userSchema.index({ deletedAt: 1 });
+
+// phone partial unique: 값 있을 때만 유니크
 userSchema.index(
   { phone: 1 },
   {
     unique: true,
-    partialFilterExpression: { phone: { $type: 'string', $ne: '' } },
+    partialFilterExpression: { phone: { $exists: true, $ne: '' } },
     name: 'phone_1',
   }
 );
+
+// phoneHash는 값 있을 때만 유니크
 userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
+
 // 등급별 리스트/집계용 (권장)
 userSchema.index({ user_level: 1 });
-
-
 
 // ===== 인스턴스 메서드: 탈퇴 신청/취소
 userSchema.methods.requestDeletion = function() {
@@ -226,7 +245,6 @@ userSchema.methods.cancelDeletion = function() {
 // ===== 정합성 훅: 저장 전 필드간 상태 동기화 (탈퇴 관련)
 userSchema.pre('save', function(next) {
   try {
-    // status 기준으로 호환 필드 유지
     if (this.status === 'pendingDeletion' || this.status === 'deleted') {
       this.isDeleted = true;
       if (!this.deletedAt) {
@@ -245,6 +263,33 @@ userSchema.pre('save', function(next) {
     next();
   } catch (e) {
     console.error('[User.pre.save] error:', e);
+    next(e);
+  }
+});
+
+// ===== 정합성 훅: 회원 등급 변경 시 기본 하트 개수로 갱신
+userSchema.pre('save', function(next) {
+  try {
+    if (this.isModified('user_level')) {
+      const level = this.user_level || '일반회원';
+      const base = getDailyHeartGrant(level); // 등급 기본 하트
+      const cap = getHeartCap(level);
+      const accum = isHeartAccumulable(level);
+
+      // 정책: 등급 바뀌면 "기본 하트"로 세팅
+      let nextHeart = base;
+
+      // 누적 가능 + cap 존재 → cap 내에서 보정(보통 base <= cap이지만 안전 가드)
+      if (accum && Number.isFinite(cap) && cap >= 0) {
+        nextHeart = Math.min(nextHeart, cap);
+      }
+
+      this.heart = Math.max(0, nextHeart);
+      // lastDailyGrantAt는 변경하지 않음(일일 지급 타이밍은 pointService 규칙 적용)
+    }
+    next();
+  } catch (e) {
+    console.error('[User.pre.save][level-change] error:', e);
     next(e);
   }
 });

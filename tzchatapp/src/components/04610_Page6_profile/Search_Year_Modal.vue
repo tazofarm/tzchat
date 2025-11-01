@@ -62,7 +62,7 @@
 
       <!-- 버튼: 항상 가로 2분할(좌 닫기 / 우 수정), 명확한 색상 적용 -->
       <div class="button-group">
-        <ion-button expand="block" class="btn-close" @click="$emit('close')">닫기</ion-button>
+        
         <ion-button
           expand="block"
           class="btn-submit"
@@ -71,6 +71,7 @@
         >
           {{ submitting ? '수정 중…' : '수정' }}
         </ion-button>
+        <ion-button expand="block" class="btn-close" @click="$emit('close')">닫기</ion-button>
       </div>
     </div>
   </div>

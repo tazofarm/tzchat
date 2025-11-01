@@ -7,6 +7,7 @@
 // - ✅ Web/App 동시 지원: httpOnly 쿠키 + JSON 응답 token 병행
 // - ✅ 하위호환: /userinfo 추가
 // - 로그 최대화(요청 RAW, 파싱값, 토큰/쿠키 유무, 처리 경로)
+// - ✅ 포인트 연동: /me 호출 시 매일 11:00 KST 하트 자동 지급 + 잔액 동봉
 // ------------------------------------------------------
 
 const express = require('express');
@@ -29,6 +30,9 @@ const {
 } = require('@/models');
 
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('@/config/emergency');
+
+// ✅ 포인트 서비스(하트·스타·루비)
+const pointService = require('@/services/pointService');
 
 const router = express.Router();
 
@@ -187,16 +191,22 @@ router.post('/signup', async (req, res) => {
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
-      user = await User.create({
-        username,
-        password: hashed,
-        nickname,
-        gender: ['man', 'woman'].includes(String(gender)) ? String(gender) : 'man',
-        birthyear: Number.isFinite(birthYearNum) ? birthYearNum : undefined,
-        region1,
-        region2,
-        last_login: null
-      });
+    user = await User.create({
+      username,
+      password: hashed,
+      nickname,
+      gender: ['man', 'woman'].includes(String(gender)) ? String(gender) : 'man',
+      birthyear: Number.isFinite(birthYearNum) ? birthYearNum : undefined,
+      region1,
+      region2,
+      last_login: null,
+
+      // ✅ 가입 즉시 기본 지급
+      heart: 400,   // 초기 하트
+      star: 0,
+      ruby: 0,
+      // lastDailyGrantAt는 설정하지 않음(아래 12시간 유예 로직으로 제어)
+    });
     } catch (e) {
       if (e && e.code === 11000) {
         const dupField = Object.keys(e.keyValue || {})[0];
@@ -364,51 +374,62 @@ router.post('/logout', async (req, res) => {
     return res.json({ ok: true, message: '로그아웃 완료' });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'logout', message: err?.message });
-    return res.status(500).json({ ok: false, message: '로그아웃 실패' });
+    return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
 
 // ======================================================
 // 내 정보(/me) & 공개 유저 목록 & 내 친구 ID 목록
+//  - ✅ /me: 하트 일일 지급 보장(매일 11:00 KST) + wallet 동봉
 // ======================================================
 router.get('/me', authFromJwtOrSession, async (req, res) => {
   console.time('[API][TIMING] GET /api/me');
   const userId = req.auth.userId;
 
   try {
-    // ✅ 필터/화면에 필요한 필드를 명시적으로 포함 (role/roles 추가)
-    const user = await User.findById(userId)
-      .select([
-        'username', 'nickname', 'birthyear', 'gender',
-        'region1', 'region2', 'preference', 'selfintro',
-        'profileImages', 'profileMain', 'profileImage', 'last_login',
-        'user_level', 'refundCountTotal',
-        'search_birthyear1', 'search_birthyear2',
-        'search_region1', 'search_region2', 'search_regions',
-        'search_preference',
-        'search_disconnectLocalContacts', 'search_allowFriendRequests',
-        'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
-        'marriage', 'search_marriage',
-        'friendlist', 'blocklist',
-        'emergency',
-        'role', 'roles', // 🔹 추가
-        'createdAt', 'updatedAt'
-      ])
-      .populate('friendlist', 'username nickname birthyear gender')
-      .populate('blocklist', 'username nickname birthyear gender')
-      .lean();
+    // 1) 유저 문서 로드(lean 아님: 지급/저장 필요)
+  const userDoc = await User.findById(userId)
+    .select([
+      'username', 'nickname', 'birthyear', 'gender',
+      'region1', 'region2', 'preference', 'selfintro',
+      'profileImages', 'profileMain', 'profileImage', 'last_login',
+      'user_level', 'refundCountTotal',
+      'search_birthyear1', 'search_birthyear2',
+      'search_region1', 'search_region2', 'search_regions',
+      'search_preference',
+      'search_disconnectLocalContacts', 'search_allowFriendRequests',
+      'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
+      'marriage', 'search_marriage',
+      'friendlist', 'blocklist',
+      'emergency',
+      'role', 'roles',
+      // ✅ 포인트 잔액 + 일일지급 기준시각 꼭 포함
+      'heart', 'star', 'ruby', 'lastDailyGrantAt',
+      'createdAt', 'updatedAt'
+    ])
+    .populate('friendlist', 'username nickname birthyear gender')
+    .populate('blocklist', 'username nickname birthyear gender');
 
-    if (!user) {
+
+    if (!userDoc) {
       console.timeEnd('[API][TIMING] GET /api/me');
       console.log('[AUTH][ERR]', { step: 'me', code: 'NO_USER', userId });
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
 
-    // ✅ Emergency 남은 시간 계산 + 자동 꺼짐
-    const remaining = computeRemaining(user?.emergency?.activatedAt);
-    let isActive = user?.emergency?.isActive === true;
-    let activatedAt = user?.emergency?.activatedAt || null;
+    // 2) 하트 일일 지급(등급별 daily/cap, 오전 11:00 KST 기준)
+    try {
+      await pointService.grantDailyIfNeeded(userDoc, { save: true });
+    } catch (e) {
+      console.warn('[POINTS][WARN] grantDailyIfNeeded failed:', e?.message);
+    }
+
+    // 3) Emergency 남은 시간 계산 + 자동 꺼짐
+    const raw = userDoc.toObject();
+    const remaining = computeRemaining(raw?.emergency?.activatedAt);
+    let isActive = raw?.emergency?.isActive === true;
+    let activatedAt = raw?.emergency?.activatedAt || null;
 
     if (isActive && remaining <= 0) {
       await User.findByIdAndUpdate(userId, {
@@ -419,44 +440,47 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       console.log('[AUTH][DBG]', { step: 'me', message: 'emergency auto-off' });
     }
 
-    // 🔹 관리자 정보 계산
-    const role = resolveRole(user);
-    const roles = Array.isArray(user.roles) ? user.roles : (role ? [role] : []);
-    const isAdmin = resolveIsAdmin(user);
+    // 4) 관리자/역할 정보
+    const role = resolveRole(raw);
+    const roles = Array.isArray(raw.roles) ? raw.roles : (role ? [role] : []);
+    const isAdmin = resolveIsAdmin(raw);
 
-    // ✅ 응답 보강: snake/camel 동시 지원, 누락시 기본값 보정
-    const searchRegions = Array.isArray(user.search_regions) ? user.search_regions : [];
-    const modifiedUser = {
-      ...user,
+    // 5) 지갑 요약(프론트 편의)
+    const wallet = pointService.getWalletSummary(userDoc);
+
+    // 6) 응답 보강/정규화
+    const searchRegions = Array.isArray(raw.search_regions) ? raw.search_regions : [];
+    const user = {
+      ...raw,
       role,
       roles,
-      isAdmin, // 🔹 프론트에서 바로 사용 가능
-      // 캐멀 케이스도 동시에 제공(프론트 하위호환)
+      isAdmin,
+      wallet,
       searchRegions,
       emergency: {
-        ...(user.emergency || {}),
+        ...(raw.emergency || {}),
         isActive,
         activatedAt,
         remainingSeconds: isActive ? computeRemaining(activatedAt) : 0,
       },
-      // null/undefined 안전가드 (프론트의 toAll/가드와 중복되지만 안전망)
-      search_birthyear1: user.search_birthyear1 ?? null,
-      search_birthyear2: user.search_birthyear2 ?? null,
-      search_region1: user.search_region1 ?? '전체',
-      search_region2: user.search_region2 ?? '전체',
-      search_preference: user.search_preference ?? '이성친구 - 전체',
-      search_disconnectLocalContacts: user.search_disconnectLocalContacts ?? 'OFF',
-      search_allowFriendRequests: user.search_allowFriendRequests ?? 'OFF',
-      search_allowNotifications: user.search_allowNotifications ?? 'OFF',
-      search_onlyWithPhoto: user.search_onlyWithPhoto ?? 'OFF',
-      search_matchPremiumOnly: user.search_matchPremiumOnly ?? 'OFF',
-      marriage: user.marriage ?? '미혼',
-      search_marriage: user.search_marriage ?? '전체',
+      // null/undefined 가드
+      search_birthyear1: raw.search_birthyear1 ?? null,
+      search_birthyear2: raw.search_birthyear2 ?? null,
+      search_region1: raw.search_region1 ?? '전체',
+      search_region2: raw.search_region2 ?? '전체',
+      search_preference: raw.search_preference ?? '이성친구 - 전체',
+      search_disconnectLocalContacts: raw.search_disconnectLocalContacts ?? 'OFF',
+      search_allowFriendRequests: raw.search_allowFriendRequests ?? 'OFF',
+      search_allowNotifications: raw.search_allowNotifications ?? 'OFF',
+      search_onlyWithPhoto: raw.search_onlyWithPhoto ?? 'OFF',
+      search_matchPremiumOnly: raw.search_matchPremiumOnly ?? 'OFF',
+      marriage: raw.marriage ?? '미혼',
+      search_marriage: raw.search_marriage ?? '전체',
     };
 
     console.timeEnd('[API][TIMING] GET /api/me');
     res.setHeader('Cache-Control', 'no-store');
-    return res.json({ ok: true, user: modifiedUser, durationSeconds: EMERGENCY_DURATION_SECONDS });
+    return res.json({ ok: true, user, durationSeconds: EMERGENCY_DURATION_SECONDS });
   } catch (err) {
     console.timeEnd('[API][TIMING] GET /api/me');
     console.log('[AUTH][ERR]', { step: 'me', message: err?.message });

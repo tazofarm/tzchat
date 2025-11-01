@@ -12,7 +12,6 @@ import {
   toastController,
 } from '@ionic/vue'
 
-
 //로그인 전
 import LoginPage from '@/views/LoginPage.vue'
 import LoginTestPage from '@/views/LoginTestPage.vue'
@@ -20,7 +19,6 @@ import LoginMainPage from '@/views/LoginMainPage.vue'
 import LoginAutoPage from '@/views/LoginAutoPage.vue'
 import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
-
 
 //삭제예정
 import Page0 from '@/components/03050_pages/del/0_emergency.vue'
@@ -31,7 +29,6 @@ import Page91 from '@/components/03050_pages/del/9_test1.vue'
 import Page92 from '@/components/03050_pages/del/9_test2.vue'
 import Page93 from '@/components/03050_pages/del/9_test3.vue'
 
-
 //Topmenu
 import Pagetarget from '@/components/03050_pages/2_target_merge.vue'
 import Page3 from '@/components/03050_pages/3_list.vue'
@@ -39,13 +36,11 @@ import Page4 from '@/components/03050_pages/4_chatList.vue'
 import Page6 from '@/components/03050_pages/6_profile.vue'
 import Page7 from '@/components/03050_pages/7_setting.vue'
 
-
 //list_sub
 import Page31 from '@/components/04310_Page3_list/Page_Block.vue'
 import Page32 from '@/components/04310_Page3_list/Page_Friend.vue'
 import Page33 from '@/components/04310_Page3_list/Page_Receive.vue'
 import Page34 from '@/components/04310_Page3_list/Page_Send.vue'
-
 
 // important_parts
 import PageuserProfile from '@/components/02010_minipage/mini_profile/PageuserProfile.vue'
@@ -56,7 +51,7 @@ import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
 import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage.vue'
 
 // setting
-import setting01 from '@/components/04710_Page7_setting/setlist/0001_s.vue'
+import setting01 from '@/components/04710_Page7_setting/setlist/0001_s_notice.vue'
 import setting02 from '@/components/04710_Page7_setting/setlist/0002_s.vue'
 import setting03 from '@/components/04710_Page7_setting/setlist/0003_s.vue'
 import setting04 from '@/components/04710_Page7_setting/setlist/0004_s.vue'
@@ -74,9 +69,8 @@ import setting15 from '@/components/04710_Page7_setting/setlist/0015_s.vue'
 import setting16 from '@/components/04710_Page7_setting/setlist/0016_s.vue'
 import setting17 from '@/components/04710_Page7_setting/setlist/0017_s.vue'
 import setting18 from '@/components/04710_Page7_setting/setlist/0018_s.vue'
-import setting19 from '@/components/04710_Page7_setting/setlist/0019_s.vue'
-import setting20 from '@/components/04710_Page7_setting/setlist/0020_s.vue'
-
+import setting19 from '@/components/04710_Page7_setting/setlist/0019_s_pwchange.vue'
+import setting20 from '@/components/04710_Page7_setting/setlist/0020_s_delete.vue'
 
 // admin
 import AdminDashboard from '@/components/04910_Page9_Admin/adminlist/0000_AdminDashboard.vue'
@@ -104,11 +98,10 @@ import Admin20 from '@/components/04910_Page9_Admin/adminlist/0020_a.vue'
 // ✅ 동의 전용 페이지
 const AgreementPage = () => import('@/legalpage/AgreementPage.vue')
 
-
 // ✅ 멤버십 구매(남/녀 자동 분기 단일 페이지)
 import BuyPage from '@/components/05110_Membership/Buy.vue'
 // ✅ 결제 이력 페이지
-import HistoryPage from '@/components/05110_Membership/History.vue'
+import HistoryPage from '@/components/05110_Membership/History.vue' 
 
 // (문서 목록/단일)
 const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
@@ -149,8 +142,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'membership/buy', component: BuyPage, meta: { requiresAuth: true } },
       { path: 'membership/history', component: HistoryPage, meta: { requiresAuth: true } },
 
-
-
       { path: '0page', component: Page0 },
       { path: '1page', component: Page1 },
       { path: '2page', component: Page2 },
@@ -172,7 +163,15 @@ const routes: RouteRecordRaw[] = [
 
       // minipage
       { path: 'user/:id', component: PageuserProfile, props: true },
-      { path: 'premuimuser/:id', component: PagepremiumProfile, props: true },
+
+      // ✅ 정규 경로 + 오탈자 alias 동시 지원
+      {
+        path: 'premiumuser/:id',
+        component: PagepremiumProfile,
+        props: true,
+        alias: ['/home/premuimuser/:id'], // 기존 오타 경로도 동작
+      },
+
       { path: 'chat/:id', component: ChatRoomPage, props: true },
 
       // setting
@@ -227,7 +226,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0018', component: Admin18, meta: { requiresMaster: true } },
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
-
 
       // ✅ 관리자 약관/정책 관리
       {

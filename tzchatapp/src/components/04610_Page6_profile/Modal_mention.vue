@@ -17,8 +17,9 @@
 
       <!-- 🔸 버튼 그룹: 닫기 / 수정 -->
       <div class="button-group">
-        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
+        
         <ion-button expand="block" color="primary" @click="submitIntro">수정</ion-button>
+        <ion-button expand="block" color="medium" @click="$emit('close')">닫기</ion-button>
       </div>
     </div>
   </div>

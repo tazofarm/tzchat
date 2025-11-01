@@ -5,6 +5,10 @@
 // - 공통 인증 미들웨어(requireLogin) 사용
 // - 누적 카운터($inc) 유지
 // - ✅ 로깅을 req.baseUrl + req.path 로 통일(마운트 프리픽스 포함)
+// - ✅ 포인트 차감 연동: 일반/프리미엄 (하트→스타→루비 순)
+//   · 부족 시 { message, need, wallet } 반환
+//   · 원래는 "하나의 트랜잭션"으로 처리, 단 RS가 아닐 때는 폴백 수행
+// - ✅ 변경점: 친구 신청 성공 응답에 wallet을 포함하고, x-wallet-* 헤더 세팅
 // ------------------------------------------------------------
 
 const express = require('express');
@@ -25,6 +29,10 @@ const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
 // 🔔 푸시 발송 모듈
 const { sendPushToUser } = require('@/push/sender');
 
+// 💎 포인트 서비스 (하트/스타/루비)
+const points = require('@/services/pointService');
+const { COST } = require('@/config/points');
+
 const router = express.Router();
 // 전역 보호: 로그인 후 탈퇴 유예 계정 차단
 router.use(requireLogin, blockIfPendingDeletion);
@@ -33,7 +41,7 @@ router.use(requireLogin, blockIfPendingDeletion);
 function log(...args) { try { console.log('[friendRouter]', ...args); } catch (_) {} }
 function logErr(...args) { try { console.error('[friendRouter][ERR]', ...args); } catch (_) {} }
 
-/** 공통: 내 사용자 ID 추출 (authMiddleware가 req.user/req.session.user를 맞춰둠) */
+/** 공통: 내 사용자 ID 추출 (authMiddleware가 req.user/req.session/user를 맞춰둠) */
 function getMyId(req) {
   const jwtId = req?.user?._id;
   const sessId = req?.session?.user?._id;
@@ -74,6 +82,29 @@ function includesId(list, id) {
   return (list || []).some(v => String(v) === sid);
 }
 
+/** 트랜잭션 불가(Replica Set 아님) 에러 식별 */
+function isReplicaSetTxnError(err) {
+  const m = String(err?.message || err).toLowerCase();
+  return (
+    m.includes('transaction numbers are only allowed') ||
+    m.includes('not a replica set member') ||
+    m.includes('replica set') ||
+    m.includes('retryable writes are not supported') ||
+    (err?.codeName === 'NotMaster') ||
+    (err?.codeName === 'IllegalOperation')
+  );
+}
+
+/** 응답 헤더에 잔액 싣기 */
+function setWalletHeaders(res, wallet) {
+  if (!wallet) return;
+  try {
+    res.set('x-wallet-heart', String(wallet.heart ?? 0));
+    res.set('x-wallet-star',  String(wallet.star ?? 0));
+    res.set('x-wallet-ruby',  String(wallet.ruby ?? 0));
+  } catch (_) {}
+}
+
 /* ===========================================================
  * ✅ 공통 요청/응답 로깅 미들웨어 (이 라우터 전용)
  * =========================================================== */
@@ -104,7 +135,10 @@ router.use((req, res, next) => {
 });
 
 /** ============================
- *  📨 친구 신청 (A → B)
+ *  📨 친구 신청 (A → B) — 일반
+ *  - 포인트 차감: 하트→스타→루비 순
+ *  - 원칙: 트랜잭션 / 폴백: 세션 없이 순차 실행
+ *  - ✅ 변경: 응답에 wallet 포함 + x-wallet-* 헤더 세팅
  * ============================ */
 router.post('/friend-request', requireLogin, async (req, res) => {
   const fromId = getMyId(req);
@@ -123,18 +157,18 @@ router.post('/friend-request', requireLogin, async (req, res) => {
     if (!isValidObjectId(toId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
     if (fromId === toId) return res.status(400).json({ message: '자기 자신에게 친구 신청할 수 없습니다' });
 
-    const [fromUser, toUser] = await Promise.all([
+    const [fromUserLean, toUser] = await Promise.all([
       User.findById(fromId).select('_id nickname suspended friendlist blocklist').lean(),
       User.findById(toId).select('_id nickname suspended friendlist blocklist').lean()
     ]);
-    if (!fromUser) return res.status(404).json({ message: '내 사용자 정보를 찾을 수 없습니다.' });
-    if (!toUser)   return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
-    if (fromUser.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
+    if (!fromUserLean) return res.status(404).json({ message: '내 사용자 정보를 찾을 수 없습니다.' });
+    if (!toUser)       return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
+    if (fromUserLean.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
 
-    if ((fromUser.friendlist || []).some(fid => String(fid) === toId))
+    if ((fromUserLean.friendlist || []).some(fid => String(fid) === toId))
       return res.status(400).json({ message: '이미 친구 상태입니다.' });
 
-    const iBlockedHim = (fromUser.blocklist || []).some(bid => String(bid) === toId);
+    const iBlockedHim = (fromUserLean.blocklist || []).some(bid => String(bid) === toId);
     const heBlockedMe = (toUser.blocklist || []).some(bid => String(bid) === fromId);
     if (iBlockedHim || heBlockedMe)
       return res.status(400).json({ message: '차단 상태에서는 친구 신청이 불가합니다.' });
@@ -147,59 +181,146 @@ router.post('/friend-request', requireLogin, async (req, res) => {
     }).lean();
     if (exists) return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
 
-    try {
-      const request = await FriendRequest.create({ from: fromId, to: toId, message: message || '', status: 'pending' });
+    const session = await mongoose.startSession();
+    let populated = null;
+    let walletAfter = null;
 
-      // 누점 카운터 증가 (best-effort)
-      try {
+    try {
+      await session.withTransaction(async () => {
+        const fromUserDoc = await User.findById(fromId).session(session);
+        if (!fromUserDoc) throw new Error('내 사용자 정보를 찾을 수 없습니다.');
+
+        const result = await points.consumeForNormalRequest(fromUserDoc, {
+          save: true,
+          log: true,
+          session,
+          type: 'friend_request_spend',
+          reason: '친구 신청(일반)',
+          meta: { toUserId: toId },
+          trace: { by: 'user', actor: String(fromId), source: 'friendRouter' },
+        });
+
+        // 잔액 확정 (서비스가 remain을 주면 그 값 우선)
+        walletAfter = result?.remain || {
+          heart: fromUserDoc.heart ?? 0,
+          star:  fromUserDoc.star  ?? 0,
+          ruby:  fromUserDoc.ruby  ?? 0,
+        };
+
+        const request = await FriendRequest.create(
+          [{ from: fromId, to: toId, message: message || '', status: 'pending' }],
+          { session }
+        ).then(arr => arr[0]);
+
+        await Promise.all([
+          User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }, { session }),
+          User.updateOne({ _id: toId },   { $inc: { receivedRequestCountTotal: 1 } }, { session }),
+        ]);
+
+        const p = await populateRequest(request);
+        populated = {
+          ...(p?.toObject ? p.toObject() : p),
+          _pointCharge: {
+            cost: COST.NORMAL_REQUEST,
+            used: result.used,
+            balance: result.remain,
+          },
+        };
+      });
+    } catch (txErr) {
+      // 🔁 폴백: RS 아님 등으로 트랜잭션 불가하면 세션 없이 동일 로직 순차 실행
+      if (isReplicaSetTxnError(txErr)) {
+        log('[friendRouter] TX unsupported, fallback(no-txn) for /friend-request');
+        const fromUserDoc = await User.findById(fromId);
+        if (!fromUserDoc) throw txErr;
+
+        const result = await points.consumeForNormalRequest(fromUserDoc, {
+          save: true,
+          log: true,
+          type: 'friend_request_spend',
+          reason: '친구 신청(일반)',
+          meta: { toUserId: toId },
+          trace: { by: 'user', actor: String(fromId), source: 'friendRouter-fallback' },
+        });
+
+        // 잔액 확정
+        walletAfter = result?.remain || {
+          heart: fromUserDoc.heart ?? 0,
+          star:  fromUserDoc.star  ?? 0,
+          ruby:  fromUserDoc.ruby  ?? 0,
+        };
+
+        const request = await FriendRequest.create({
+          from: fromId, to: toId, message: message || '', status: 'pending'
+        });
+
         await Promise.all([
           User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }),
-          User.updateOne({ _id: toId   }, { $inc: { receivedRequestCountTotal: 1 } }),
+          User.updateOne({ _id: toId },   { $inc: { receivedRequestCountTotal: 1 } }),
         ]);
-      } catch (incErr) { logErr('counter-inc-failed', incErr); }
 
-      const populated = await populateRequest(request);
-
-      // 소켓 통지 (옵션)
-      const emit = req.app.get('emit');
-      if (emit && emit.friendRequestCreated) {
-        try { emit.friendRequestCreated(populated); } catch (emitErr) { logErr('socket-emit-failed', emitErr); }
+        const p = await populateRequest(request);
+        populated = {
+          ...(p?.toObject ? p.toObject() : p),
+          _pointCharge: {
+            cost: COST.NORMAL_REQUEST,
+            used: result.used,
+            balance: result.remain,
+          },
+          _fallbackNoTxn: true,
+        };
+      } else {
+        throw txErr;
       }
-
-      // 푸시 (옵션)
-      (async () => {
-        try {
-          const fromNick = fromUser?.nickname || '알 수 없음';
-          await sendPushToUser(toId, {
-            title: '친구 신청 도착',
-            body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
-            type: 'friend_request',
-            fromUserId: fromId,
-            roomId: '',
-          });
-        } catch (pushErr) { logErr('[push][friend-request] 발송 오류', pushErr); }
-      })();
-
-      log('✅ 친구 신청 완료', { path: req.baseUrl + req.path, fromId, toId, requestId: request._id });
-      return res.json(populated);
-    } catch (createErr) {
-      if (createErr && createErr.code === 11000) {
-        logErr('E11000 duplicate on create (pending unique)', createErr);
-        return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
-      }
-      throw createErr;
+    } finally {
+      session.endSession();
     }
+
+    // 소켓/푸시 (실패해도 본 로직 영향 X)
+    const emit = req.app.get('emit');
+    if (emit && emit.friendRequestCreated) {
+      try { emit.friendRequestCreated(populated); } catch (emitErr) { logErr('socket-emit-failed', emitErr); }
+    }
+    (async () => {
+      try {
+        const fromNick = fromUserLean?.nickname || '알 수 없음';
+        await sendPushToUser(toId, {
+          title: '친구 신청 도착',
+          body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
+          type: 'friend_request',
+          fromUserId: fromId,
+          roomId: '',
+        });
+      } catch (pushErr) { logErr('[push][friend-request] 발송 오류', pushErr); }
+    })();
+
+    // ✅ 응답 헤더에 잔액 세팅 + 바디에 wallet 포함
+    setWalletHeaders(res, walletAfter);
+    log('✅ 친구 신청 완료', { path: req.baseUrl + req.path, fromId, toId, cost: COST.NORMAL_REQUEST, fallback: !!(populated && populated._fallbackNoTxn) });
+    return res.json({ ...populated, wallet: walletAfter });
   } catch (err) {
+    if (err?.code === 'POINTS_NOT_ENOUGH') {
+      try {
+        const me = await User.findById(fromId).select('heart star ruby').lean();
+        return res.status(400).json({
+          message: '포인트가 부족합니다.',
+          need: COST.NORMAL_REQUEST,
+          wallet: me ? { heart: me.heart || 0, star: me.star || 0, ruby: me.ruby || 0 } : null,
+        });
+      } catch (_) {}
+      return res.status(400).json({ message: '포인트가 부족합니다.', need: COST.NORMAL_REQUEST });
+    }
+
     logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     return res.status(500).json({ message: '서버 오류' });
   }
 });
 
-
-
 /** ============================
- *  📨 (NEW) 프리미엄 친구 신청 (A → B)
- *  - 현재는 일반과 기능 동일, 엔드포인트명만 분리
+ *  📬 프리미엄 친구 신청 (A → B)
+ *  - 포인트 차감: 하트→스타→루비 순
+ *  - 원칙: 트랜잭션 / 폴백: 세션 없이 순차 실행
+ *  - ✅ 변경: 응답에 wallet 포함 + x-wallet-* 헤더 세팅
  * ============================ */
 router.post('/friend-request-premium', requireLogin, async (req, res) => {
   const fromId = getMyId(req);
@@ -218,18 +339,18 @@ router.post('/friend-request-premium', requireLogin, async (req, res) => {
     if (!isValidObjectId(toId)) return res.status(400).json({ message: '유효하지 않은 사용자 ID입니다.' });
     if (fromId === toId) return res.status(400).json({ message: '자기 자신에게 친구 신청할 수 없습니다' });
 
-    const [fromUser, toUser] = await Promise.all([
+    const [fromUserLean, toUser] = await Promise.all([
       User.findById(fromId).select('_id nickname suspended friendlist blocklist').lean(),
       User.findById(toId).select('_id nickname suspended friendlist blocklist').lean()
     ]);
-    if (!fromUser) return res.status(404).json({ message: '내 사용자 정보를 찾을 수 없습니다.' });
-    if (!toUser)   return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
-    if (fromUser.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
+    if (!fromUserLean) return res.status(404).json({ message: '내 사용자 정보를 찾을 수 없습니다.' });
+    if (!toUser)       return res.status(404).json({ message: '대상 사용자를 찾을 수 없습니다.' });
+    if (fromUserLean.suspended || toUser.suspended) return res.status(403).json({ message: '정지된 계정입니다.' });
 
-    if ((fromUser.friendlist || []).some(fid => String(fid) === toId))
+    if ((fromUserLean.friendlist || []).some(fid => String(fid) === toId))
       return res.status(400).json({ message: '이미 친구 상태입니다.' });
 
-    const iBlockedHim = (fromUser.blocklist || []).some(bid => String(bid) === toId);
+    const iBlockedHim = (fromUserLean.blocklist || []).some(bid => String(bid) === toId);
     const heBlockedMe = (toUser.blocklist || []).some(bid => String(bid) === fromId);
     if (iBlockedHim || heBlockedMe)
       return res.status(400).json({ message: '차단 상태에서는 친구 신청이 불가합니다.' });
@@ -242,59 +363,143 @@ router.post('/friend-request-premium', requireLogin, async (req, res) => {
     }).lean();
     if (exists) return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
 
-    // ✅ 현재는 일반과 동일하게 생성 (추후 분리 시 type 필드 추가 예정)
-    try {
-      const request = await FriendRequest.create({ from: fromId, to: toId, message: message || '', status: 'pending' });
+    const session = await mongoose.startSession();
+    let populated = null;
+    let walletAfter = null;
 
-      // 누적 카운터 증가 (best-effort)
-      try {
+    try {
+      await session.withTransaction(async () => {
+        const fromUserDoc = await User.findById(fromId).session(session);
+        if (!fromUserDoc) throw new Error('내 사용자 정보를 찾을 수 없습니다.');
+
+        const result = await points.consumeForPremiumRequest(fromUserDoc, {
+          save: true,
+          log: true,
+          session,
+          type: 'friend_request_spend',
+          reason: '친구 신청(프리미엄)',
+          meta: { toUserId: toId },
+          trace: { by: 'user', actor: String(fromId), source: 'friendRouter' },
+        });
+
+        // 잔액 확정
+        walletAfter = result?.remain || {
+          heart: fromUserDoc.heart ?? 0,
+          star:  fromUserDoc.star  ?? 0,
+          ruby:  fromUserDoc.ruby  ?? 0,
+        };
+
+        const request = await FriendRequest.create(
+          [{ from: fromId, to: toId, message: message || '', status: 'pending' }],
+          { session }
+        ).then(arr => arr[0]);
+
+        await Promise.all([
+          User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }, { session }),
+          User.updateOne({ _id: toId },   { $inc: { receivedRequestCountTotal: 1 } }, { session }),
+        ]);
+
+        const p = await populateRequest(request);
+        populated = {
+          ...(p?.toObject ? p.toObject() : p),
+          _pointCharge: {
+            cost: COST.PREMIUM_REQUEST,
+            used: result.used,
+            balance: result.remain,
+          },
+        };
+      });
+    } catch (txErr) {
+      // 🔁 폴백: RS 아님 등으로 트랜잭션 불가하면 세션 없이 동일 로직 순차 실행
+      if (isReplicaSetTxnError(txErr)) {
+        log('[friendRouter] TX unsupported, fallback(no-txn) for /friend-request-premium');
+        const fromUserDoc = await User.findById(fromId);
+        if (!fromUserDoc) throw txErr;
+
+        const result = await points.consumeForPremiumRequest(fromUserDoc, {
+          save: true,
+          log: true,
+          type: 'friend_request_spend',
+          reason: '친구 신청(프리미엄)',
+          meta: { toUserId: toId },
+          trace: { by: 'user', actor: String(fromId), source: 'friendRouter-fallback' },
+        });
+
+        // 잔액 확정
+        walletAfter = result?.remain || {
+          heart: fromUserDoc.heart ?? 0,
+          star:  fromUserDoc.star  ?? 0,
+          ruby:  fromUserDoc.ruby  ?? 0,
+        };
+
+        const request = await FriendRequest.create({
+          from: fromId, to: toId, message: message || '', status: 'pending'
+        });
+
         await Promise.all([
           User.updateOne({ _id: fromId }, { $inc: { sentRequestCountTotal: 1 } }),
-          User.updateOne({ _id: toId   }, { $inc: { receivedRequestCountTotal: 1 } }),
+          User.updateOne({ _id: toId },   { $inc: { receivedRequestCountTotal: 1 } }),
         ]);
-      } catch (incErr) { logErr('counter-inc-failed', incErr); }
 
-      const populated = await populateRequest(request);
-
-      // 소켓 통지 (옵션)
-      const emit = req.app.get('emit');
-      if (emit && emit.friendRequestCreated) {
-        try { emit.friendRequestCreated(populated); } catch (emitErr) { logErr('socket-emit-failed', emitErr); }
+        const p = await populateRequest(request);
+        populated = {
+          ...(p?.toObject ? p.toObject() : p),
+          _pointCharge: {
+            cost: COST.PREMIUM_REQUEST,
+            used: result.used,
+            balance: result.remain,
+          },
+          _fallbackNoTxn: true,
+        };
+      } else {
+        throw txErr;
       }
-
-      // 푸시 (옵션) — 문구는 동일 유지
-      (async () => {
-        try {
-          const fromNick = fromUser?.nickname || '알 수 없음';
-          await sendPushToUser(toId, {
-            title: '친구 신청 도착',
-            body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
-            type: 'friend_request',
-            fromUserId: fromId,
-            roomId: '',
-          });
-        } catch (pushErr) { logErr('[push][friend-request-premium] 발송 오류', pushErr); }
-      })();
-
-      log('✅ 프리미엄 친구 신청 완료', { path: req.baseUrl + req.path, fromId, toId, requestId: request._id });
-      return res.json(populated);
-    } catch (createErr) {
-      if (createErr && createErr.code === 11000) {
-        logErr('E11000 duplicate on create (pending unique)', createErr);
-        return res.status(400).json({ message: '이미 진행 중인 친구 신청이 있습니다.' });
-      }
-      throw createErr;
+    } finally {
+      session.endSession();
     }
+
+    // 소켓/푸시 (실패해도 본 로직 영향 X)
+    const emit = req.app.get('emit');
+    if (emit && emit.friendRequestCreated) {
+      try { emit.friendRequestCreated(populated); } catch (emitErr) { logErr('socket-emit-failed', emitErr); }
+    }
+    (async () => {
+      try {
+        const fromNick = fromUserLean?.nickname || '알 수 없음';
+        await sendPushToUser(toId, {
+          title: '친구 신청 도착',
+          body: `${fromNick} 님이 친구 신청을 보냈습니다.`,
+          type: 'friend_request',
+          fromUserId: fromId,
+          roomId: '',
+        });
+      } catch (pushErr) { logErr('[push][friend-request-premium] 발송 오류', pushErr); }
+    })();
+
+    // ✅ 응답 헤더에 잔액 세팅 + 바디에 wallet 포함
+    setWalletHeaders(res, walletAfter);
+    log('✅ 프리미엄 친구 신청 완료', { path: req.baseUrl + req.path, fromId, toId, cost: COST.PREMIUM_REQUEST, fallback: !!(populated && populated._fallbackNoTxn) });
+    return res.json({ ...populated, wallet: walletAfter });
   } catch (err) {
+    if (err?.code === 'POINTS_NOT_ENOUGH') {
+      try {
+        const me = await User.findById(fromId).select('heart star ruby').lean();
+        return res.status(400).json({
+          message: '포인트가 부족합니다.',
+          need: COST.PREMIUM_REQUEST,
+          wallet: me ? { heart: me.heart || 0, star: me.star || 0, ruby: me.ruby || 0 } : null,
+        });
+      } catch (_) {}
+      return res.status(400).json({ message: '포인트가 부족합니다.', need: COST.PREMIUM_REQUEST });
+    }
+
     logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     return res.status(500).json({ message: '서버 오류' });
   }
 });
 
-
-
 /** ============================
- *  🗑️ 친구 신청 취소
+ *  📨 친구 신청 취소
  * ============================ */
 router.delete('/friend-request/:id', requireLogin, async (req, res) => {
   try {
@@ -428,14 +633,12 @@ router.put('/friend-request/:id/accept', requireLogin, async (req, res) => {
     }
 
     log('🤝 친구 수락 & 채팅 시작', { path: req.baseUrl + req.path, fromId, toId, roomId });
-    // ✅ roomId 함께 반환하여 프론트가 즉시 채팅방으로 이동 가능
     res.json({ ok: true, roomId });
   } catch (err) {
     logErr('[API][ERR]', { path: req.baseUrl + req.path, name: err?.name, message: err?.message, stack: err?.stack });
     res.status(500).json({ message: '서버 오류' });
   }
 });
-
 
 /** ============================
  *  ❌ 친구 신청 거절
@@ -547,7 +750,6 @@ router.get('/blocks', requireLogin, async (req, res) => {
 /** ============================
  *  👤 유저 프로필 + 친구/차단 여부
  * ============================ */
-// (2) 유저 프로필 + 친구/차단 여부 - 민감정보 제외 보강
 router.get('/users/:id', requireLogin, async (req, res) => {
   try {
     const myId = getMyId(req);

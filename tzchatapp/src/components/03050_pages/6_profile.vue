@@ -28,7 +28,8 @@
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
             <!-- 회원등급 + 구독하기 버튼 -->
-            <tr class="editable-row" @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal">
+            <!--  @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal"-->
+            <tr class="editable-row" >
               <td class="pf-th">
                 <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
                 <strong class="label">{{ user.user_level }}</strong>
