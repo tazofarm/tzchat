@@ -1,46 +1,59 @@
 <!-- src/components/.../HomeMain.vue -->
 <template>
-  <ion-page class="home-page">
-    <!-- 스마트폰 상단 시계부분 -->
-    <TopSpace height="1vh" />
+  <IonPage>
+    <!-- 상단 영역 -->
+    <IonHeader :translucent="true">
+      <div class="top-wrap">
+        <TopSpace height="1vh" />
+        <TopPoint height="4vh" />
+      </div>
+    </IonHeader>
 
-    <!-- 추가 기능 넣을 공간 -->
-    <USpace height="4vh" />
+    <!-- 가운데 스크롤 영역: IonContent 단일 책임 (fullscreen 제거) -->
+    <IonContent class="content">
+      <MainPage />
+    </IonContent>
 
-    <!-- 가운데 스크롤 영역 -->
-    <MainPage class="main-area" />
-
-    <!-- 상단 메뉴 -->
-    <TopMenu />
-
-    <!-- 스마트폰 하단 홈키부분 -->
-    <Space height="10vh" />
-  </ion-page>
+    <!-- 하단 고정 영역 -->
+    <IonFooter :translucent="true">
+      <div class="bottom-wrap">
+        <TopMenu />
+        <Space height="10vh" />
+      </div>
+    </IonFooter>
+  </IonPage>
 </template>
 
 <script setup>
+import { IonPage, IonHeader, IonContent, IonFooter } from '@ionic/vue'
 import TopMenu from '../views_layout/TopMenu.vue'
 import MainPage from '../views_layout/MainPage.vue'
 import Space from '../views_layout/Space.vue'
-import USpace from '../views_layout/USpace.vue'
+import TopPoint from '../views_layout/TopPoint.vue'
 import TopSpace from '../views_layout/topspace.vue'
 </script>
 
 <style scoped>
-ion-page.home-page {
-  height: 100dvh !important;
-  display: grid;
-  /* TopSpace / USpace / Main / TopMenu / Space */
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+/* IonContent 배경 */
+.content {
+  --background: #121212;
+}
+
+/* 상단/하단 컨테이너 (필요 시 패딩만) */
+.top-wrap,
+.bottom-wrap {
   background: #070707;
   color: #fff;
 }
 
-/* 메인(MainPage) 스크롤 가능 */
-.main-area {
-  min-height: 0;
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+/* iOS/Android 모두에서 안전 영역 처리 */
+:deep(ion-header),
+:deep(ion-footer) {
+  background: #070707;
+}
+
+/* TopMenu가 항상 보이도록 별도 오버플로우 금지 */
+.bottom-wrap {
+  padding: 0;
 }
 </style>

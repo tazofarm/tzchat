@@ -9,8 +9,10 @@
 //   PATCH /api/search/preference
 //   PATCH /api/search/marriage
 //   POST  /api/search/users
+//   GET   /api/search/targets   ← 신규: 추천 후보(원천 리스트) 제공
 // -------------------------------------------------------------
 const express = require('express')
+const mongoose = require('mongoose')
 const { User } = require('@/models')
 const requireLogin = require('@/middlewares/authMiddleware')
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion')
@@ -39,6 +41,11 @@ const normOnOff = (v, fallback = 'OFF') => {
   if (up === 'ON' || up === 'OFF') return up
   return fallback
 }
+const parseCommaIds = (sval) =>
+  String(sval ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
 
 /** 라우터 로깅 (요약) */
 router.use((req, res, next) => {
@@ -52,9 +59,10 @@ router.use((req, res, next) => {
   res.json = (body) => {
     const ms = Date.now() - started
     const status = res.statusCode
-    const size = typeof body === 'string'
-      ? body.length
-      : Buffer.byteLength(JSON.stringify(body || {}))
+    const size =
+      typeof body === 'string'
+        ? body.length
+        : Buffer.byteLength(JSON.stringify(body || {}))
     // 응답 로그
     // eslint-disable-next-line no-console
     console.log('[API][RES]', { path, status, ms, size })
@@ -331,6 +339,60 @@ router.patch('/search/marriage', async (req, res, next) => {
 
     if (!updated) return res.status(404).json({ success: false, error: '사용자 없음' })
     return res.json({ success: true, search_marriage: updated.search_marriage, updatedAt: updated.updatedAt })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/* =========================
+   7) 추천 후보(원천 리스트) 제공  ← 신규
+   GET /api/search/targets?limit=50&exclude=comma,ids&seedDay=YYYY-MM-DD
+   - 프론트 분배(distribution.js)용 원천 후보를 당일 점수순으로 반환
+   - UserDailyScore 모델 필요(모델 등록 선행)
+========================= */
+router.get('/search/targets', async (req, res, next) => {
+  try {
+    const viewerId = getMyId(req)
+    if (!viewerId) return res.status(401).json({ ok: false, error: '로그인이 필요합니다.' })
+
+    const limit = Math.min(Number(req.query.limit || 50), 200)
+    const excludeSet = new Set(parseCommaIds(req.query.exclude))
+    const dayjs = require('dayjs')
+    const tz = require('dayjs/plugin/timezone')
+    const utc = require('dayjs/plugin/utc')
+    dayjs.extend(utc); dayjs.extend(tz);
+
+const ymd = s(req.query.seedDay) || dayjs().tz('Asia/Seoul').format('YYYY-MM-DD')
+
+
+    // 모델은 글로벌로 등록되어 있어야 함(models/index.js)
+    const UserDailyScore = mongoose.model('UserDailyScore')
+
+    const scoreDocs = await UserDailyScore.find({ ymd })
+      .sort({ exposureScore: -1, updatedAt: -1 })
+      .limit(limit * 3)
+      .lean()
+
+    const candidateIds = []
+    for (const d of scoreDocs) {
+      const uid = String(d.user)
+      if (uid === viewerId) continue
+      if (excludeSet.has(uid)) continue
+      candidateIds.push(d.user)
+      if (candidateIds.length >= limit * 2) break
+    }
+
+    const users = await User.find(
+      { _id: { $in: candidateIds }, isDeleted: { $ne: true }, isPrivate: { $ne: true } }
+    )
+      .select(
+        '_id username nickname birthyear gender level region1 region2 ' +
+        'profileMain profileImages profileImage avatar photo ' +
+        'createdAt updatedAt'
+      )
+      .lean()
+
+    return res.json({ ok: true, ymd, total: users.length, users })
   } catch (err) {
     next(err)
   }

@@ -30,13 +30,14 @@ import { passThroughWithExposureFlag } from './Filter_recieve_limit'
 
 /**
  * Premium Total Filter
- * @param {Array} users - 후보 유저 목록
- * @param {Object} me   - 내 유저 객체
+ * @param {Array<Object>} users  후보 유저 목록
+ * @param {Object} me            내 유저 객체
  * @param {Object} [opt]
- * @param {boolean} [opt.log=false]             - 콘솔 로그 활성화
- * @param {number}  [opt.pendingCountOverride]  - 받은신청 수(테스트용 강제값)
- * @param {number}  [opt.receiveLimitOverride]  - 받은신청 제한치(테스트용 강제값)
- * @returns {Array} 최종 필터링된 유저 목록
+ * @param {boolean} [opt.log=false]               콘솔 로그
+ * @param {number}  [opt.pendingCountOverride]    받은신청 수(강제)
+ * @param {number}  [opt.receiveLimitOverride]    받은신청 제한치(강제)
+ * @param {Array<string|Object>} [opt.extraExcludeIds]  // ✅ 보낸/받은신청·친구·차단·채팅상대 등 외부에서 모은 추가 제외 ID
+ * @returns {Array<Object>} 최종 필터 결과
  */
 export function applyTotalFilterPremium(users, me, opt = {}) {
   const log = !!opt.log
@@ -46,7 +47,11 @@ export function applyTotalFilterPremium(users, me, opt = {}) {
 
   // 0단계: 기본 제외(자기 자신 + 리스트/채팅 상대)
   list = filterOutSelf(list, me, { log })
-  list = filterByListChat(list, me, { log })
+  list = filterByListChat(list, me, {
+    log,
+    // ✅ Search/List 화면에서 이미 들고 있는 보낸/받은신청, 친구/차단, 채팅상대 ID를 주입
+    extraExcludeIds: Array.isArray(opt.extraExcludeIds) ? opt.extraExcludeIds : []
+  })
 
   // 1~8: 상호/단방향 조건 + 긴급모드
   list = filterByYearCo(list, me, { log })
@@ -74,11 +79,4 @@ export function applyTotalFilterPremium(users, me, opt = {}) {
   return finalList
 }
 
-/**
- ✅ 사용 예시
-import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/Total_Filter_premium'
-
-// me: 로그인 유저
-// users: 서버에서 받은 전체 유저 리스트
-const premiumUsers = applyTotalFilterPremium(users, me, { log: true })
-*/
+export default applyTotalFilterPremium

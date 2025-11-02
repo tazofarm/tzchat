@@ -1,24 +1,24 @@
 <!-- src/App.vue -->
 <template>
-  <!-- ✅ 골드 테마 + 공통 레이아웃(app-root) 활성화 -->
-  <ion-app class="theme-gold app-root">
-    <router-view />
-  </ion-app>
+  <!-- ✅ Ionic 컨테이너 -->
+  <IonApp class="theme-gold app-root">
+    <!-- ✅ 표준 RouterView 사용 (IonRouterOutlet 사용 안 함) -->
+    <RouterView />
+  </IonApp>
 </template>
 
 <script setup lang="ts">
+import { onMounted, onBeforeUnmount } from 'vue'
 import { IonApp } from '@ionic/vue'
-import { setupAndroidBackButton } from './lib/backButton' // 상대 경로 유지
+import { RouterView } from 'vue-router'
+import { setupAndroidBackButton, teardownAndroidBackButton } from './lib/backButton'
 
-// ✅ 안드로이드 시스템 취소(뒤로) 버튼 처리: setup() 시점에 즉시 등록
-setupAndroidBackButton()
+/** ✅ 안드로이드 하드웨어 뒤로가기: Ionic navManager 비의존 방식으로 등록 */
+onMounted(() => { setupAndroidBackButton() })
+onBeforeUnmount(() => { teardownAndroidBackButton() })
 </script>
 
 <style>
-/* ⚠️ 전역 스타일은 main.ts 에서
-   variables.css → mobile-utilities.css → theme-gold.css
-   순서로 이미 로드됩니다. (중복 @import 방지) */
-
 :root { color-scheme: light; }
 
 /* 기본 컨테이너 크기 안전장치 (app-root 가 100dvh 처리) */

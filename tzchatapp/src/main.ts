@@ -2,7 +2,7 @@
 console.log('[main] env?', import.meta.env.MODE, import.meta.env.VITE_API_BASE_URL)
 
 import { createApp, nextTick } from 'vue'
-import { createPinia } from 'pinia'                 // ✅ Pinia 추가
+import { createPinia } from 'pinia'
 import App from './App.vue'
 import { IonicVue } from '@ionic/vue'
 import router from './router'
@@ -55,7 +55,7 @@ import '@ionic/vue/css/text-transformation.css'
 import '@ionic/vue/css/flex-utils.css'
 import '@ionic/vue/css/display.css'
 
-/* ✅ 프로젝트 공통 스타일: 변수 → 유틸 → 테마(마지막) 순서 */
+/* ✅ 프로젝트 공통 스타일 */
 import '@/theme/variables.css'
 import '@/theme/mobile-utilities.css'
 import '@/theme/theme-gold.css'
@@ -148,7 +148,6 @@ function ensureBindUserStoreToSocket() {
   const sock = getSocket()
   if (!sock) return
   const store = useUserStore()
-  // store 내부에서 _socketBound로 중복 방지
   // @ts-ignore
   store.bindSocket?.(sock)
 }
@@ -188,16 +187,8 @@ async function bootstrapSocketOnce() {
 }
 
 /* =======================
- * 유틸 함수 (function 선언문으로 변경)
+ * 유틸 함수
  * ===================== */
-function checkIonicBasicStyle() {
-  const probe = document.createElement('ion-button')
-  document.body.appendChild(probe)
-  const cs = window.getComputedStyle(probe)
-  console.log('🔎 ion-button display:', cs.display)
-  probe.remove()
-}
-
 function logPrimaryColorVar() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
@@ -210,10 +201,10 @@ function logLoadedAssets() {
   console.log('📜 scripts:', scripts.map(s => (s as HTMLScriptElement).src || '(inline/module)'))
 }
 
+/* (디버그) Ionic 수화 확인 유틸 */
 async function waitForCustomElements(tags: string[]) {
   await Promise.all(tags.map(tag => customElements.whenDefined(tag)))
 }
-
 async function probeHydration(tags: string[]) {
   await new Promise(requestAnimationFrame)
   await new Promise(requestAnimationFrame)
@@ -239,7 +230,6 @@ async function probeHydration(tags: string[]) {
   temp.remove()
   return !anyNotHydrated
 }
-
 async function checkIonicHydrationSafe() {
   const TAGS = ['ion-page', 'ion-content', 'ion-list', 'ion-item', 'ion-button']
   try {
@@ -264,14 +254,14 @@ async function checkIonicHydrationSafe() {
  * 앱 부트
  * ===================== */
 const app = createApp(App)
-const pinia = createPinia()             // ✅ Pinia 인스턴스 생성
+const pinia = createPinia()
 
 /* ✅ 플랫폼별 시각 차이 제거: md 모드 고정 */
 app.use(IonicVue, { mode: 'md' })
-app.use(pinia)                          // ✅ Pinia 등록
+app.use(pinia)
 app.use(router)
 
-/* ✅ 전역 API 지갑 이벤트 수신 → Pinia 반영 (소켓 없이도 즉시 갱신) */
+/* ✅ 전역 API 지갑 이벤트 수신 → Pinia 반영 */
 const userStore = useUserStore()
 window.addEventListener('api:wallet', (e: Event) => {
   try {
@@ -296,7 +286,6 @@ router.isReady()
       if (Capacitor.getPlatform() === 'android') {
         const res = await requestBasicPermissions()
         console.log('🔐 [perm] requested →', res)
-        // 알림 권한 승인 시 1회 테스트 알림 (심사/기기 검증용)
         if (res.notification) {
           await testLocalNotification()
         }
@@ -307,18 +296,15 @@ router.isReady()
       console.warn('⚠️ 권한 요청 중 오류:', e?.message)
     }
 
-    // ✅ tzchat:// 딥링크 처리 (알림 클릭/외부 링크)
-    // 예: tzchat://chat/<roomId> → '/home/chat/<roomId>'
+    // ✅ tzchat:// 딥링크 처리
     CapApp.addListener('appUrlOpen', async ({ url }) => {
       try {
         if (!url || !url.startsWith('tzchat://')) return
         const path = url.replace('tzchat://', '').replace(/^\/+/, '')
-        // 간단 라우팅 매핑
         if (path.startsWith('chat/')) {
           await router.push(`/home/chat/${path.split('/')[1]}`)
         } else if (path === 'friends/received') {
-          await router.push('/home/3page') // 친구 탭
-          // 하위에 받은신청 탭을 기본으로 여는 커스텀 이벤트
+          await router.push('/home/3page')
           window.dispatchEvent(new CustomEvent('friends:openTab', { detail: { tab: 'received' } }))
         } else {
           await router.push('/' + path)
@@ -334,18 +320,9 @@ router.isReady()
 
     await nextTick()
     logLoadedAssets()
-    checkIonicBasicStyle()
     logPrimaryColorVar()
     await checkIonicHydrationSafe()
-
-    console.log('🧩 customElements.has("emoji-picker"):', customElements.get('emoji-picker') ? 'YES' : 'NO')
   })
   .catch(err => {
     console.error('💥 router.isReady() 실패:', err)
   })
-
-/* ⚠️ 전역 글자색 강제는 제거 (테마에 위임) */
-// document.documentElement.style.setProperty('--base-text-color', '#000')
-// document.addEventListener('DOMContentLoaded', () => {
-//   document.body.style.color = 'black'
-// })

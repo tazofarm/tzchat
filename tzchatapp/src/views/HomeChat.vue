@@ -1,17 +1,18 @@
 <!-- src/components/.../HomeChat.vue -->
 <template>
-  <ion-page class="home-page">
+  <IonPage class="home-page">
     <!-- 채팅 전용: 단일 영역. 내부(MainChat)가 스크롤/키보드 인셋을 직접 관리 -->
     <MainChat class="main-area" />
-  </ion-page>
+  </IonPage>
 </template>
 
 <script setup>
+import { IonPage } from '@ionic/vue'
 import MainChat from '../views_layout/MainChat.vue'
 </script>
 
 <style scoped>
-ion-page.home-page {
+.home-page {
   height: 100dvh !important;
   min-height: 0;
   display: flex;

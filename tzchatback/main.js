@@ -599,7 +599,7 @@ io.on('connection', (socket) => {
 //    경로는 엔트리 파일 기준 상대경로입니다.
 //    엔트리 파일이 /server 폴더에 있다면 '../jobs/retentionWorker' 로 조정하세요.
 require('./jobs/retentionWorker');
-
+require('./jobs/dailyScoreJob').initDailyScoreCron();
 
 
 

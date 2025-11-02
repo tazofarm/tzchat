@@ -1,3 +1,4 @@
+<!-- src/components/02010_minipage/mini_list/Page_Block.vue -->
 <!-- 차단 리스트 - 중첩 안전 고정 헤더 버전 (ion-header slot="fixed" + 상위 IonContent 스크롤) -->
 <template>
   <!-- ✅ 상단 고정 헤더: 상위 IonContent 위에 고정
@@ -52,13 +53,23 @@
    - 헤더는 <ion-header slot="fixed">, 스크롤은 상위 IonContent
    - 항상 id를 추출해 재조회하여 전체 필드 확보
    - friendRouter 경로 기준: DELETE /api/block/:id
+   - ✅ 부모에서 넘긴 props/이벤트를 명시 선언하여
+     "Extraneous non-props / non-emits" 경고 제거
 ----------------------------------------------------------- */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
 import { IonHeader, IonToolbar, IonButton, IonIcon } from '@ionic/vue'
 import { closeCircleOutline } from 'ionicons/icons'
+
+/** ✅ 부모가 넘기는 속성/이벤트를 명시 선언 */
+const props = defineProps({
+  // 부모에서 kebab-case로 넘김: viewer-level → viewerLevel 매핑됨
+  viewerLevel: { type: String, default: undefined },
+  isPremium:   { type: Boolean, default: undefined },
+})
+const emit = defineEmits(['openReceive', 'closeReceive'])
 
 const router = useRouter()
 const icons = { closeCircleOutline }
@@ -67,8 +78,8 @@ const icons = { closeCircleOutline }
 const users = ref([])      // 화면 표시용: 차단한 유저 객체들
 const isLoading = ref(true)
 
-/* ✅ 프리미엄 가림 로직 전달용 */
-const viewerLevel = ref('')  // '일반회원' | '라이트회원' | '프리미엄회원' 등
+/* ✅ 프리미엄 가림 로직 전달용(내부 표준 상태) */
+const viewerLevel = ref('')   // '일반회원' | '라이트회원' | '프리미엄회원' 등
 const isPremium   = ref(false)
 
 /* 유틸 */
@@ -143,26 +154,42 @@ async function unblock(userId){
 }
 const onUnblockClick = (userId) => unblock(userId)
 
+/* ✅ props → 내부 상태 반영 (실시간 반영) */
+watch(() => props.viewerLevel, (v) => {
+  if (v !== undefined) viewerLevel.value = String(v || '').trim()
+}, { immediate: true })
+watch(() => props.isPremium, (v) => {
+  if (v !== undefined) isPremium.value = Boolean(v)
+}, { immediate: true })
+
 /* 초기 로딩 */
 onMounted(async ()=>{
   try{
     isLoading.value=true
 
-    // ✅ 뷰어 등급/프리미엄 여부 설정 (서버 우선 → 로컬 폴백)
-    try {
-      const me = (await api.get('/api/me')).data?.user || {}
-      const levelFromApi = me?.level || me?.user_level || me?.membership || ''
-      viewerLevel.value = String(levelFromApi || '').trim()
-      const premiumBool =
-        me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄회원')
-      isPremium.value = Boolean(premiumBool)
-    } catch {
-      const lv = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
-      viewerLevel.value = lv
-      const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
-      isPremium.value =
-        ['프리미엄회원','premium','premium_member','prem'].includes(lv) ||
-        ['true','1','yes','y'].includes(boolish)
+    // ✅ props가 주어지지 않은 항목만 API/로컬에서 보완 설정
+    if (props.viewerLevel === undefined || props.isPremium === undefined){
+      try {
+        const me = (await api.get('/api/me')).data?.user || {}
+        const levelFromApi = me?.level || me?.user_level || me?.membership || ''
+        if (props.viewerLevel === undefined) {
+          viewerLevel.value = String(levelFromApi || '').trim()
+        }
+        if (props.isPremium === undefined) {
+          const premiumBool =
+            me?.isPremium ?? me?.premium ?? (String(levelFromApi || '').trim() === '프리미엄회원')
+          isPremium.value = Boolean(premiumBool)
+        }
+      } catch {
+        const lvLocal = (localStorage.getItem('user_level') || localStorage.getItem('level') || '').trim().toLowerCase()
+        if (props.viewerLevel === undefined) viewerLevel.value = lvLocal
+        if (props.isPremium === undefined) {
+          const boolish = (localStorage.getItem('isPremium') || '').trim().toLowerCase()
+          isPremium.value =
+            ['프리미엄회원','premium','premium_member','prem'].includes(lvLocal) ||
+            ['true','1','yes','y'].includes(boolish)
+        }
+      }
     }
 
     const res=await api.get('/api/blocks')

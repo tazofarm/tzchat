@@ -10,11 +10,19 @@
 // - [개정] phone 유니크 인덱스: partial index로 변경(값 있을 때만 유니크)
 // - [개정] 필드 단위 unique/index 제거 → 스키마 하단에서 일괄 index 정의(중복 인덱스 경고 해소)
 // - [신규] 포인트 지갑(heart/star/ruby) + lastDailyGrantAt 추가
+// - [보강] 가입 보너스/등급변경 보너스 지급 (config/points 연동)
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const retention = require('@/config/retention'); // DELETION_GRACE_DAYS 사용
-const { getDailyHeartGrant, getHeartCap, isHeartAccumulable } = require('@/config/points'); // ✅ 등급 규칙
+const {
+  getDailyHeartGrant,
+  getHeartCap,
+  isHeartAccumulable,
+  getPrevGrantTimeKST,
+  getSignupBonus,
+  getLevelChangeBonus,
+} = require('@/config/points'); // ✅ 포인트 규칙
 
 // ────────────────────────────────────────────────────────────
 // [서브스키마] 프로필 이미지 문서 구조
@@ -327,6 +335,48 @@ userSchema.pre('save', function(next) {
     next();
   } catch (e) {
     console.error('[User.pre.save][phone] error:', e);
+    next(e);
+  }
+});
+
+// ===== 가입 훅: 신규 가입 시 보너스 지급 + 일일지급 기준 시각 셋업
+// ※ 하트는 위의 '등급 변경 훅'에서 base로 셋팅되므로, 여기서는 스타/루비만 지급합니다.
+userSchema.pre('save', function(next) {
+  try {
+    if (this.isNew) {
+      const level = this.user_level || '일반회원';
+      const bonus = getSignupBonus(level) || {};
+      const addStar = Number(bonus.star || 0);
+      const addRuby = Number(bonus.ruby || 0);
+
+      this.star = Math.max(0, (Number(this.star || 0) + addStar));
+      this.ruby = Math.max(0, (Number(this.ruby || 0) + addRuby));
+
+      // 다음 11:00부터 일일 지급이 시작되도록, 기준시각을 "직전 11:00 KST"로 설정
+      this.lastDailyGrantAt = getPrevGrantTimeKST(new Date());
+    }
+    next();
+  } catch (e) {
+    console.error('[User.pre.save][signup-bonus] error:', e);
+    next(e);
+  }
+});
+
+// ===== 보너스 훅: 등급 변경 시 스타/루비 보너스 지급(신규 문서 제외)
+userSchema.pre('save', function(next) {
+  try {
+    if (this.isModified('user_level') && !this.isNew) {
+      const level = this.user_level || '일반회원';
+      const bonus = getLevelChangeBonus(level) || {};
+      const addStar = Number(bonus.star || 0);
+      const addRuby = Number(bonus.ruby || 0);
+
+      this.star = Math.max(0, (Number(this.star || 0) + addStar));
+      this.ruby = Math.max(0, (Number(this.ruby || 0) + addRuby));
+    }
+    next();
+  } catch (e) {
+    console.error('[User.pre.save][level-change-bonus] error:', e);
     next(e);
   }
 });

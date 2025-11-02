@@ -64,14 +64,23 @@ function whichBucket(u, now) {
   return 'B3';
 }
 
-/** 버킷 내 정렬: 최근성 + 해시 혼합 */
+/**
+ * 내부 점수 키: 점수(있으면) 80% + (최근성/해시) 20%
+ * - u.score(0~1)가 숫자면 최우선
+ * - 없으면 최근성+해시로만 계산
+ */
+function scoreKey(u, seed, now, mix = 0.35) {
+  const w = recencyWeight(u.last_login || u.lastLogin || u.updatedAt || u.createdAt, now);
+  const h = hash01(`${seed}#${u._id}`);
+  const fallback = (1 - mix) * w + mix * h; // 0~1 근사
+  const base = Number.isFinite(u?.score) ? Math.max(0, Math.min(1, Number(u.score))) : null;
+  if (base === null) return fallback;
+  return 0.8 * base + 0.2 * fallback;
+}
+
+/** 버킷 내 정렬: 점수 우선 + (최근성/해시) 보조 */
 function sortBucket(arr, seed, now, mix = 0.35) {
-  const key = (u) => {
-    const w = recencyWeight(u.last_login || u.lastLogin || u.updatedAt || u.createdAt, now);
-    const h = hash01(`${seed}#${u._id}`);
-    return (1 - mix) * w + mix * h;
-  };
-  return [...arr].sort((a, b) => key(b) - key(a));
+  return [...arr].sort((a, b) => scoreKey(b, seed, now, mix) - scoreKey(a, seed, now, mix));
 }
 
 /** 버킷 회전: seed 기반 offset */
@@ -104,6 +113,51 @@ function saveStickyIds(seed, ids) {
 }
 
 /* =========================
+   노출 히스토리 (탐색 2명 반복 최소화용)
+   - viewerId 기준 30일 보관
+   ========================= */
+const SEEN_KEEP_DAYS = 30;
+const SEEN_MAX_ENTRIES = 800; // localStorage 안전 한도
+
+function seenKey(viewerId) {
+  return `distSeen:${viewerId || 'anon'}`;
+}
+
+function loadSeen(viewerId, now) {
+  try {
+    const raw = localStorage.getItem(seenKey(viewerId));
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    const cutoff = now - SEEN_KEEP_DAYS * 86400e3;
+    // {id, t}만 유지
+    const cleaned = arr
+      .filter((it) => it && it.id && Number.isFinite(it.t))
+      .filter((it) => it.t >= cutoff);
+    if (cleaned.length !== arr.length) {
+      localStorage.setItem(seenKey(viewerId), JSON.stringify(cleaned));
+    }
+    return cleaned;
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveSeen(viewerId, items, now) {
+  try {
+    if (!Array.isArray(items) || !items.length) return;
+    const prev = loadSeen(viewerId, now);
+    const merged = [...prev, ...items].slice(-SEEN_MAX_ENTRIES);
+    localStorage.setItem(seenKey(viewerId), JSON.stringify(merged));
+  } catch (_) {}
+}
+
+function toSeenSet(list) {
+  const s = new Set();
+  for (const it of list) s.add(String(it.id));
+  return s;
+}
+
+/* =========================
    "하루" 경계: 매일 오전 11시(Asia/Seoul)
    - KST(UTC+9) 기준으로 11:00 이전이면 전날로 간주
    - 11:00 이후면 오늘 날짜 사용
@@ -127,10 +181,12 @@ function getSeedDayAt11KST() {
 
 /**
  * 전체 분산 선정 로직:
- *  - "하루" 정의를 매일 오전 11시(KST) 경계로 변경 (seedDay 기본값)
- *  - 하루/리셋(seed) 단위로 최초 7명을 고정 (ID기준)
+ *  - "하루" 정의를 매일 오전 11시(KST) 경계로 계산 (seedDay 기본값)
+ *  - 하루/리셋(seed) 단위로 최초 7명을 고정 (ID기준, Sticky)
  *  - 비공개/필터 불일치로 제외된 인원은 제거
  *  - 결원이 생기면 현재 랭킹에서만 보충 (새 유입은 결원시에만)
+ *  - +탐색 2명(낮은 점수/저활성)을 추가하여 총 9명 반환
+ *  - 탐색 2명은 최근 30일에 본 적 있으면 가급적 제외(부족 시 완화), Sticky 미저장
  *
  * @param {Array} rawList - 서버에서 받은 사용자 리스트
  * @param {Object} me - 현재 사용자 정보
@@ -140,7 +196,10 @@ function getSeedDayAt11KST() {
  *   options.resetIndex {number}
  *   options.excludeIdsSet {Set<string>}
  *   options.applyTotalFilter {function}
- * @returns {Array} - 선택된 사용자 리스트 (최대 7명)
+ *   options.exploreCount {number}    // 기본 2
+ *   options.coreCount {number}       // 기본 7
+ *   options.exploreAvoidDays {number}// 기본 30 (최근 본 사람 회피 일수)
+ * @returns {Array} - 선택된 사용자 리스트 (최대 core+explore = 9명)
  */
 export function applyDistributedSelection(
   rawList,
@@ -151,6 +210,9 @@ export function applyDistributedSelection(
     resetIndex = 0,
     excludeIdsSet = new Set(),
     applyTotalFilter,
+    exploreCount = 2,
+    coreCount = 7,
+    exploreAvoidDays = SEEN_KEEP_DAYS,
   }
 ) {
   const now = Date.now();
@@ -165,12 +227,12 @@ export function applyDistributedSelection(
     : [];
 
   // 2) 전체 필터 적용 (비공개/차단 등 — 외부 변화 반영)
-  const filtered2 = applyTotalFilter(filtered1, me);
+  const filtered2 = typeof applyTotalFilter === 'function'
+    ? applyTotalFilter(filtered1, me)
+    : filtered1;
 
   // 3) 버킷 분류
-  const B1 = [],
-    B2 = [],
-    B3 = [];
+  const B1 = [], B2 = [], B3 = [];
   filtered2.forEach((u) => {
     const b = whichBucket(u, now);
     if (b === 'B1') B1.push(u);
@@ -179,14 +241,14 @@ export function applyDistributedSelection(
   });
 
   // 4) 각 버킷 정렬 + 회전 → 현재 "랭킹 보드"
-  let sB1 = rotateBySeed(sortBucket(B1, seed, now), seed, 'B1');
-  let sB2 = rotateBySeed(sortBucket(B2, seed, now), seed, 'B2');
-  let sB3 = rotateBySeed(sortBucket(B3, seed, now), seed, 'B3');
+  const sB1 = rotateBySeed(sortBucket(B1, seed, now), seed, 'B1');
+  const sB2 = rotateBySeed(sortBucket(B2, seed, now), seed, 'B2');
+  const sB3 = rotateBySeed(sortBucket(B3, seed, now), seed, 'B3');
 
   // "추천 순서" (백필 시 사용)
   const ranked = [...sB1, ...sB2, ...sB3];
 
-  // 5) Sticky 유지: seed 기준으로 고정된 7명 불러와서 교차(available만 유지)
+  // 5) Sticky 유지: seed 기준으로 고정된 coreCount명 불러와서 교차(available만 유지)
   const stickyIds = loadStickyIds(seed);
   const byId = new Map(filtered2.map((u) => [String(u._id), u]));
   const kept = [];
@@ -198,7 +260,7 @@ export function applyDistributedSelection(
   // 6) 결원 보충: 현재 ranked에서 kept에 없는 사람들로 채움
   const keptIdSet = new Set(kept.map((u) => String(u._id)));
   for (const u of ranked) {
-    if (kept.length >= 7) break;
+    if (kept.length >= coreCount) break;
     const id = String(u._id);
     if (!keptIdSet.has(id)) {
       kept.push(u);
@@ -206,9 +268,58 @@ export function applyDistributedSelection(
     }
   }
 
-  // 7) 최종 7명 확정 + 저장
-  const out = kept.slice(0, 7);
-  saveStickyIds(seed, out.map((u) => u._id));
+  // 7) 최종 coreCount명 확정 + 저장 (Sticky는 핵심만)
+  const core = kept.slice(0, coreCount);
+  saveStickyIds(seed, core.map((u) => u._id));
 
-  return out;
+  // 8) 탐색 2명(저점수/저활성) 추가 — 최근 30일 본 사람 회피 + Sticky 미저장
+  let explore = [];
+  if (exploreCount > 0 && filtered2.length > core.length) {
+    const coreIdSet = new Set(core.map((u) => String(u._id)));
+
+    // 핵심 제외한 전체 후보
+    const rest = filtered2.filter((u) => !coreIdSet.has(String(u._id)));
+
+    // 점수/최근성 기반 "낮은 지표" 순 정렬 (asc)
+    const ascByLowScore = [...rest].sort(
+      (a, b) => scoreKey(a, seed, now) - scoreKey(b, seed, now)
+    );
+
+    // 하위 20% 또는 최대 10명 풀(풀 부족 시 자동 축소)
+    const poolSize = Math.min(
+      Math.max(2, Math.ceil(ascByLowScore.length * 0.2)),
+      10,
+      ascByLowScore.length
+    );
+    let explorePool = ascByLowScore.slice(0, poolSize);
+
+    // 최근 본 사람(기본 30일) 회피
+    const seenList = loadSeen(viewerId, now);
+    const seenSet = toSeenSet(seenList);
+    const avoidDays = Math.max(1, Number(exploreAvoidDays) || SEEN_KEEP_DAYS);
+    // seenList 자체가 과거 기록을 30일로 이미 정리됨. (avoidDays <= 30 가정)
+    let filteredPool = explorePool.filter((u) => !seenSet.has(String(u._id)));
+
+    // 부족하면 완화: (1) 회피 해제 → 원 풀 사용
+    if (filteredPool.length < exploreCount) {
+      filteredPool = explorePool.slice();
+    }
+
+    // seed 기반 회전으로 반복 편향 완화
+    const rotated = rotateBySeed(filteredPool, seed, 'EXPLORE');
+
+    // 앞에서 exploreCount명 추출
+    explore = rotated.slice(0, Math.min(exploreCount, rotated.length));
+
+    // 노출 히스토리 기록 (탐색만 기록)
+    if (explore.length) {
+      const items = explore.map((u) => ({ id: String(u._id), t: now }));
+      saveSeen(viewerId, items, now);
+    }
+  }
+
+  // 9) 반환: 핵심 core + 탐색 explore 합치고, 최종 노출 순서는 seed 기반 완전 섞기
+  const combined = [...core, ...explore];
+  const mixed = rotateBySeed(combined, seed, 'MIX');
+  return mixed;
 }

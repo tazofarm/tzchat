@@ -1,7 +1,16 @@
-<!-- src/components/USpace.vue -->
+<!-- src/components/views_layout/TopPoint.vue -->
 <template>
-  <!-- 상단 공백 + 포인트 표시 -->
-  <div class="space" :style="{ height }" aria-hidden="true">
+  <!-- 상단 공백 + 포인트 표시 (클릭/키보드 진입 가능) -->
+  <div
+    class="space"
+    :style="{ height }"
+    role="button"
+    tabindex="0"
+    @click="goToPage"
+    @keydown.enter.prevent="goToPage"
+    @keydown.space.prevent="goToPage"
+    aria-label="내 포인트 상세로 이동"
+  >
     <div>
       ❤️ {{ heart }}　
       ⭐ {{ star }}　
@@ -12,19 +21,26 @@
 
 <script setup>
 import { onMounted, onUnmounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { getSocket } from '@/lib/socket'
 
-defineProps({
+const props = defineProps({
   height: { type: String, default: '80px' },
+  /** 클릭 시 이동할 경로 (원하시는 경로로 교체해서 사용하세요) */
+  to: { type: String, default: '/home/setting/0002' }
 })
+
+const router = useRouter()
+const goToPage = () => {
+  router.push(props.to)
+}
 
 const store = useUserStore()
 
 /**
- * ⚠️ 중요: fallback 객체를 computed에서 반환하면
- * 같은 참조로 남아 변화 감지를 놓칠 수 있어요.
- * → 실제 store.user.wallet만 바라보고, 표시 시 0으로 보정합니다.
+ * computed에서 fallback 객체를 만들지 않고
+ * store.user.wallet만 바라봅니다.
  */
 const wallet = computed(() => store.user?.wallet)
 const heart  = computed(() => Number(wallet.value?.heart ?? 0))
@@ -101,7 +117,9 @@ onUnmounted(() => {
 .space {
   width: 100%;
   background: #000000;
-  pointer-events: none;
+
+  /* 클릭 가능 */
+  cursor: pointer;
 
   display: flex;
   justify-content: flex-end;
@@ -111,5 +129,8 @@ onUnmounted(() => {
   font-size: 14px;
   padding: 1px 30px 10px 10px;
   font-family: 'Pretendard', sans-serif;
+
+  /* 터치 하이라이트 완화 */
+  -webkit-tap-highlight-color: rgba(255,255,255,0.1);
 }
 </style>

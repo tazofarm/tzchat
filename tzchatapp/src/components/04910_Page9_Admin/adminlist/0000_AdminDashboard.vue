@@ -56,7 +56,7 @@
         <li class="list-item" @click="goPage('/home/admin/0017')">0017</li>
         <li class="list-item" @click="goPage('/home/admin/0018')">0018</li>
         <li class="list-item" @click="goPage('/home/admin/0019')">0019</li>
-        <li class="list-item" @click="goPage('/home/admin/0020')">0020</li>
+        <li class="list-item" @click="goPage('/home/admin/0020')">0020_구매페이지</li>
 
         <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="withdraw">

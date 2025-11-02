@@ -50,6 +50,11 @@ import ChatRoomPage from '@/components/04410_Page4_chatroom/ChatRoomPage.vue'
 // notice
 import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage.vue'
 
+//purchase
+import purchaseMain from '@/components/05110_Membership/Page/membershipMain.vue'
+
+
+
 // setting
 import setting01 from '@/components/04710_Page7_setting/setlist/0001_s_notice.vue'
 import setting02 from '@/components/04710_Page7_setting/setlist/0002_s.vue'
@@ -173,6 +178,9 @@ const routes: RouteRecordRaw[] = [
       },
 
       { path: 'chat/:id', component: ChatRoomPage, props: true },
+
+      // purchase
+      { path: 'purchase/main', component: purchaseMain },
 
       // setting
       { path: 'setting/0001', component: setting01 },

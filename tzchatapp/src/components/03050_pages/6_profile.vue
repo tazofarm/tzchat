@@ -483,7 +483,8 @@ async function onChangePhoneClick() {
 
 /* 이동 */
 function goSetting() { router.push('/home/7page') }
-function goMembership() { router.push('/home/membership/buy') }
+function goMembership() { router.push('/home/setting/0002') }
+/*function goMembership() { router.push('/home/membership/buy') }*/
 
 /* 사진 */
 function onProfilePhotoUpdated() {}

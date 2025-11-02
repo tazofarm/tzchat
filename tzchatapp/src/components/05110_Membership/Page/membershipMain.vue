@@ -23,7 +23,7 @@
           :class="{ active: currentTab === 'point' }"
           @click="setTab('point')"
         >
-          <div class="menu-title">구매<br /><span class="hl">💎루비</span></div>
+          <div class="menu-title">구매<br />루비</div>
           <div class="menu-price">₩{{ fmt(9900) }}</div>
         </div>
 
@@ -41,7 +41,7 @@
           :class="{ active: currentTab === 'premium' }"
           @click="setTab('premium')"
         >
-          <div class="menu-title">구독<br /><span class="hl">프리미엄회원</span></div>
+          <div class="menu-title">구독<br />프리미엄회원</div>
           <div class="menu-price">₩{{ fmt(19800) }}</div>
         </div>
       </div>

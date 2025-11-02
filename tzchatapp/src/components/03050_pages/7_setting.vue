@@ -26,8 +26,8 @@
     <div class="list-wrap">
       <ul class="list">
         <!-- 번호 리스트 -->
-        <li class="list-item" @click="goPage('/home/membership/buy')">구독신청하기</li> 
-
+        <!-- <li class="list-item" @click="goPage('/home/membership/buy')">구독신청하기</li> -->
+        <li class="list-item" @click="goPage('/home/setting/0002')">구독신청하기</li>
         <li class="list-item" @click="goPage('/home/setting/0001')">공지사항</li>
 
         <!-- ✅ 변경: 클릭 시 페이지 이동 대신 즉시 메일 열기 -->

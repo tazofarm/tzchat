@@ -1,3 +1,4 @@
+<!-- src/components/.../MainPage.vue -->
 <template>
   <div class="main-page">
     <router-view />
@@ -6,28 +7,20 @@
 
 <style scoped>
 .main-page {
+  /* ✅ IonContent 내부 영역을 꽉 채움(자체 스크롤 없음) */
   position: relative;
+  height: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 
-  height: calc(100vh - 56px); /* 상단 바(56px) 제외한 높이 */
-  min-height: 0;
-
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-
-  /* ✅ 블랙+골드 테마에 맞춤 */
-  background-color: #121212; /* 다크 베이스 #121212*/
-  /* border: 2px solid red; */ /* 디버그 완료 후 제거 */
-
+  /* ✅ 테마 (IonContent가 배경을 가지므로 이 값은 선택 사항) */
+  background-color: #121212;
   padding: 8px;
 }
 
-/* 스크롤바 (다크톤) */
-.main-page { scrollbar-width: thin; scrollbar-color: #666 transparent; }
-.main-page::-webkit-scrollbar { width: 6px; height: 6px; }
-.main-page::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
-
+/* (옵션) 모바일 최소 패딩 유지 */
 @media (max-width: 360px) {
-  .main-page { padding: px; }
+  .main-page { padding: 6px; }
 }
 </style>

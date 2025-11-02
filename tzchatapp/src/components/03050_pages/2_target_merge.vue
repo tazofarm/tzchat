@@ -12,9 +12,10 @@
       </div>
     </ion-header>
 
-    <ion-content class="no-gutter">
+    <ion-content ref="contentRef" class="no-gutter">
       <!-- ✅ 보상형 광고 모달 (Emergency ON 전시) -->
       <ion-modal
+        ref="advModal"
         :is-open="showAdvModal"
         @didDismiss="onAdvDidDismiss"
         :backdrop-dismiss="true"
@@ -109,10 +110,12 @@ const excludeIds = ref(new Set())
 
 /* 리스트 상단 앵커 */
 const listTop = ref(null)
+const contentRef = ref(null)
 
 /* ===== Emergency 모드 상태 ===== */
 const emergencyOn = ref(false)
 const showAdvModal = ref(false)
+const advModal = ref(null)
 const remainingSeconds = ref(0)
 
 const rawEmergencyList = ref([])   // 서버 긴급 원본
@@ -147,42 +150,111 @@ function goToUserProfile(userId) {
   if (!userId) return
   const id = String(userId)
   const targetPath = emergencyOn.value
-    ? `/home/premuimuser/${id}`  // ✅ Emergency ON → PagepremiumProfile.vue (철자 확인 필요)
-    : `/home/user/${id}`         // ✅ Emergency OFF → PageuserProfile.vue
+    ? `/home/premuimuser/${id}`
+    : `/home/user/${id}`
   router.push(targetPath)
 }
 function scrollToTopSmooth() {
-  const ion = document.querySelector('ion-content')
+  // 1순위: 이 컴포넌트의 IonContent 인스턴스에 직접 스크롤
+  const ion = contentRef.value?.$el ?? contentRef.value
   if (ion && typeof ion.scrollToTop === 'function') {
+    // 키보드 포커스가 스크롤을 막는 상황 방지
+    blurActive()
     ion.scrollToTop(300)
     return
   }
+  // 2순위: 리스트 상단 앵커로 스크롤
   if (listTop.value && typeof listTop.value.scrollIntoView === 'function') {
+    blurActive()
     listTop.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return
   }
-  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch {}
+  // 3순위: 윈도우 스크롤
+  try {
+    blurActive()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch {}
 }
 
+/** 안전 ID 정규화(문자열/숫자/ObjectId/문서/{$oid}) */
+function normId(v) {
+  if (!v) return ''
+  if (typeof v === 'string' || typeof v === 'number') return String(v)
+  try {
+    if (typeof v.toString === 'function') {
+      const s = v.toString()
+      if (s && s !== '[object Object]' && /^[0-9a-fA-F]{24}$/.test(s)) return s
+    }
+  } catch {}
+  if (v && typeof v.$oid === 'string') return v.$oid
+  const cand = v._id || v.id || v.userId || v.user_id || v.ownerId || v.owner ||
+               v.accountId || v.account || v.targetId || v.otherId || v.peerId
+  return cand ? String(cand) : ''
+}
 function toIdList(src) {
   const arr = Array.isArray(src) ? src : []
-  return arr
-    .map(v => {
-      if (!v) return null
-      if (typeof v === 'string' || typeof v === 'number') return String(v)
-      return String(v._id || v.id || v.userId || v.user_id || '')
-    })
-    .filter(Boolean)
+  return arr.map(normId).filter(Boolean)
 }
-function buildExcludeIdsSet({ friends = [], blocks = [], pendingSent = [], pendingRecv = [], chats = [] } = {}) {
+/** FriendRequest 객체 배열에서 "상대방" ID 추출 */
+function extractOtherIdsFromRequests(list, myId) {
+  const arr = Array.isArray(list) ? list : []
+  const out = []
+  for (const r of arr) {
+    const candidates = [
+      r?.from, r?.to,
+      r?.requester, r?.recipient,
+      r?.sender, r?.receiver,
+      r?.userId, r?.otherId, r?.targetId, r?.peerId,
+      r?.fromUser, r?.toUser, r?.owner, r?.user,
+    ]
+    const ids = candidates.map(normId).filter(Boolean).filter(id => !myId || id !== myId)
+    if (ids.length) out.push(ids[0])
+  }
+  return out
+}
+
+function buildExcludeIdsSet({
+  me = {},
+  friends = [], blocks = [],
+  sent = [], recv = [],
+  chats = []
+} = {}) {
   const set = new Set()
-  for (const id of toIdList(friends)) set.add(id)
-  for (const id of toIdList(blocks)) set.add(id)
-  for (const id of toIdList(pendingSent)) set.add(id)
-  for (const id of toIdList(pendingRecv)) set.add(id)
-  for (const id of toIdList(chats)) set.add(id)
+
+  // me에도 friendlist/blocklist, pendingSent/Recv가 있을 수 있음 → 모두 포함
+  ;[
+    me.friendlist, me.friends, friends
+  ].forEach(list => toIdList(list).forEach(id => set.add(id)))
+  ;[
+    me.blocklist, me.blocks, blocks
+  ].forEach(list => toIdList(list).forEach(id => set.add(id)))
+
+  // 받은/보낸 신청: ID 배열 + 객체 배열 모두 대응
+  const myId = normId(me)
+  ;[
+    me.pendingSent, me.requests?.sent, me.friendRequests?.sent, me.sentRequests, sent
+  ].forEach(list => {
+    toIdList(list).forEach(id => set.add(id))
+    extractOtherIdsFromRequests(list, myId).forEach(id => set.add(id))
+  })
+  ;[
+    me.pendingRecv, me.pendingReceived, me.requests?.received, me.friendRequests?.received, me.receivedRequests, recv
+  ].forEach(list => {
+    toIdList(list).forEach(id => set.add(id))
+    extractOtherIdsFromRequests(list, myId).forEach(id => set.add(id))
+  })
+
+  // 채팅 상대
+  ;[
+    me.chatUserIds, me.recentChatUserIds, me._relations?.chatUserIds, me.chatPartners, me._relations?.chatPartners, chats
+  ].forEach(list => toIdList(list).forEach(id => set.add(id)))
+
+  // 자기 자신
+  if (myId) set.add(myId)
+
   return set
 }
+
 function yyyymmddKST(date = new Date()) {
   const fmt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })
   const parts = fmt.formatToParts(date).reduce((o,p)=>{ o[p.type]=p.value; return o }, {})
@@ -232,18 +304,23 @@ function saveResetState() {
 function recomputeEmergency() {
   const me = currentUser.value
   let baseList = rawEmergencyList.value
-  // 프리체크 제외
-  baseList = Array.isArray(baseList) ? baseList.filter(u => u && u._id && !excludeIds.value.has(String(u._id))) : []
+  // 1차 프리체크 제외(네트워크/동기 타이밍 방어)
+  baseList = Array.isArray(baseList)
+    ? baseList.filter(u => u && u._id && !excludeIds.value.has(String(u._id)))
+    : []
+
+  const extra = Array.from(excludeIds.value)
 
   const selected = applyDistributedSelection(baseList, me, {
     seedDay: reset.value.seedDay,
     viewerId: viewerId.value,
     resetIndex: reset.value.idx,
-    excludeIdsSet: excludeIds.value,
+    excludeIdsSet: excludeIds.value, // 0차 제거
+    // 1차 제거 후 TotalFilter에서도 한 번 더 안전 제거
     applyTotalFilter: (list, meArg) =>
       (APPLY_FILTERS_TO_ME && isEmergencyActive(meArg))
         ? list
-        : applyTotalFilterPremium(list, meArg, { log: false }),
+        : applyTotalFilterPremium(list, meArg, { log: false, extraExcludeIds: extra }),
   })
 
   if (INCLUDE_ME_WHEN_ON && isEmergencyActive(me)) {
@@ -256,12 +333,15 @@ function recomputeEmergency() {
 
 function recomputeTarget() {
   const me = currentUser.value
+  const extra = Array.from(excludeIds.value)
+
   const selected = applyDistributedSelection(rawServerList.value, me, {
     seedDay: reset.value.seedDay,
     viewerId: viewerId.value,
     resetIndex: reset.value.idx,
-    excludeIdsSet: excludeIds.value,
-    applyTotalFilter: applyTotalFilterNormal
+    excludeIdsSet: excludeIds.value, // 0차 제거
+    applyTotalFilter: (list, meArg) =>
+      applyTotalFilterNormal(list, meArg, { log: false, extraExcludeIds: extra }) // 안전 제거 중복 적용
   })
   targetUsers.value = selected
 }
@@ -269,7 +349,8 @@ function recomputeTarget() {
 /* ===== API ===== */
 async function fetchRelations() {
   try {
-    const [friendsRes, blocksRes, sentRes, recvRes, chatsRes] = await Promise.all([
+    const [meRes, friendsRes, blocksRes, sentRes, recvRes, chatsRes] = await Promise.all([
+      api.get('/api/me'),
       api.get('/api/friends'),
       api.get('/api/blocks'),
       api.get('/api/friend-requests/sent'),
@@ -277,15 +358,53 @@ async function fetchRelations() {
       api.get('/api/chatrooms/partners'),
     ])
 
-    const friends     = friendsRes?.data?.ids ?? friendsRes?.data ?? []
-    const blocks      = blocksRes?.data?.ids ?? blocksRes?.data ?? []
-    const pendingSent = sentRes?.data?.pendingIds ?? sentRes?.data ?? []
-    const pendingRecv = recvRes?.data?.pendingIds ?? recvRes?.data ?? []  // ✅ fix: recvRes로 교체
-    const chatUserIds = chatsRes?.data?.ids ?? []
+    // me(자체에 friendlist/blocklist/pending 들 수록)
+    const me = meRes?.data?.user || {}
+    currentUser.value = { ...currentUser.value, ...me }
 
-    excludeIds.value  = buildExcludeIdsSet({ friends, blocks, pendingSent, pendingRecv, chats: chatUserIds })
-    currentUser.value = { ...currentUser.value, chatUserIds }
-  } catch {
+    const myId = normId(me)
+
+    // friends / blocks
+    const friends = friendsRes?.data?.ids ?? friendsRes?.data ?? []
+    const blocks  = blocksRes?.data?.ids  ?? blocksRes?.data  ?? []
+
+    // sent / recv: 다양한 응답 형태에 대응
+    const sentRaw = sentRes?.data?.pendingIds ?? sentRes?.data?.ids ?? sentRes?.data?.list ?? sentRes?.data ?? []
+    const recvRaw = recvRes?.data?.pendingIds ?? recvRes?.data?.ids ?? recvRes?.data?.list ?? recvRes?.data ?? []
+
+    const sentIds = [
+      ...toIdList(sentRaw),
+      ...extractOtherIdsFromRequests(sentRaw, myId),
+    ]
+    const recvIds = [
+      ...toIdList(recvRaw),
+      ...extractOtherIdsFromRequests(recvRaw, myId),
+    ]
+
+    // chats
+    const chatUserIds = chatsRes?.data?.ids ?? chatsRes?.data ?? []
+
+    // 최종 제외 세트 구축 (me 내부 값 + API들 통합)
+    excludeIds.value = buildExcludeIdsSet({
+      me,
+      friends,
+      blocks,
+      sent: sentIds,
+      recv: recvIds,
+      chats: chatUserIds
+    })
+
+    // me에도 보관(필터 내부 collectRelationIdSet이 me.*를 참고)
+    currentUser.value = {
+      ...currentUser.value,
+      chatUserIds,
+      pendingSent: sentIds,
+      pendingRecv: recvIds,
+      friends,
+      blocks
+    }
+  } catch (e) {
+    console.error('❌ 관계 로딩 실패:', e)
     excludeIds.value = new Set()
   }
 }
@@ -319,8 +438,26 @@ const onHeaderToggle = async (next) => {
   if (next) showAdvModal.value = true
   await updateEmergencyState(next)
 }
-const closeAdv = () => { showAdvModal.value = false }
-const onAdvDidDismiss = () => { showAdvModal.value = false }
+function blurActive() {
+  try {
+    const el = document.activeElement
+    if (el && typeof el.blur === 'function') el.blur()
+  } catch {}
+}
+
+const closeAdv = async () => {
+  // 🔑 닫기 전에 포커스 제거 (경고 방지)
+  blurActive()
+  try {
+    // 모달 자체를 먼저 dismiss (상태는 didDismiss에서 false로)
+    await advModal.value?.$el?.dismiss?.()
+  } catch {}
+}
+
+const onAdvDidDismiss = () => {
+  // 실제 상태는 여기서 false로 전환
+  showAdvModal.value = false
+}
 
 async function updateEmergencyState(newState) {
   try {
@@ -524,7 +661,7 @@ onMounted(async () => {
     viewerId.value = String(me?._id || '')
     emergencyOn.value = me?.emergency?.isActive === true
 
-    const levelFromApi = me?.level || me?.user_level || me?.membership || ''
+    const levelFromApi = me?.user_level || me?.level || me?.membership || ''
     viewerLevel.value = String(levelFromApi || '').trim()
     const premiumBool = me?.isPremium ?? me?.premium ?? (viewerLevel.value === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
@@ -532,7 +669,7 @@ onMounted(async () => {
     // 통합 리셋 상태 로드
     loadResetState()
 
-    // 관계 로딩
+    // 관계 로딩 (me + 각 API에서 robust하게 추출)
     await fetchRelations()
 
     // 카운트다운 복원

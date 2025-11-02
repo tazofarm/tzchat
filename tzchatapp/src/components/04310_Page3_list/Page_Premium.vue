@@ -1,117 +1,121 @@
+<!-- src/components/.../Page_Receive.vue -->
 <!-- 받은 친구 신청 전용 페이지 - 중첩 안전 고정 헤더(A안 의미 유지: 헤더 고정 + 본문 스크롤은 상위가 담당) -->
 <template>
-  <!-- ✅ 상단 고정 헤더: slot="fixed"로 상위 IonContent 위에 고정 
-  
-  <ion-header translucent="true" slot="fixed">
-    <ion-toolbar>
-      <div class="section-header" role="heading" aria-level="2">
-        <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
-        <h3 class="section-title">
-          받은 친구 신청
-          <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
-        </h3>
-      </div>
-    </ion-toolbar>
-  </ion-header>
-  -->
+  <!-- ✅ 단일 루트로 감싸서 프래그먼트 루트 제거 -->
+  <div class="receive-only-page">
+    <!-- ✅ 상단 고정 헤더: slot="fixed"로 상위 IonContent 위에 고정 
+    <ion-header translucent="true" slot="fixed">
+      <ion-toolbar>
+        <div class="section-header" role="heading" aria-level="2">
+          <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
+          <h3 class="section-title">
+            받은 친구 신청
+            <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
+          </h3>
+        </div>
+      </ion-toolbar>
+    </ion-header>
+    -->
 
-  <!-- ✅ 본문: 상위 IonContent가 스크롤을 관리 -->
-       <div class="section-header" role="heading" aria-level="2">
-        <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
-        <h3 class="section-title">
-          받은 친구 신청
-          <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
-        </h3>
-      </div>
-  <div class="receive-only-wrapper">
-    <UserList
-      :key="usersKey"
-      :users="users"
-      :isLoading="isLoading"
-      :viewer-level="viewerLevel"
-      :is-premium="isPremium"
-      emptyText="받은 친구 신청이 없습니다."
-      @select="u => goToUserProfile(u._id)"
-    >
-      <template #item-actions="{ user }">
-        <ion-button
-          size="default"
-          color="primary"
-          class="btn-gold-solid"
-          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
-          @click.stop="onIntroClick(reqByUserId[user._id])"
-        >인사말</ion-button>
+    <!-- ✅ 본문: 상위 IonContent가 스크롤을 관리 -->
+    <div class="section-header" role="heading" aria-level="2">
+      <ion-icon :icon="icons.mailOpenOutline" class="section-icon" aria-hidden="true" />
+      <h3 class="section-title">
+        받은 친구 신청
+        <span class="count">({{ pendingCount }} / {{ receiveLimit }})</span>
+      </h3>
+    </div>
 
-        <ion-button
-          size="default"
-          color="success"
-          class="btn-gold-solid"
-          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
-          @click.stop="onAcceptClick(reqByUserId[user._id]?._id)"
-        >수락</ion-button>
+    <div class="receive-only-wrapper">
+      <UserList
+        :key="usersKey"
+        :users="users"
+        :isLoading="isLoading"
+        :viewer-level="viewerLevelResolved"
+        :is-premium="isPremiumResolved"
+        emptyText="받은 친구 신청이 없습니다."
+        @select="u => goToUserProfile(u._id)"
+      >
+        <template #item-actions="{ user }">
+          <ion-button
+            size="default"
+            color="primary"
+            class="btn-gold-solid"
+            :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
+            @click.stop="onIntroClick(reqByUserId[user._id])"
+          >인사말</ion-button>
 
-        <ion-button
-          size="default"
-          color="medium"
-          class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
-          @click.stop="onRejectClick(reqByUserId[user._id]?._id)"
-        >거절</ion-button>
+          <ion-button
+            size="default"
+            color="success"
+            class="btn-gold-solid"
+            :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
+            @click.stop="onAcceptClick(reqByUserId[user._id]?._id)"
+          >수락</ion-button>
 
-        <ion-button
-          size="default"
-          color="danger"
-          class="btn-gold-outline"
-          :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
-          @click.stop="onBlockClick(reqByUserId[user._id]?._id)"
-        >차단</ion-button>
-      </template>
-    </UserList>
+          <ion-button
+            size="default"
+            color="medium"
+            class="btn-gold-outline"
+            :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
+            @click.stop="onRejectClick(reqByUserId[user._id]?._id)"
+          >거절</ion-button>
 
-    <!-- ✅ 인사말 모달 -->
-    <ion-modal :is-open="introModal.open" @didDismiss="closeIntro">
-      <ion-header translucent>
-        <ion-toolbar>
-          <ion-title>인사말</ion-title>
-          <ion-buttons slot="end">
-            <ion-button @click="closeIntro">닫기</ion-button>
-          </ion-buttons>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ion-padding">
-        <div class="intro-meta" v-if="introModal.req">
-          <div class="intro-row">
-            <span class="label">보낸 사람</span>
-            <span class="value">{{ introFromName }}</span>
+          <ion-button
+            size="default"
+            color="danger"
+            class="btn-gold-outline"
+            :disabled="!reqByUserId[user._id] || isBusy(reqByUserId[user._id]?._id)"
+            @click.stop="onBlockClick(reqByUserId[user._id]?._id)"
+          >차단</ion-button>
+        </template>
+      </UserList>
+
+      <!-- ✅ 인사말 모달 -->
+      <ion-modal :is-open="introModal.open" @didDismiss="closeIntro">
+        <ion-header translucent>
+          <ion-toolbar>
+            <ion-title>인사말</ion-title>
+            <ion-buttons slot="end">
+              <ion-button @click="closeIntro">닫기</ion-button>
+            </ion-buttons>
+          </ion-toolbar>
+        </ion-header>
+        <ion-content class="ion-padding">
+          <div class="intro-meta" v-if="introModal.req">
+            <div class="intro-row">
+              <span class="label">보낸 사람</span>
+              <span class="value">{{ introFromName }}</span>
+            </div>
+            <div class="intro-row">
+              <span class="label">요청 ID</span>
+              <span class="value mono">{{ introModal.req._id }}</span>
+            </div>
           </div>
-          <div class="intro-row">
-            <span class="label">요청 ID</span>
-            <span class="value mono">{{ introModal.req._id }}</span>
+          <div class="intro-block">
+            <div class="intro-title">메시지</div>
+            <div class="intro-text" v-if="introText" v-text="introText" />
+            <div class="intro-empty" v-else>인사말 메시지가 없습니다.</div>
           </div>
-        </div>
-        <div class="intro-block">
-          <div class="intro-title">메시지</div>
-          <div class="intro-text" v-if="introText" v-text="introText" />
-          <div class="intro-empty" v-else>인사말 메시지가 없습니다.</div>
-        </div>
-        <div class="intro-actions">
-          <ion-button expand="block" @click="copyIntro" :disabled="!introText">복사</ion-button>
-          <ion-button expand="block" color="success" @click="acceptFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">수락</ion-button>
-          <ion-button expand="block" color="medium" @click="rejectFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">거절</ion-button>
-          <ion-button expand="block" color="danger" @click="blockFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">차단</ion-button>
-        </div>
-      </ion-content>
-    </ion-modal>
+          <div class="intro-actions">
+            <ion-button expand="block" @click="copyIntro" :disabled="!introText">복사</ion-button>
+            <ion-button expand="block" color="success" @click="acceptFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">수락</ion-button>
+            <ion-button expand="block" color="medium" @click="rejectFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">거절</ion-button>
+            <ion-button expand="block" color="danger" @click="blockFromIntro" :disabled="!introModal.req || isBusy(introModal.req._id)">차단</ion-button>
+          </div>
+        </ion-content>
+      </ion-modal>
 
-    <!-- ✅ Toast(오버레이) -->
-    <ion-toast
-      :is-open="toastState.open"
-      :message="toastState.message"
-      :color="toastState.color"
-      duration="1600"
-      position="top"
-      @didDismiss="toastState.open = false"
-    />
+      <!-- ✅ Toast(오버레이) -->
+      <ion-toast
+        :is-open="toastState.open"
+        :message="toastState.message"
+        :color="toastState.color"
+        duration="1600"
+        position="top"
+        @didDismiss="toastState.open = false"
+      />
+    </div>
   </div>
 </template>
 
@@ -126,8 +130,15 @@ import {
 } from '@ionic/vue'
 import { mailOpenOutline } from 'ionicons/icons'
 
-const receiveLimit = ref(20)
+/* ===== props / emits ===== */
+const props = defineProps({
+  viewerLevel: { type: [String], default: '' },
+  isPremium:   { type: [Boolean, String], default: false },
+})
+const emit = defineEmits(['openReceive', 'closeReceive'])
 
+/* ===== 상수/라우터 ===== */
+const receiveLimit = ref(20)
 const router = useRouter()
 const icons = { mailOpenOutline }
 
@@ -136,9 +147,15 @@ const users = ref([])
 const isLoading = ref(true)
 const receivedRequests = ref([])
 
-/* 프리미엄 표시 전달 */
-const viewerLevel = ref('')
-const isPremium   = ref(false)
+/* 프리미엄 표시: props 우선, 없으면 API fallback */
+const _viewerLevel = ref(String(props.viewerLevel || ''))
+const _isPremium   = ref(
+  typeof props.isPremium === 'string'
+    ? ['true','1','yes','y','프리미엄회원','premium','premium_member','prem'].includes(String(props.isPremium).toLowerCase())
+    : Boolean(props.isPremium)
+)
+const viewerLevelResolved = computed(() => _viewerLevel.value || '')
+const isPremiumResolved   = computed(() => !!_isPremium.value)
 
 /* 배지 브로드캐스트 */
 function updateBadge() {
@@ -311,21 +328,28 @@ function blockFromIntro(){ if(introModal.value.req) onBlockClick(introModal.valu
 
 /* 초기 로딩 */
 onMounted(async ()=>{
+  emit('openReceive') // 부모 리스너 허용
   window.addEventListener('friends:requestState', onRequestState)
   try{
     isLoading.value=true
-    // 뷰어 등급/프리미엄
+    // 뷰어 등급/프리미엄 (props → API 순서로 보정)
     try{
       const me=(await api.get('/api/me')).data?.user||{}
       const levelFromApi = me?.level || me?.user_level || me?.membership || ''
-      viewerLevel.value = String(levelFromApi||'').trim()
-      const premiumBool = me?.isPremium ?? me?.premium ?? (String(levelFromApi||'').trim()==='프리미엄회원')
-      isPremium.value = Boolean(premiumBool)
+      if(!_viewerLevel.value) _viewerLevel.value = String(levelFromApi||'').trim()
+      const premiumBool = me?.isPremium ?? me?.premium ?? (_viewerLevel.value==='프리미엄회원')
+      // props가 false로 왔더라도 API가 true면 true로 승격
+      _isPremium.value = _isPremium.value || Boolean(premiumBool)
     }catch{
-      const lv=(localStorage.getItem('user_level')||localStorage.getItem('level')||'').trim().toLowerCase()
-      viewerLevel.value=lv
-      const boolish=(localStorage.getItem('isPremium')||'').trim().toLowerCase()
-      isPremium.value=['프리미엄회원','premium','premium_member','prem'].includes(lv)||['true','1','yes','y'].includes(boolish)
+      if(!_viewerLevel.value){
+        const lv=(localStorage.getItem('user_level')||localStorage.getItem('level')||'').trim().toLowerCase()
+        _viewerLevel.value=lv
+      }
+      if(!_isPremium.value){
+        const boolish=(localStorage.getItem('isPremium')||'').trim().toLowerCase()
+        _isPremium.value=['프리미엄회원','premium','premium_member','prem'].includes(_viewerLevel.value)
+                          || ['true','1','yes','y'].includes(boolish)
+      }
     }
 
     const res = await api.get('/api/friend-requests/received')
@@ -348,19 +372,28 @@ onMounted(async ()=>{
     updateBadge()
   }
 })
-onUnmounted(()=>{ window.removeEventListener('friends:requestState', onRequestState) })
+onUnmounted(()=>{
+  emit('closeReceive') // 부모 리스너 허용
+  window.removeEventListener('friends:requestState', onRequestState)
+})
 watch(()=>receivedRequests.value.length, ()=>updateBadge())
 </script>
 
 <style scoped>
 :root, :host{ --bg:#0b0b0d; --text:#d7d7d9; --gold:#d4af37; --gold-weak:#e6c964; --gold-strong:#b18f1a; }
 
+/* 페이지 루트 */
+.receive-only-page{
+  background: var(--bg);
+  color: var(--text);
+}
+
 /* 상단 헤더 카드 */
 .section-header{
   display:flex; align-items:center; gap:10px;
-  padding:8px 10px; margin:0px 10px 8px 10px;
+  padding:8px 10px; margin:0px 10px 0px 10px;
   border-left:4px solid var(--gold);
-  background:#ee4f4f; border-radius:10px;
+  background:#000000; border-radius:10px;
   box-shadow: inset 0 0 0 1px rgba(212,175,55,.08);
 }
 .section-title{
@@ -374,8 +407,8 @@ watch(()=>receivedRequests.value.length, ()=>updateBadge())
 .receive-only-wrapper{
   color:var(--text);
   background:var(--bg);
-  /* 고정 헤더 만큼 내려놓기 */
-  padding-top: calc(px + var(--ion-safe-area-top, 0px));
+  /* 고정 헤더 만큼 내려놓기 (오타 수정: px → 8px) */
+  padding-top: calc(8px + var(--ion-safe-area-top, 0px));
 
   /* 세로 가운데 정렬 방지: 항상 위에서부터 시작 */
   display: flex;
@@ -388,7 +421,6 @@ watch(()=>receivedRequests.value.length, ()=>updateBadge())
   width: 100%;
   margin: 0;
 }
-
 
 /* 액션 버튼 스타일 */
 .btn-gold-solid,

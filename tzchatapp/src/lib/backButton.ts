@@ -1,90 +1,72 @@
 // src/lib/backButton.ts
-// Android(하드웨어) 뒤로가기 처리 - Ionic/Capacitor/웹 공통 안전 가드 포함
-import { useBackButton, useIonRouter, modalController, actionSheetController, popoverController, alertController } from '@ionic/vue'
-import { useRouter } from 'vue-router'
-import { App } from '@capacitor/app'
+// ✅ Android(하드웨어) 뒤로가기 처리 - Ionic 컨텍스트(navManager/useBackButton) 비의존 안전 버전
+import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
-let registered = false
+let removeListener: (() => void) | null = null
 
 export function setupAndroidBackButton() {
-  if (registered) return
-  registered = true
+  // SSR/테스트 환경 가드
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  // 중복 등록 방지
+  if (removeListener) return
 
-  const ionRouter = safeUseIonRouter()
-  const vueRouter = safeUseVueRouter()
-
-  // 우선순위 10: 앱 전역 기본 핸들러보다 먼저 개입
-  useBackButton(10, async (processNextHandler) => {
-    // 1) Ionic 내부 스택에 이전 화면이 있으면 뒤로
-    if (ionRouter && ionRouter.canGoBack()) {
-      ionRouter.back()
+  const handler = async () => {
+    // 1) 열린 오버레이(ion-modal/ion-alert/ion-action-sheet/ion-popover) 우선 닫기
+    const overlay = document.querySelector<HTMLElement>(
+      'ion-modal, ion-alert, ion-action-sheet, ion-popover'
+    ) as any
+    if (overlay && typeof overlay.dismiss === 'function') {
+      try { await overlay.dismiss() } catch {}
       return
     }
 
-    // 2) Vue Router 히스토리가 있으면 뒤로
-    if (vueRouter && window.history.length > 1) {
-      vueRouter.back()
+    // 2) 입력 포커스 해제(키보드 닫기)
+    const active = document.activeElement as HTMLElement | null
+    if (active && (
+      active.tagName === 'INPUT' ||
+      active.tagName === 'TEXTAREA' ||
+      (active as any).isContentEditable
+    )) {
+      try { (active as HTMLInputElement).blur?.() } catch {}
       return
     }
 
-    // 3) 오버레이(모달/액션시트/팝오버/알럿)가 열려 있으면 닫기
-    //    (Ionic은 뒤로가기 시 오버레이 우선 닫는 UX가 일반적)
-    const topModal = await modalController.getTop()
-    if (topModal) {
-      await topModal.dismiss()
-      return
-    }
-    const topSheet = await actionSheetController.getTop()
-    if (topSheet) {
-      await topSheet.dismiss()
-      return
-    }
-    const topPopover = await popoverController.getTop()
-    if (topPopover) {
-      await topPopover.dismiss()
-      return
-    }
-    const topAlert = await alertController.getTop()
-    if (topAlert) {
-      await topAlert.dismiss()
-      return
-    }
-
-    // 4) 기타 사용자 정의 핸들러에게 기회 제공
-    try {
-      processNextHandler()
-    } catch {
-      // no-op
-    }
-
-    // 5) 더 이상 갈 곳이 없으면 (앱 루트) → 안드로이드 홈으로 나가기(네이티브)
-    if (Capacitor.isNativePlatform()) {
-      App.exitApp()
-      return
-    }
-
-    // 6) 웹 환경 안전 가드: 마지막 시도로 브라우저 히스토리 뒤로
+    // 3) 브라우저 히스토리가 있으면 뒤로가기
     if (window.history.length > 1) {
       window.history.back()
+      return
+    }
+
+    // 4) 네이티브 환경이면 앱 종료(안드로이드 관례)
+    if (Capacitor.isNativePlatform()) {
+      try { CapApp.exitApp() } catch {}
+      return
+    }
+    // 5) 웹 환경이면 no-op (루트)
+  }
+
+  // Capacitor v5: backButton 이벤트 구독
+  CapApp.addListener('backButton', handler).then((rm) => {
+    removeListener = () => {
+      try { rm.remove() } catch {}
+      removeListener = null
+    }
+  }).catch(() => {
+    // 이벤트 바인딩 실패 시 브라우저 fallback: history popstate에 가볍게 연결(선택)
+    const onKey = (e: KeyboardEvent) => {
+      // 데스크톱 디버깅용: Alt+Left = 뒤로
+      if (e.altKey && e.key === 'ArrowLeft') handler()
+    }
+    window.addEventListener('keydown', onKey)
+    removeListener = () => {
+      window.removeEventListener('keydown', onKey)
+      removeListener = null
     }
   })
 }
 
-function safeUseIonRouter(): ReturnType<typeof useIonRouter> | null {
-  try {
-    const r = useIonRouter()
-    return r ?? null
-  } catch {
-    return null
-  }
-}
-
-function safeUseVueRouter() {
-  try {
-    const r = useRouter()
-    return r ?? null
-  } catch {
-    return null
-  }
+export function teardownAndroidBackButton() {
+  try { removeListener?.() } catch {}
+  removeListener = null
 }
