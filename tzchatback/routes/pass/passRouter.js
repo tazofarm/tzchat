@@ -5,7 +5,6 @@
 // - ALL  /callback
 // - GET  /status
 // - GET  /route
-// ⚠️ 수동 입력: passManualRouter.js
 
 const express = require('express');
 const router = express.Router();
@@ -38,7 +37,6 @@ function normalizePhoneKR(raw = '') {
 }
 
 function resolvePostMessageTarget() {
-  // 필요 시 환경변수로 강제 오버라이드 가능
   if (process.env.PASS_POSTMSG_ORIGIN) return process.env.PASS_POSTMSG_ORIGIN;
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProd) {
@@ -61,9 +59,9 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
-/* =========================
+/* =========================================================
  * 1) PASS 시작
- * =======================*/
+ * =======================================================*/
 router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
 
 router.all('/start', async (req, res) => {
@@ -108,9 +106,9 @@ router.all('/start', async (req, res) => {
   }
 });
 
-/* =========================
- * 2) PASS 콜백 (한 종류의 응답만: PASS_RESULT)
- * =======================*/
+/* =========================================================
+ * 2) PASS 콜백
+ * =======================================================*/
 const raw = express.raw({ type: '*/*', limit: '1mb' });
 
 function popupCloseHtml(payload, targetOrigin) {
@@ -127,7 +125,6 @@ function popupCloseHtml(payload, targetOrigin) {
       if (window.opener && typeof window.opener.postMessage === 'function') {
         window.opener.postMessage(data, ${origin});
       }
-      // 항상 폴백 저장
       try { localStorage.setItem('PASS_RESULT_FALLBACK', JSON.stringify(data)); } catch (e) {}
     } catch (e) { /* noop */ }
   } catch(e) { /* noop */ }
@@ -135,6 +132,40 @@ function popupCloseHtml(payload, targetOrigin) {
 })();
 </script>
 완료
+</body></html>`;
+}
+
+// 🔎 잘못 들어온 "시작 폼"을 감지(RESULT_CODE 없음 + dnData/BackURL 등)
+function looksLikeStartForm(form = {}) {
+  const keys = Object.keys(form || {}).map(k => k.toLowerCase());
+  const hasStartKeys = ['dndata', 'backurl'].some(k => keys.includes(k));
+  const hasResult = keys.includes('result_code') || keys.includes('resultcode');
+  return hasStartKeys && !hasResult;
+}
+
+// 🔁 wauth Start.php로 서버에서 릴레이(자동 제출)
+function relayToWauthHtml(form = {}) {
+  const WAUTH_URL =
+    process.env.PASS_WAUTH_URL ||
+    'https://wauth.teledit.com/v1.0/Start.php';
+
+  // form key/value를 그대로 보존하여 wauth로 전달
+  const inputs = Object.entries(form)
+    .map(([k, v]) => {
+      const name = String(k);
+      const val = v == null ? '' : String(v);
+      const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      return `<input type="hidden" name="${esc(name)}" value="${esc(val)}">`;
+    })
+    .join('\n');
+
+  return `<!doctype html>
+<html><head><meta charset="euc-kr"><title>Relay to WAuth</title></head>
+<body>
+<form id="wauth" action="${WAUTH_URL}" method="post" accept-charset="euc-kr">
+${inputs}
+</form>
+<script>document.getElementById('wauth').submit();</script>
 </body></html>`;
 }
 
@@ -157,6 +188,13 @@ router.all('/callback', raw, async (req, res) => {
     form = { ...(req.query || {}), ...(form || {}) };
     const parsedKeys = Object.keys(form || {});
     console.log('[PASS/CB][PARSED.keys]', parsedKeys);
+
+    // ✅ A안: 시작폼이 잘못 우리 콜백으로 들어온 경우 → wauth 로 릴레이하여 정상 플로우 복구
+    if (looksLikeStartForm(form)) {
+      console.warn('[PASS/CB][EARLY_START_POST] Start-form hit our callback. Relaying to wauth.');
+      res.set('Content-Type', 'text/html; charset=euc-kr');
+      return res.status(200).send(relayToWauthHtml(form));
+    }
 
     stage = 'MIN_CHECK';
     const { ok: minOk, fields: minFields, missing } = validateMinimalFields(form);
@@ -281,9 +319,9 @@ router.all('/callback', raw, async (req, res) => {
   }
 });
 
-/* =========================
+/* =========================================================
  * 3) 상태 조회
- * =======================*/
+ * =======================================================*/
 router.get('/status', async (req, res) => {
   try {
     const { txId } = req.query;
@@ -330,9 +368,9 @@ router.get('/status', async (req, res) => {
   }
 });
 
-/* =========================
+/* =========================================================
  * 4) 분기
- * =======================*/
+ * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
     const { txId } = req.query;
