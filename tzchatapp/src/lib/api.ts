@@ -35,13 +35,11 @@ function joinUrl(base: string, path: string) {
 // ✅ '/api' 가 실수로 섞인 base 값을 항상 제거
 function removeApiSuffix(u: string): string {
   if (!u) return u
-  // 절대 URL일 때는 URL 파서로 안전하게 처리
   try {
     const url = new URL(u)
     url.pathname = url.pathname.replace(/\/api\/?$/i, '')
     return stripTrailingSlashes(url.origin + url.pathname)
   } catch {
-    // 상대/경로 문자열일 때
     return stripTrailingSlashes(u.replace(/\/api\/?$/i, ''))
   }
 }
@@ -58,9 +56,7 @@ function computeBaseURL(): string {
   const raw = String(VITE_API_BASE_URL || '').trim()
 
   if (raw) {
-    // 1) 절대 URL
     if (isHttpAbs(raw)) return removeApiSuffix(raw)
-    // 2) 상대 경로(.env에 '/api' 등) → origin과 병합 후 '/api' 제거
     try {
       const origin = `${window.location.protocol}//${window.location.host}`
       return removeApiSuffix(joinUrl(origin, raw))
@@ -69,7 +65,6 @@ function computeBaseURL(): string {
     }
   }
 
-  // 3) ENV 미설정 → 현재 오리진 또는 로컬 폴백
   let origin = ''
   try { origin = `${window.location.protocol}//${window.location.host}` } catch {}
   const fallback = origin || 'http://localhost:2000'
@@ -141,7 +136,26 @@ function extractWalletFromResponse(res: AxiosResponse): any | null {
   return hasAny ? wFromHeader : null
 }
 
-// 요청 인터셉터: 토큰 부착
+// ------------------ 공개 API 화이트리스트 ------------------
+// 비로그인 허용 API(401이어도 리다이렉트 금지)
+const PUBLIC_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/login(?:$|\/)/,
+  /^\/api\/logout(?:$|\/)/,
+  /^\/api\/userinfo(?:$|\/)/,        // ✅ userinfo 프로브
+  /^\/api\/me(?:$|\/)/,              // 일부 화면의 기존 호출 호환
+  /^\/api\/terms(?:$|\/)/,
+  /^\/api\/health(?:$|\/)/,
+  /^\/api\/auth\/pass(?:$|\/)/,      // ✅ PASS 전 구간( start/status/route/callback )
+  /^\/api\/signup(?:$|\/)/,          // 회원가입
+]
+export function isPublicApiPath(url: string): boolean {
+  try {
+    const p = String(url || '')
+    return PUBLIC_PATH_PATTERNS.some(rx => rx.test(p))
+  } catch { return false }
+}
+
+// ---------------- 요청 인터셉터: 토큰 부착 ----------------
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAuthToken()
   if (token) {
@@ -154,7 +168,6 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // ✅ 응답 인터셉터: wallet 변화 브로드캐스트 + 401/423 처리 + 로깅
 api.interceptors.response.use(
   (res: AxiosResponse) => {
-    // 지갑 변화가 응답에 포함되면 전역 이벤트로 통지 → main.ts에서 Pinia 반영
     const w = extractWalletFromResponse(res)
     if (w) emitWalletUpdate(w)
     return res
@@ -165,15 +178,9 @@ api.interceptors.response.use(
     const code = data?.code || data?.errorCode
     const url = (err.config as any)?.url || ''
 
-    // 🔹 공개 API 예외 처리
-    //    ↳ '/api/me' 포함: 공개 페이지에서도 호출 가능하지만 401이면 리다이렉트 금지
-    const isPublic =
-      url.startsWith('/api/terms/') ||
-      url.startsWith('/api/login') ||
-      url.startsWith('/api/health') ||
-      url.startsWith('/api/me')
+    const isPublic = isPublicApiPath(url)
 
-    // 401: 인증 만료/부재 → 로그인으로
+    // 401: 인증 만료/부재 → 보호 API에서만 로그인 유도
     if (status === 401 && !isPublic) {
       const current = window.location.pathname + window.location.search
       safeRedirect(`/login?redirect=${encodeURIComponent(current)}`)
@@ -184,7 +191,6 @@ api.interceptors.response.use(
       safeRedirect('/account/deletion-pending')
     }
 
-    // (공통) 에러 로깅
     console.warn('[HTTP][ERR]', {
       status,
       url,
@@ -237,22 +243,31 @@ export const auth = {
     return res
   },
   me() { return api.get('/api/me') },
+
+  // ✅ 비로그인 판별용(200 OK + loggedIn 여부만)
+  userinfo() { return api.get('/api/userinfo') },
+
   async logout() {
     try { await api.post('/api/logout') } finally { clearAuthToken() }
   },
 }
 
-// ------------------ 약관/동의/관리자 API ----------------
-// ✅ 서버(routes/legal/termsPublicRouter.js) 스펙에 맞춤.
-// 문서 조회(terms)와 동의 저장(consents)을 /api/terms 하위로 통일.
+// ✅ 라우터 등에서 손쉽게 사용할 수 있는 인증 프로브
+export async function probeAuth() {
+  try {
+    const { data } = await auth.userinfo()
+    return !!(data?.ok && data?.loggedIn)
+  } catch {
+    return false
+  }
+}
 
-// 활성 문서 (조회)
+// ------------------ 약관/동의/관리자 API ----------------
 export const getActiveTerms = () => http.get('/api/terms/active')
 export const getActiveTermBySlug = (slug: string) => {
   const s = encodeURIComponent(String(slug || ''))
   return http.get(`/api/terms/${s}/active`)
 }
-// 버전 목록 (조회)
 export const getTermVersions = (slug: string) => {
   const s = encodeURIComponent(String(slug || ''))
   return http.get(`/api/terms/${s}/versions`)
@@ -264,13 +279,11 @@ export type AgreementStatusResponse = { data: { pending: PendingConsentItem[] } 
 
 /**
  * AgreementPage용 상태 조회
- * ✅ 1순위: /api/terms/agreements/status (정확한 pending만 제공)
- * 🔁 폴백1: /agreements/list 에서 pending === true 인 항목만 사용
- * 🔁 폴백2: 구버전(/require-consent + /active) 조합
- * 반환 형식(고정): { data: { pending: PendingConsentItem[] } }
+ * ✅ 1순위: /api/terms/agreements/status
+ * 🔁 폴백1: /agreements/list(pending=true)
+ * 🔁 폴백2: /require-consent + /active 조합
  */
 export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => {
-  // 1) 최신 엔드포인트: 정확한 pending
   try {
     const { data } = await http.get('/api/terms/agreements/status')
     const pending: PendingConsentItem[] = data?.data?.pending ?? []
@@ -279,23 +292,17 @@ export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => 
     console.warn('[agreements] status 미가용 → list로 폴백')
   }
 
-  // 2) 폴백1: list 사용 + pending=true 필터
   try {
     const { data } = await http.get('/api/terms/agreements/list')
     const items: any[] = data?.data?.items ?? []
     const pending: PendingConsentItem[] = items
       .filter(i => i?.pending === true)
-      .map(i => ({
-        slug: i.slug,
-        title: i.title,
-        isRequired: !!(i.isRequired ?? i.defaultRequired),
-      }))
+      .map(i => ({ slug: i.slug, title: i.title, isRequired: !!(i.isRequired ?? i.defaultRequired) }))
     return { data: { pending } }
   } catch (e) {
     console.warn('[agreements] list 미가용 → require-consent로 폴백')
   }
 
-  // 3) 폴백2: 구버전(필수만 표시됨)
   const [reqRes, actRes] = await Promise.all([
     http.get('/api/terms/require-consent'),
     http.get('/api/terms/active'),
@@ -314,8 +321,8 @@ export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => 
 
 /**
  * 다건 동의 저장
- * ✅ 1순위: /api/terms/agreements/accept 배치 저장
- * 🔁 폴백: slug별 활성버전 조회 후 /api/terms/consents 개별 저장
+ * ✅ 1순위: /api/terms/agreements/accept
+ * 🔁 폴백: slug 활성버전 조회 후 /api/terms/consents 개별 저장
  */
 export const acceptAgreements = async (slugs: string[]) => {
   try {
