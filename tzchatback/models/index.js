@@ -14,8 +14,8 @@ require('./Legal/UserAgreement');  //역할: 버전관리
 require('./membership/MembershipOrder');  //역할: 멤버십 결제내역 (등급 구매 기록)
 
 //Pass
-require('./Pass/PassResult');  //역할: 멤버십 결제내역 (등급 구매 기록)
-
+require('./Pass/PassResult');  //역할: 1회성 pass값
+require('./Pass/PassIdentity');  //역할: pass 저장되는값
 
 //Payment
 require('./Payment/Payment');  //역할: 결제 / 구독 모델 뼈대
@@ -54,7 +54,7 @@ module.exports = {
 
   //Pass
   PassResult: mongoose.model('PassResult'),
-
+  PassIdentity: mongoose.model('PassIdentity'),
 
   //Social
   FriendRequest: mongoose.model('FriendRequest'),

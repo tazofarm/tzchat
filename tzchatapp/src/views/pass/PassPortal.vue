@@ -109,6 +109,21 @@ const isNative = Capacitor.isNativePlatform();
 // ✅ 웹(브라우저)에서만 localhost 판단
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
+// ────────────────────────────────────────────────────────────
+// 보조 유틸: PASS 관련 키 정리 (서버 소모형과 별개로 프론트 찌꺼기 제거)
+// ────────────────────────────────────────────────────────────
+function clearPassKeys() {
+  try {
+    sessionStorage.removeItem('passTxId');
+    sessionStorage.removeItem('pass.intent');
+  } catch {}
+  try {
+    localStorage.removeItem('PASS_RESULT_TX');
+    localStorage.removeItem('PASS_FAIL');
+    localStorage.removeItem('PASS_FAIL_DETAIL');
+  } catch {}
+}
+
 // postMessage 수신(성공/실패)
 function handlePostMessage(ev) {
   try {
@@ -128,6 +143,7 @@ function handlePostMessage(ev) {
         } catch {}
       }
       stopPopupAndPoll();
+      clearPassKeys();
       mode.value = 'fail';
       busy.value = false;
       return;
@@ -156,6 +172,7 @@ function handleStorage(ev) {
         localStorage.removeItem('PASS_FAIL_DETAIL');
       } catch {}
       stopPopupAndPoll();
+      clearPassKeys();
       mode.value = 'fail';
       busy.value = false;
       return;
@@ -194,6 +211,7 @@ function startHeartbeat() {
             localStorage.removeItem('PASS_FAIL_DETAIL');
           } catch {}
           stopPopupAndPoll();
+          clearPassKeys();
           mode.value = 'fail';
           busy.value = false;
         }
@@ -216,7 +234,15 @@ function startStatusPolling(txId) {
       try { j = JSON.parse(t); } catch { return; }
       if (!j?.ok) return;
 
-      if (j.status === 'fail') {
+      if (j.status === 'consumed') {
+        // 서버에서 이미 소모됨 → 재시작 유도
+        stopPopupAndPoll();
+        clearPassKeys();
+        lastFailCode.value = 'CONSUMED';
+        lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
+        mode.value = 'fail';
+        busy.value = false;
+      } else if (j.status === 'fail') {
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
         // ⬇️ 백엔드가 동봉한 상세 사유(예: returnMsg) 반영
         lastFailDetail.value = {
@@ -224,6 +250,7 @@ function startStatusPolling(txId) {
           message: j?.result?.failMessage || '',
         };
         stopPopupAndPoll();
+        clearPassKeys();
         mode.value = 'fail';
         busy.value = false;
       } else if (j.status === 'success') {
@@ -239,6 +266,9 @@ function startStatusPolling(txId) {
 onMounted(async () => {
   window.addEventListener('message', handlePostMessage);
   window.addEventListener('storage', handleStorage);
+
+  // 진입 시 프론트 찌꺼기 정리(로그아웃/재시작 안전)
+  clearPassKeys();
 
   // 1) URL 쿼리 우선
   const qTx = route.query.txId ? String(route.query.txId) : '';
@@ -311,6 +341,16 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
+    // consumed(410) 대응
+    if (res.status === 410 || j?.code === 'CONSUMED') {
+      clearPassKeys();
+      lastFailCode.value = 'CONSUMED';
+      lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
+      mode.value = 'fail';
+      busy.value = false;
+      return;
+    }
+
     // 서버가 실패를 명시한 경우 그대로 노출
     if (!res.ok || j?.ok === false) {
       lastFailCode.value = j?.code || 'ROUTE_ERROR';
@@ -355,7 +395,7 @@ async function proceedRouteByTx(txId) {
       }
     };
 
-    // ✅ 분기하기 직전, 어느 경우든 회수할 수 있게 저장
+    // ✅ 분기하기 직전 잠깐 저장(페이지 전환 실패시 복구용)
     try {
       sessionStorage.setItem('passTxId', txId);
       localStorage.setItem('PASS_RESULT_TX', txId);
@@ -368,8 +408,9 @@ async function proceedRouteByTx(txId) {
         `/signup${qs}`,
         `/signup${qs}`
       );
-    if (!ok) return;
-
+      if (!ok) return;
+      // 성공 이동 시에도 찌꺼기 제거 (서버는 소모형으로 방어)
+      clearPassKeys();
     } else if (nextRoute === 'templogin') {
       const ok = await safeReplace(
         { name: 'Home' },
@@ -377,6 +418,7 @@ async function proceedRouteByTx(txId) {
         `/`
       );
       if (!ok) return;
+      clearPassKeys();
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
@@ -396,8 +438,6 @@ async function proceedRouteByTx(txId) {
   }
 }
 
-
-
 async function onClickPass() {
   lastFailCode.value = '';
   lastFailDetail.value = null;
@@ -405,6 +445,9 @@ async function onClickPass() {
 
   busy.value = true;
   mode.value = 'running';
+
+  // 시작 전 기존 찌꺼기 제거
+  clearPassKeys();
 
   try {
     // ✅ 앱이면 항상 서버 PASS. 웹에서만 localhost → 수동 PASS
@@ -460,6 +503,7 @@ async function onClickPass() {
 // 🔙 뒤로가기
 function onBack() {
   stopPopupAndPoll();
+  clearPassKeys();
   router.replace('/login');
 }
 </script>

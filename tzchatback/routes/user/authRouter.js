@@ -8,6 +8,7 @@
 // - ✅ 하위호환: /userinfo 추가
 // - 로그 최대화(요청 RAW, 파싱값, 토큰/쿠키 유무, 처리 경로)
 // - ✅ 포인트 연동: /me 호출 시 매일 11:00 KST 하트 자동 지급 + 잔액 동봉
+// - ✅ PASS 연동 강화: PassResult 1회성 소비 + PassIdentity 정본 매핑
 // ------------------------------------------------------
 
 const express = require('express');
@@ -28,9 +29,8 @@ const {
   // legal
   Terms, UserAgreement,
   // pass
-  PassResult,
+  PassResult, PassIdentity,
 } = require('@/models');
-
 
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('@/config/emergency');
 
@@ -156,7 +156,7 @@ async function authFromJwtOrSession(req, res, next) {
 }
 
 // ======================================================
-// 회원가입 (PASS 연동 강화: carrier/phoneVerified/phoneHash 반영 + PassResult 소비 마킹)
+// 회원가입 (PASS 연동 강화: PassIdentity upsert + PassResult 소비)
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -175,22 +175,29 @@ router.post('/signup', async (req, res) => {
     region2  = s(region2);
     passTxId = s(passTxId);
 
-    // ✅ PASS 결과 오버라이드 컨테이너
-    //    (서버가 신뢰하는 값만 사용)
-    let prOverride = null; // { birthyear, gender, phone, ciHash, carrier }
+    // ✅ PASS 결과 오버라이드 컨테이너(서버 신뢰값만 사용)
+    //    { birthyear, gender, phone(E.164), ciHash, diHash, carrier }
+    let prOverride = null;
 
     if (passTxId) {
       const pr = await PassResult.findOne({ txId: passTxId }).lean();
+
       if (!pr || pr.status !== 'success') {
         console.log('[AUTH][ERR]', { step: 'signup', code: 'PASS_TX_INVALID', passTxId });
         return res.status(400).json({ ok: false, message: 'PASS 결과를 확인할 수 없습니다.' });
       }
+      if (pr.consumed === true) {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'PASS_TX_CONSUMED', passTxId });
+        return res.status(410).json({ ok: false, message: '이미 사용된 PASS 토큰입니다.' });
+      }
+
       prOverride = {
         birthyear: Number(pr.birthyear) || null,
         gender: (pr.gender === 'man' || pr.gender === 'woman') ? pr.gender : '',
-        phone: pr.phone || '',                 // E.164
-        ciHash: pr.ciHash || undefined,        // 스파스 유니크
-        carrier: pr.carrier || '',             // 통신사
+        phone: pr.phone || '',
+        ciHash: pr.ciHash || undefined,
+        diHash: pr.diHash || undefined,
+        carrier: pr.carrier || '',
       };
     }
 
@@ -218,12 +225,10 @@ router.post('/signup', async (req, res) => {
     const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
     const finalPhone     = prOverride?.phone     || undefined;
     const finalCiHash    = prOverride?.ciHash    || undefined;
+    const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
 
-    // phoneHash (모델 훅이 없다면 서버에서 보강)
-    const crypto = require('crypto');
-    const phoneHash = finalPhone ? crypto.createHash('sha256').update(String(finalPhone)).digest('hex') : undefined;
-
+    // 사용자 생성
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
@@ -237,15 +242,13 @@ router.post('/signup', async (req, res) => {
         region2,
         last_login: null,
 
-        // PASS 연동 필드
-        phone: finalPhone,
-        phoneHash,                 // 모델 훅이 있으면 중복 저장되어도 무해
-        carrier: finalCarrier,
-        ciHash: finalCiHash,
-        phoneVerifiedAt: finalPhone ? new Date() : undefined,
-        phoneVerifiedBy: finalPhone ? 'pass' : undefined,
+        // PASS 연동 필드(스키마에 없는 필드는 Mongoose strict에 의해 무시됩니다)
+        phone: finalPhone,                 // User 훅에서 E.164 정규화 + phoneHash 자동 생성
+        carrier: finalCarrier,            // (스키마에 있으면 저장, 없으면 무시)
+        ciHash: finalCiHash,              // (참조용; 정본은 PassIdentity)
+        diHash: finalDiHash,              // (참조용)
 
-        // 기본 지급(기존 정책 유지)
+        // 기본 지급(임시 정책)
         heart: 400,
         star: 0,
         ruby: 0,
@@ -263,19 +266,46 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ ok: false, message: '서버 오류' });
     }
 
-    // ✅ PassResult 소비 마킹(있을 때만)
+    // ✅ PassIdentity 정본 매핑 upsert (CI 기준)
+    try {
+      if (finalCiHash) {
+        // phoneHash는 User 훅에서 생성되므로 조회하여 전달(없어도 됨)
+        const fresh = await User.findById(user._id).select('phoneHash').lean();
+        const phoneHash = fresh?.phoneHash || undefined;
+
+        if (typeof PassIdentity?.upsertByCI === 'function') {
+          await PassIdentity.upsertByCI({
+            ciHash: finalCiHash,
+            diHash: finalDiHash,
+            userId: user._id,
+            phoneHash,
+            carrier: finalCarrier,
+          });
+        }
+      }
+    } catch (e) {
+      // 정본 매핑 실패 시 사용자 생성은 유지하되 서버 로그만 남김
+      console.log('[AUTH][WARN] PassIdentity.upsertByCI failed:', e?.message);
+    }
+
+    // ✅ PassResult 1회성 소비(있을 때만)
     if (passTxId && prOverride) {
       try {
-        await PassResult.updateOne(
-          { txId: passTxId },
-          { $set: { consumedByUserId: user._id, consumedAt: new Date() } }
-        );
+        if (typeof PassResult.consumeByTxId === 'function') {
+          await PassResult.consumeByTxId(passTxId, user._id);
+        } else {
+          // 구버전 호환
+          await PassResult.updateOne(
+            { txId: passTxId, consumed: { $ne: true } },
+            { $set: { consumed: true, usedAt: new Date(), usedBy: user._id } }
+          );
+        }
       } catch (e) {
         console.log('[AUTH][WARN] PassResult.consume mark failed:', e?.message);
       }
     }
 
-    // consents 저장(있을 때만) — 기존 로직 유지
+    // ✅ 약관 동의 저장(있을 때만) — 기존 로직 유지
     if (Array.isArray(consents) && consents.length > 0) {
       try {
         const activeConsents = await Terms.find({ isActive: true, kind: 'consent' })
@@ -374,6 +404,10 @@ router.post('/login', async (req, res) => {
         req.session.regenerate(err => (err ? reject(err) : resolve()));
       });
       req.session.user = { _id: user._id, nickname: user.nickname };
+      // PASS 찌꺼기 제거(보조)
+      delete req.session.passTxId;
+      delete req.session.passIntent;
+
       await new Promise((resolve, reject) => {
         req.session.save(err => (err ? reject(err) : resolve()));
       });
@@ -415,6 +449,9 @@ router.post('/logout', async (req, res) => {
     });
 
     if (req.session) {
+      // PASS 세션 찌꺼기 제거
+      delete req.session.passTxId;
+      delete req.session.passIntent;
       await new Promise((resolve) => req.session.destroy(() => resolve()));
     }
 
@@ -437,31 +474,28 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
 
   try {
     // 1) 유저 문서 로드(lean 아님: 지급/저장 필요)
-  const userDoc = await User.findById(userId)
-    .select([
-      'username', 'nickname', 'birthyear', 'gender',
-      'region1', 'region2', 'preference', 'selfintro',
-      'profileImages', 'profileMain', 'profileImage', 'last_login',
-      'user_level', 'refundCountTotal',
-      'search_birthyear1', 'search_birthyear2',
-      'search_region1', 'search_region2', 'search_regions',
-      'search_preference',
-      'search_disconnectLocalContacts', 'search_allowFriendRequests',
-      'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
-      'marriage', 'search_marriage',
-      'friendlist', 'blocklist',
-      'emergency',
-      'role', 'roles',
-      // ✅ 추가: 전화/통신사 및 검증 메타
-      'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
-      // ✅ 포인트 잔액 + 일일지급 기준시각
-      'heart', 'star', 'ruby', 'lastDailyGrantAt',
-      'createdAt', 'updatedAt'
-    ])
-
-    .populate('friendlist', 'username nickname birthyear gender')
-    .populate('blocklist', 'username nickname birthyear gender');
-
+    const userDoc = await User.findById(userId)
+      .select([
+        'username', 'nickname', 'birthyear', 'gender',
+        'region1', 'region2', 'preference', 'selfintro',
+        'profileImages', 'profileMain', 'profileImage', 'last_login',
+        'user_level', 'refundCountTotal',
+        'search_birthyear1', 'search_birthyear2',
+        'search_region1', 'search_region2', 'search_regions',
+        'search_preference',
+        'search_disconnectLocalContacts', 'search_allowFriendRequests',
+        'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
+        'marriage', 'search_marriage',
+        'friendlist', 'blocklist',
+        'emergency',
+        // ✅ 추가: 전화/통신사 및 검증 메타(스키마에 없으면 무시)
+        'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
+        // ✅ 포인트 잔액 + 일일지급 기준시각
+        'heart', 'star', 'ruby', 'lastDailyGrantAt',
+        'createdAt', 'updatedAt'
+      ])
+      .populate('friendlist', 'username nickname birthyear gender')
+      .populate('blocklist', 'username nickname birthyear gender');
 
     if (!userDoc) {
       console.timeEnd('[API][TIMING] GET /api/me');
@@ -648,4 +682,3 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
- 

@@ -106,6 +106,19 @@ import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
 const router = useRouter()
 const route = useRoute()
 
+// ✅ PASS 보조 유틸: 스토리지 키 정리
+function clearPassKeys() {
+  try {
+    sessionStorage.removeItem('passTxId')
+    sessionStorage.removeItem('pass.intent')
+  } catch {}
+  try {
+    localStorage.removeItem('PASS_RESULT_TX')
+    localStorage.removeItem('PASS_FAIL')
+    localStorage.removeItem('PASS_FAIL_DETAIL')
+  } catch {}
+}
+
 // ✅ PASS txId: 쿼리 'txId' 우선, 없으면 'passTxId', 없으면 세션스토리지 폴백
 function readInitialTxId(): string {
   const q1 = typeof route.query.txId === 'string' ? route.query.txId : ''
@@ -211,6 +224,7 @@ function resolveReturn() {
   return (typeof route.query.redirect === 'string' && route.query.redirect) ? (route.query.redirect as string) : '/home/6page'
 }
 function redirectAfterLogin() {
+  clearPassKeys()
   router.replace(resolveReturn())
 }
 
@@ -226,9 +240,9 @@ async function fetchPassStatus() {
   passStatus.value = 'pending'
   try {
     const res = await api.get(`/api/auth/pass/status`, {
-  params: { txId: txId.value },
-  withCredentials: true, // ✅ 쿠키(세션/보안쿠키) 동반
-  })
+      params: { txId: txId.value },
+      withCredentials: true, // ✅ 쿠키(세션/보안쿠키) 동반
+    })
 
     const j = res.data
     if (!j?.ok) throw new Error('PASS 상태 조회 실패')
@@ -247,6 +261,12 @@ async function fetchPassStatus() {
       passStatus.value = 'fail'
       passResult.value = null
       passError.value = (j?.result && j.result.failCode) ? `실패코드: ${j.result.failCode}` : '인증 실패'
+    } else if (j.status === 'consumed') {
+      // ⬅️ 서버가 이미 소모된 PASS 토큰으로 응답
+      passStatus.value = 'fail'
+      passResult.value = null
+      passError.value = '이미 사용된 PASS 토큰입니다. 다시 인증해 주세요.'
+      clearPassKeys()
     } else {
       passStatus.value = 'pending'
       passResult.value = null
@@ -323,6 +343,9 @@ async function onSubmit() {
     const res = await api.post('/api/signup', payload)
     successMsg.value = '회원가입이 완료되었습니다.'
 
+    // ✅ 회원가입 성공 직후, PASS 관련 스토리지 즉시 정리
+    clearPassKeys()
+
     // 2) 자동 로그인
     try {
       await AuthAPI.login({
@@ -347,6 +370,8 @@ async function onSubmit() {
         const status = await api.get('/api/terms/agreements/status')
         const pending = status?.data?.data?.pending || []
         if (Array.isArray(pending) && pending.length > 0) {
+          // 이동 전에도 한 번 더 정리(안전)
+          clearPassKeys()
           router.replace({ name: 'AgreementPagePublic', query: { return: resolveReturn() } })
         } else {
           redirectAfterLogin()
@@ -356,6 +381,7 @@ async function onSubmit() {
       }
     } catch (loginErr: any) {
       console.error('❌ [Auto-Login] failed:', loginErr?.response || loginErr)
+      clearPassKeys()
       router.push('/login')
     }
   } catch (err: any) {

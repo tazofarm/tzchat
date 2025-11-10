@@ -72,6 +72,7 @@
  * - 인터셉터 영향(자동 리다이렉트 등) 없이 /api/me를 '프로브'로 검증
  * - 로그인 응답에서 JWT 토큰 키를 광범위하게 탐색하여 저장(쿠키에 의존X)
  * - 성공/실패를 명확히 메시지로 안내
+ * - ✅ 진입/로그인 시작 시 PASS 스토리지 찌꺼기 정리 (소모형 토큰 재사용 방지)
  */
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -87,6 +88,19 @@ const username = ref<string>('')
 const password = ref<string>('') 
 const message = ref<string>('') 
 const submitting = ref<boolean>(false) 
+
+// ✅ PASS 보조 유틸: 스토리지 키 정리(남은 txId로 잘못 분기되는 현상 예방)
+function clearPassKeys() {
+  try {
+    sessionStorage.removeItem('passTxId')
+    sessionStorage.removeItem('pass.intent')
+  } catch {}
+  try {
+    localStorage.removeItem('PASS_RESULT_TX')
+    localStorage.removeItem('PASS_FAIL')
+    localStorage.removeItem('PASS_FAIL_DETAIL')
+  } catch {}
+}
 
 function redirectTarget() {
   return (typeof route.query.redirect === 'string' && route.query.redirect)
@@ -150,6 +164,9 @@ async function meProbe(): Promise<{ ok: boolean; data?: any; status: number; rea
 
 // 진입 시 세션/JWT 확인(401이면 정상 흐름) — 인터셉터 미사용 프로브
 onMounted(async () => {
+  // ⬅️ 페이지 진입 시 PASS 관련 스토리지 정리(이전 PASS 인증 잔여값 차단)
+  clearPassKeys()
+
   debugBaseURL()
   const probe = await meProbe()
   if (probe.ok) {
@@ -165,6 +182,9 @@ const login = async () => {
   if (submitting.value) return
   submitting.value = true
   message.value = ''
+
+  // ⬅️ 로그인 시작 시에도 한번 더 정리(탭 복귀/새 세션 등 케이스 방어)
+  clearPassKeys()
 
   try {
     const id = (username.value || '').trim()

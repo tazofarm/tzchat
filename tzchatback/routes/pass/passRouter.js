@@ -5,7 +5,7 @@
 // - ALL  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
 // - GET  /status: 상태 조회(폴링)
 // - GET  /route : 분기(signup | templogin)
-//
+// - GET  /result/:txId : 단일 결과 조회(소모 여부 포함; consumed면 410)
 // ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
 const express = require('express');
@@ -13,7 +13,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const qs = require('querystring');
 
-const { PassResult, User } = require('@/models');
+const { PassResult, User, PassIdentity } = require('@/models');
 const danal = require('@/lib/pass/danalClient');
 
 const sha256Hex = (s = '') => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -29,9 +29,10 @@ function normalizePhoneKR(raw = '') {
   let clean = String(raw).replace(/[^\d+]/g, '');
   if (!clean) return '';
   if (clean.startsWith('+0')) clean = '+' + clean.slice(2);
-  if (clean.startsWith('+')) return clean;            // 이미 국제 형식
-  if (clean.startsWith('0')) return '+82' + clean.slice(1); // 010… → +8210…
-  return '+82' + clean;                               // 나머지 가드
+  if (clean.startsWith('+')) return clean;                 // 이미 국제 형식
+  if (clean.startsWith('0')) return '+82' + clean.slice(1);// 010… → +8210…
+  if (clean.startsWith('82')) return '+' + clean;          // 82… → +82…
+  return '+82' + clean;                                    // 나머지 가드
 }
 
 // postMessage 대상 오리진
@@ -135,27 +136,26 @@ PASS 처리 완료. 창을 닫아주세요.
 </body></html>`);
   };
 
-      // reason: 문자열 또는 { code, stage, message, returnMsg, raw } 객체
-      const endFail = (reason) => {
-        const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
-        res.set('Content-Type', 'text/html; charset=utf-8');
-        return res.end(`<!doctype html><html><body>
-    <script>
-    try {
-      const payload = { type: 'PASS_FAIL', reason: ${JSON.stringify(detail.code || 'UNKNOWN')}, detail: ${JSON.stringify(detail)} };
-      if (window.opener) {
-        window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
-      } else {
-        try { localStorage.setItem('PASS_FAIL', String(payload.reason)); } catch(e){}
-        try { localStorage.setItem('PASS_FAIL_DETAIL', JSON.stringify(payload.detail)); } catch(e){}
-      }
-    } catch (e) {}
-    window.close();
-    </script>
-    PASS 실패. 창을 닫아주세요.
-    </body></html>`);
-      };
-
+  // reason: 문자열 또는 { code, stage, message, returnMsg, raw } 객체
+  const endFail = (reason) => {
+    const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><body>
+<script>
+try {
+  const payload = { type: 'PASS_FAIL', reason: ${JSON.stringify(detail.code || 'UNKNOWN')}, detail: ${JSON.stringify(detail)} };
+  if (window.opener) {
+    window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
+  } else {
+    try { localStorage.setItem('PASS_FAIL', String(payload.reason)); } catch(e){}
+    try { localStorage.setItem('PASS_FAIL_DETAIL', JSON.stringify(payload.detail)); } catch(e){}
+  }
+} catch (e) {}
+window.close();
+</script>
+PASS 실패. 창을 닫아주세요.
+</body></html>`);
+  };
 
   try {
     // 🔎 진입 로그(PII 최소화)
@@ -231,9 +231,10 @@ PASS 처리 완료. 창을 닫아주세요.
         { txId },
         {
           $set: {
+            intent: parsed.intent || 'unified',
             status: parsed.success ? 'success' : 'fail',
             failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
-            failMessage: parsed.returnMsg || null,   // ⬅️ 실패 사유(공급사 메시지)
+            failMessage: parsed.returnMsg || null,   // 실패 사유(공급사 메시지)
             name: nameMasked,
             birthyear,
             gender,
@@ -251,7 +252,7 @@ PASS 처리 완료. 창을 닫아주세요.
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-        return parsed.success
+    return parsed.success
       ? endOk(txId)
       : endFail({
           code: parsed.failCode || 'FAIL',
@@ -279,6 +280,11 @@ router.get('/status', async (req, res) => {
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 200, { ok: true, status: 'pending' });
 
+    if (doc.consumed === true) {
+      // 폴링에서는 상태값으로 알려주기만 하고, 최종 처리는 /result 에서 410 처리
+      return json(res, 200, { ok: true, status: 'consumed', txId });
+    }
+
     if (doc.status === 'success') {
       return json(res, 200, {
         ok: true,
@@ -298,19 +304,18 @@ router.get('/status', async (req, res) => {
       });
     }
 
-      if (doc.status === 'fail') {
-        return json(res, 200, {
-          ok: true,
-          status: 'fail',
-          result: {
-            txId: doc.txId,
-            status: doc.status,
-            failCode: doc.failCode || 'UNKNOWN',
-            failMessage: doc.failMessage || (doc.rawMasked && doc.rawMasked.RETURNMSG) || null  // ⬅️ 상세사유 동봉
-          },
-        });
-      }
-
+    if (doc.status === 'fail') {
+      return json(res, 200, {
+        ok: true,
+        status: 'fail',
+        result: {
+          txId: doc.txId,
+          status: doc.status,
+          failCode: doc.failCode || 'UNKNOWN',
+          failMessage: doc.failMessage || (doc.rawMasked && doc.rawMasked.RETURNMSG) || null
+        },
+      });
+    }
 
     return json(res, 200, { ok: true, status: 'pending' });
   } catch (e) {
@@ -320,9 +325,49 @@ router.get('/status', async (req, res) => {
 });
 
 /* =========================================================
- * 4) 분기 결정 (회원가입 / 임시로그인)
- *   - 프론트 요구사항에 맞춰 반드시 route('signup'|'templogin')를 반환
- *   - 우선 CI로 매칭, 없으면 전화번호(E.164/sha256) 보조 매칭
+ * 4) 단일 결과 조회 (/result/:txId)
+ *    - consumed === true 이면 410 Gone
+ * =======================================================*/
+router.get('/result/:txId', async (req, res) => {
+  try {
+    const { txId } = req.params || {};
+    if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID', message: 'txId required' });
+
+    const doc = await PassResult.findOne({ txId }).lean();
+    if (!doc) return json(res, 404, { ok: false, code: 'NOT_FOUND' });
+
+    if (doc.consumed === true) {
+      return json(res, 410, { ok: false, code: 'CONSUMED', message: 'This PASS token has been consumed.' });
+    }
+
+    return json(res, 200, {
+      ok: true,
+      status: doc.status,
+      result: {
+        txId: doc.txId,
+        status: doc.status,
+        failCode: doc.status === 'fail' ? (doc.failCode || 'UNKNOWN') : null,
+        failMessage: doc.status === 'fail' ? (doc.failMessage || (doc.rawMasked && doc.rawMasked.RETURNMSG) || null) : null,
+        ciHash: doc.ciHash || null,
+        diHash: doc.diHash || null,
+        name: doc.name || '',
+        birthyear: doc.birthyear ?? null,
+        gender: doc.gender || '',
+        phone: doc.phone || '',
+        carrier: doc.carrier || '',
+      },
+    });
+  } catch (e) {
+    console.error('[PASS/result] error:', e);
+    return json(res, 500, { ok: false, code: 'RESULT_ERROR', message: '결과 조회 실패' });
+  }
+});
+
+/* =========================================================
+ * 5) 분기 결정 (회원가입 / 임시로그인)
+ *   - 프론트 요구사항: route('signup'|'templogin') 반환
+ *   - 우선 CI(정본: PassIdentity)로 매칭, 없으면 전화번호(E.164/sha256) 보조 매칭
+ *   - consumed === true 면 410
  * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
@@ -331,6 +376,10 @@ router.get('/route', async (req, res) => {
 
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
+
+    if (doc.consumed === true) {
+      return json(res, 410, { ok: false, code: 'CONSUMED', message: 'This PASS token has been consumed.' });
+    }
 
     // 실패/미완료 처리
     if (doc.status === 'fail') {
@@ -345,33 +394,44 @@ router.get('/route', async (req, res) => {
     }
 
     // 기본값
-    let route = 'signup';
+    let routeName = 'signup';
     let userExists = false;
 
-    // 1) CI 우선 매칭
+    // 1) CI 우선 매칭: PassIdentity → User 1:1 정본
     if (doc.ciHash) {
-      const byCi = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
-      if (byCi?._id) {
+      const idMap = await PassIdentity.findOne({ ciHash: doc.ciHash })
+        .select('userId')
+        .lean()
+        .catch(() => null);
+
+      if (idMap?.userId) {
         userExists = true;
-        route = 'templogin';
+        routeName = 'templogin';
+      } else {
+        // (폴백) 구버전 호환: User에 ciHash가 있던 경우
+        const byCiUser = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
+        if (byCiUser?._id) {
+          userExists = true;
+          routeName = 'templogin';
+        }
       }
     }
 
-    // 2) CI 없거나 실패 시 전화번호 보조 매칭
+    // 2) CI 매칭 없으면 전화번호 보조 매칭
     if (!userExists && doc.phone) {
       const phone = normalizePhoneKR(doc.phone);
       const phoneHash = sha256Hex(phone);
       const byPhone = await User.findOne({ $or: [{ phone }, { phoneHash }] }).select('_id').lean();
       if (byPhone?._id) {
         userExists = true;
-        route = 'templogin';
+        routeName = 'templogin';
       }
     }
 
     // 최종 응답(프론트는 route 필드를 사용)
     return json(res, 200, {
       ok: true,
-      route,
+      route: routeName,
       txId,
       userExists,
     });
@@ -381,6 +441,4 @@ router.get('/route', async (req, res) => {
   }
 });
 
-
 module.exports = router;
- 

@@ -65,15 +65,25 @@ router.post('/temp-login', async (req, res) => {
   }
 
   try {
-    const pr = await PassResult.findOne({ txId: tx }).lean();
+    // 소모형 PassResult: 재사용 방지(410)
+    const pr = await PassResult.findOne({ txId: tx });
     if (!pr) return res.status(400).json({ ok: false, code: 'NO_TX', message: 'PassResult not found' });
-    if (pr.status !== 'success') return res.status(400).json({ ok: false, code: 'NOT_SUCCESS', message: 'PassResult not success' });
-    if (!pr.ciHash) return res.status(400).json({ ok: false, code: 'NO_CI', message: 'ciHash missing' });
+    if (pr.consumedAt) {
+      return res.status(410).json({ ok: false, code: 'CONSUMED', message: 'PassResult already consumed' });
+    }
+    if (pr.status !== 'success') {
+      return res.status(400).json({ ok: false, code: 'NOT_SUCCESS', message: 'PassResult not success' });
+    }
+    if (!pr.ciHash) {
+      return res.status(400).json({ ok: false, code: 'NO_CI', message: 'ciHash missing' });
+    }
 
     const user = await User.findOne({ ciHash: pr.ciHash })
       .select('_id username nickname phone carrier ciHash')
       .lean();
-    if (!user) return res.status(404).json({ ok: false, code: 'NO_USER', message: 'User not found for ciHash' });
+    if (!user) {
+      return res.status(404).json({ ok: false, code: 'NO_USER', message: 'User not found for ciHash' });
+    }
 
     // 변경 후보(diffs) 계산
     const diffs = {};
@@ -106,10 +116,23 @@ router.post('/temp-login', async (req, res) => {
     setJwtCookie(res, token);
 
     if (req.session) {
+      // 세션 재발급 및 저장
       await new Promise((resolve, reject) => req.session.regenerate(err => (err ? reject(err) : resolve())));
       req.session.user = { _id: user._id, nickname: user.nickname };
       await new Promise((resolve, reject) => req.session.save(err => (err ? reject(err) : resolve())));
     }
+
+    // PassResult 소모 처리(재사용 방지)
+    await PassResult.updateOne(
+      { _id: pr._id },
+      {
+        $set: {
+          consumedAt: new Date(),
+          consumedBy: 'temp-login',
+          consumedUser: user._id,
+        },
+      }
+    );
 
     res.setHeader('Cache-Control', 'no-store');
     return res.json({

@@ -2,8 +2,9 @@
 <template>
   <ion-page class="phone-update">
     <ion-header>
-     
+      <ion-toolbar>
         <ion-title>전화번호 변경(PASS)</ion-title>
+      </ion-toolbar>
     </ion-header>
 
     <ion-content :fullscreen="true">
@@ -81,30 +82,14 @@
               </ion-button>
             </div>
 
-            <!-- ▼▼▼ 아래 디버그/가이드 섹션 주석 처리하여 화면에 표시되지 않도록 함 ▼▼▼ -->
-            <!--
+            <!-- ▼ 디버그/가이드는 화면 노이즈 방지를 위해 유지 주석 ▼
             <div class="meta">
               <div>txId: <code>{{ txId || '(없음)' }}</code></div>
               <div v-if="endpointStart">start: <code>{{ endpointStart }}</code></div>
               <div v-if="endpointCommit">commit: <code>{{ endpointCommit }}</code></div>
               <div v-if="updatedFields.length">갱신: <code>{{ updatedFields.join(', ') }}</code></div>
             </div>
-
-            <ion-card class="tips">
-              <ion-card-header>
-                <ion-card-title>유의사항</ion-card-title>
-              </ion-card-header>
-              <ion-card-content>
-                <ul>
-                  <li>PASS 창에서 인증이 끝나면 이 화면으로 돌아오며 버튼이 <b>인증완료</b> 로 바뀝니다.</li>
-                  <li><b>변경 반영하기</b>를 눌러 계정에 저장하세요. 반영 후 <code>/home/6page</code>로 이동합니다.</li>
-                  <li>동일 CI가 아니면 <b>인증유저 정보가 로그인한 회원정보와 다릅니다</b> 경고와 함께 <b>인증 실패 · 다시 인증</b> 버튼으로 전환됩니다.</li>
-                </ul>
-              </ion-card-content>
-            </ion-card>
             -->
-            <!-- ▲▲▲ 주석 처리 끝 ▲▲▲ -->
-
           </ion-card-content>
         </ion-card>
       </div>
@@ -135,6 +120,16 @@ function buildAuthHeaders() {
     if (token) headers['Authorization'] = `Bearer ${token}`
   } catch {}
   return headers
+}
+
+// ✅ PASS 관련 로컬 저장소 키 정리(콜백 복귀 후 잔여 키 제거)
+function clearPassStorage() {
+  try {
+    localStorage.removeItem('PASS_RESULT_TX')
+    localStorage.removeItem('PASS_FAIL')
+    localStorage.removeItem('PASS_TX')
+    localStorage.removeItem('PASS_STATE')
+  } catch {}
 }
 
 const me = ref(null)
@@ -323,6 +318,14 @@ async function commitUpdate() {
         setTimeout(() => router.replace('/login'), 650)
         return
       }
+      // 🔁 410 consumed 대응: 재사용 불가 → 재인증 유도
+      if (res.status === 410 || json?.code === 'CONSUMED') {
+        error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
+        errorCode.value = 'CONSUMED'
+        resetPassState()
+        clearPassStorage()
+        return
+      }
       if (json?.code === 'CI_MISMATCH' || res.status === 403) {
         error.value = '인증유저 정보가 로그인한 회원정보와 다릅니다'
         errorCode.value = 'CI_MISMATCH'
@@ -333,11 +336,15 @@ async function commitUpdate() {
       return
     }
 
-    updatedFields.value = Array.isArray(json.updatedFields) ? json.updatedFields : []
+    // 성공 처리
+    updatedFields.value = Array.isArray(json.updatedFields) ? json.updatedFields : (json?.profileUpdate?.updatedFields || [])
     success.value = true
 
+    // 세션/스토리지 정리
+    clearPassStorage()
     await reloadMe()
 
+    // 완료 후 이동
     setTimeout(() => { router.replace('/home/6page') }, 650)
   } catch (e) {
     console.error('[PhoneUpdate][commit] error', e)
@@ -350,6 +357,8 @@ async function commitUpdate() {
 }
 
 onMounted(async () => {
+  // 콜백 복귀 시 잔여 스토리지 정리 → 중복 커밋/재사용 방지
+  clearPassStorage()
   window.addEventListener('message', handlePostMessage)
   await reloadMe()
 })
@@ -373,6 +382,6 @@ onBeforeUnmount(() => {
 .row.pending { color: #ffd26a; }
 .mr-2 { margin-right: 8px; }
 .actions { display: grid; gap: 8px; margin: 8px 0 10px; }
-/* .meta, .tips 섹션은 템플릿에서 주석 처리됨 */
+/* .meta 섹션은 템플릿에서 주석 처리됨 */
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 </style>
