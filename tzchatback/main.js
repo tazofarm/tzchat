@@ -182,7 +182,7 @@ app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight fo
 });
 
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
-console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 허용(동적-사설망/에뚫레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
 
 // =======================================
@@ -331,6 +331,34 @@ app.get('/api/health', (req, res) => {
 
 // ✅ 라우터 일괄 등록
 require('./routes')(app);
+
+/* ---------------------------------------
+ * 🧯 전역 에러 핸들러(여기 추가)
+ *  - /api/auth/pass/callback 에러도 200 HTML로 변환하여 팝업 닫히게 처리
+ *  - 그 외는 JSON 500
+ * ------------------------------------- */
+app.use((err, req, res, next) => {
+  console.error('[UNHANDLED]', req.method, req.originalUrl, '|', err && (err.stack || err.message || err));
+  if (req.originalUrl && req.originalUrl.startsWith('/api/auth/pass/callback')) {
+    return res
+      .status(200)
+      .set('Content-Type','text/html; charset=utf-8')
+      .send(`<!doctype html><html><body>
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_FAIL', reason:'UNHANDLED_ERROR' }, '*');
+  } else {
+    try { localStorage.setItem('PASS_FAIL','UNHANDLED_ERROR'); } catch(e){}
+  }
+} catch(e){}
+window.close();
+</script>
+콜백 처리 중 오류(프론트로 FAIL 전달). 창을 닫아주세요.
+</body></html>`);
+  }
+  res.status(500).json({ ok:false, code:'UNHANDLED', message: err?.message || 'Internal Error' });
+});
 
 // =======================================
 // 3) Socket.IO 설정
@@ -619,7 +647,6 @@ io.on('connection', (socket) => {
 //    엔트리 파일이 /server 폴더에 있다면 '../jobs/retentionWorker' 로 조정하세요.
 require('./jobs/retentionWorker');
 require('./jobs/dailyScoreJob').initDailyScoreCron();
-
 
 
 // =======================================

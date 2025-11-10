@@ -60,10 +60,7 @@ function json(res, status, body) {
 
 /* =========================================================
  * 1) PASS 시작
- *  - 기본: JSON 반환 { ok, txId, formHtml }
- *  - mode=html: text/html 직접 반환 (팝업이 이 URL을 열도록 할 때)
  * =======================================================*/
-// ✅ 즉시 확인용 핑 엔드포인트(프론트/프록시/쿠키 파이프만 점검)
 router.get('/start/ping', (req, res) => {
   return json(res, 200, { ok: true, pong: true, now: Date.now() });
 });
@@ -103,28 +100,20 @@ router.all('/start', async (req, res) => {
 
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
-    // 상세 코드/스테이지를 프런트로 전달 → 콘솔에서 정확히 원인 식별
     const code  = e && (e.code || e.returnCode) || 'START_ERROR';
     const stage = e && e.stage || 'UNKNOWN';
     const msg   = e && e.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
-
     console.error('[PASS/start] error:', { code, stage, msg });
 
-    return json(res, 500, {
-      ok: false,
-      code,
-      stage,
-      message: msg,
-    });
+    return json(res, 500, { ok: false, code, stage, message: msg });
   }
 });
 
-
 /* =========================================================
  * 2) PASS 콜백 (다날 WebAuth → 우리 서버)
- *    - CPCGI 역할: TID 수신 → UAS CONFIRM 호출 → PassResult upsert
  *    - 어떤 경우에도 200 HTML로 응답(팝업 postMessage 후 닫힘)
  *    - EUC-KR 폼 본문을 raw 로 받아 UTF-8로 디코딩
+ *    - 진입/디코딩/저장 단계별 최소 로그
  * =======================================================*/
 router.all('/callback', async (req, res) => {
   const targetOrigin = resolvePostMessageTarget();
@@ -164,26 +153,45 @@ PASS 실패. 창을 닫아주세요.
   };
 
   try {
-    // ✅ EUC-KR 폼 디코딩 (POST 전용, main.js에서 req.rawBody를 미리 캡처해 둬야 함)
+    // 🔎 진입 로그(PII 최소화)
+    try {
+      const ctype = (req.headers['content-type'] || '').toLowerCase();
+      const hasRaw = Buffer.isBuffer(req.rawBody);
+      const rawLen = hasRaw ? req.rawBody.length : 0;
+      console.log('[PASS/callback][hit]', {
+        method: req.method,
+        ctype,
+        hasRaw,
+        rawLen,
+        q: Object.keys(req.query || {}),
+        b: Object.keys(req.body || {}),
+      });
+    } catch (e) {
+      console.warn('[PASS/callback][log] warn:', e?.message || e);
+    }
+
+    // ✅ EUC-KR 폼 디코딩 (POST 전용, main.js에서 req.rawBody 선캡처 필요)
     if (req.method === 'POST') {
       const ctype = (req.headers['content-type'] || '').toLowerCase();
       if (ctype.includes('application/x-www-form-urlencoded')) {
         if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
           let text;
           try {
-            // 동적 로드로 안전하게 (미설치라도 서버가 죽지 않도록)
-            const iconv = require('iconv-lite');
-            text = iconv.decode(req.rawBody, 'euc-kr'); // EUC-KR → UTF-8
-          } catch {
-            text = req.rawBody.toString('utf8');        // 폴백
+            const iconv = require('iconv-lite');               // 동적 로드
+            text = iconv.decode(req.rawBody, 'euc-kr');        // EUC-KR → UTF-8
+          } catch (e) {
+            console.warn('[PASS/callback] iconv-lite not available, fallback to utf8:', e?.message || e);
+            text = req.rawBody.toString('utf8');               // 폴백
           }
-          req.body = qs.parse(text);                   // querystring 파싱
+          req.body = qs.parse(text);
+          console.log('[PASS/callback][decoded]', { len: text.length, keys: Object.keys(req.body || {}) });
+        } else {
+          console.warn('[PASS/callback] rawBody missing, skip decode');
         }
-        // rawBody가 없다면(미들웨어 미적용) 기존 req.body 그대로 사용
       }
     }
 
-    // 쿼리/바디가 완전 비어 브라우저에서 직접 GET로 연 경우도 항상 200으로 처리
+    // 쿼리/바디가 비어도 danal.parseCallback은 안전(기본값 보정)
     const parsed = await danal.parseCallback(req);
 
     const txId = parsed.txId || `tx_${Date.now()}`;
@@ -198,13 +206,11 @@ PASS 실패. 창을 닫아주세요.
       g === 'M' || g === 'MAN' ? 'man' :
       g === 'F' || g === 'WOMAN' ? 'woman' : '';
 
-    // 전화번호는 표준 응답에 없으므로 공백 가능(향후 추가 시 normalize)
     const phone = parsed.phone ? normalizePhoneKR(parsed.phone) : '';
-
     const ciHash = parsed.ci ? sha256Hex(parsed.ci) : '';
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
-
     const nameMasked = maskName(parsed.name || '');
+
     const rawMasked = {
       ...parsed.raw,
       birthdate: birthdate || undefined,
@@ -216,7 +222,7 @@ PASS 실패. 창을 닫아주세요.
     };
 
     try {
-      await PassResult.findOneAndUpdate(
+      const saved = await PassResult.findOneAndUpdate(
         { txId },
         {
           $set: {
@@ -234,6 +240,7 @@ PASS 실패. 창을 닫아주세요.
         },
         { upsert: true, new: true }
       );
+      console.log('[PASS/callback][upsert]', { txId: saved?.txId || txId, status: saved?.status || (parsed.success ? 'success' : 'fail') });
     } catch (dbErr) {
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
