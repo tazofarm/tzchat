@@ -321,6 +321,8 @@ router.get('/status', async (req, res) => {
 
 /* =========================================================
  * 4) 분기 결정 (회원가입 / 임시로그인)
+ *   - 프론트 요구사항에 맞춰 반드시 route('signup'|'templogin')를 반환
+ *   - 우선 CI로 매칭, 없으면 전화번호(E.164/sha256) 보조 매칭
  * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
@@ -328,37 +330,57 @@ router.get('/route', async (req, res) => {
     if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID', message: 'txId required' });
 
     const doc = await PassResult.findOne({ txId }).lean();
-    if (!doc) return json(res, 200, { ok: false, code: 'NO_TX', message: 'no pass tx found' });
+    if (!doc) return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
 
+    // 실패/미완료 처리
     if (doc.status === 'fail') {
-      return json(res, 200, { ok: false, code: doc.failCode || 'FAIL', message: 'pass failed' });
-    }
-
-    if (doc.status !== 'success') {
-      return json(res, 200, { ok: true, next: 'pending', txId });
-    }
-
-    // success
-    if (!doc.ciHash) {
-      return json(res, 200, { ok: true, next: 'signup', txId });
-    }
-
-    const existing = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
-    if (existing) {
       return json(res, 200, {
-        ok: true,
-        next: 'templogin',
-        txId,
-        userId: String(existing._id),
+        ok: false,
+        code: doc.failCode || 'FAIL',
+        message: doc.failMessage || 'pass failed',
       });
     }
+    if (doc.status !== 'success') {
+      return json(res, 200, { ok: false, code: 'PASS_NOT_SUCCESS', status: doc.status });
+    }
 
-    return json(res, 200, { ok: true, next: 'signup', txId });
+    // 기본값
+    let route = 'signup';
+    let userExists = false;
+
+    // 1) CI 우선 매칭
+    if (doc.ciHash) {
+      const byCi = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
+      if (byCi?._id) {
+        userExists = true;
+        route = 'templogin';
+      }
+    }
+
+    // 2) CI 없거나 실패 시 전화번호 보조 매칭
+    if (!userExists && doc.phone) {
+      const phone = normalizePhoneKR(doc.phone);
+      const phoneHash = sha256Hex(phone);
+      const byPhone = await User.findOne({ $or: [{ phone }, { phoneHash }] }).select('_id').lean();
+      if (byPhone?._id) {
+        userExists = true;
+        route = 'templogin';
+      }
+    }
+
+    // 최종 응답(프론트는 route 필드를 사용)
+    return json(res, 200, {
+      ok: true,
+      route,
+      txId,
+      userExists,
+    });
   } catch (e) {
     console.error('[PASS/route] error:', e);
-    return json(res, 500, { ok: false, code: 'ROUTE_ERROR', message: '분기 결정 실패' });
+    return json(res, 500, { ok: false, code: 'ROUTE_UNHANDLED', message: e?.message || '분기 결정 실패' });
   }
 });
+
 
 module.exports = router;
  
