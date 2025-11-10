@@ -6,13 +6,20 @@ module.exports = (app) => {
     next();
   });
 
+  // ----------------------------------------------------------
+  // ✅ Public / Open — 로그인 불필요 엔드포인트들을 "먼저" 마운트
+  //    (catch-all 성격의 일반 /api 라우터보다 선행해야 합니다)
+  // ----------------------------------------------------------
+ 
+  app.use('/api/auth/pass', require('./pass/passRouter')); // PASS (정상 공급사 연동)
   
-  // ----------------------------------------------------------
-  // ✅ Public / Legal — 로그인 불필요 공개 엔드포인트들을 먼저!
-  //    (catch-all을 가진 일반 /api 라우터보다 앞에 와야 함)
-  // ----------------------------------------------------------
+  app.use('/api/auth/passmanual', require('./pass/passManualRouter'));// PASS Manual (로컬/특수 상황용 수동 입력 전용) 
+  app.use('/api/auth/pass', require('./pass/tempLoginRouter')); //temp login
+  app.use('/api/user/pass-phone', require('./pass/phoneUpdateRouter')); //전화번호 업데이트
+
+  // 공개 약관/정책/공지
   app.use('/api/terms', require('./legal/termsPublicRouter'));   // 공개 약관/정책 조회, 버전 목록 등 (비인증)
-  app.use('/api/legal', require('./legal/legalRouter'));         // 공개/동의 엔드포인트 혼재 (경로별로 인증여부 분리됨)
+  app.use('/api/legal', require('./legal/legalRouter'));         // 공개/동의 엔드포인트 혼재 (경로별 인증 구분)
   app.use('/api/notices', require('./system/noticeRouter'));     // 공개 공지사항
 
   // ----------------------------------------------------------
@@ -20,7 +27,7 @@ module.exports = (app) => {
   // ----------------------------------------------------------
   app.use('/api/admin', require('./admin/termsRouter'));         // 관리자 전용 – 약관
   app.use('/api/admin', require('./admin/adminRouter'));         // 관리자 전용 – 시스템/유저/채팅/공지/통계/환경
-  app.use('/api/admin', require('./admin/migrationRouter'));        // 관리자 전용 – migration
+  app.use('/api/admin', require('./admin/migrationRouter'));     // 관리자 전용 – migration
 
   // ----------------------------------------------------------
   // User / Auth / Profile 등 일반 /api 라우터 (인증 요구 가능)
@@ -28,7 +35,7 @@ module.exports = (app) => {
   app.use('/api', require('./user/authRouter'));                 // 로그인/로그아웃/토큰 발급 등 인증 전담
   app.use('/api', require('./user/profileImageRouter'));         // 프로필 이미지 업로드·리사이즈·목록·대표 지정·삭제
   app.use('/api', require('./user/userRouter'));                 // 내 정보 수정(닉네임/지역/자기소개/특징)
-  app.use('/api', require('./user/gradeRouter'));                 // 유저 등급 수동 작업 라우터 (임시)
+  app.use('/api', require('./user/gradeRouter'));                // 유저 등급 수동 작업 라우터 (임시)
 
   // ----------------------------------------------------------
   // Chat / Social
@@ -49,15 +56,12 @@ module.exports = (app) => {
   app.use('/api/account', require('./system/accountDeletionRouter')); // 회원 탈퇴
 
   // ----------------------------------------------------------
-  // membership
+  // Membership
   // ----------------------------------------------------------
-  app.use('/api/membership', require('./membership/membershipRouter'));          // 맴버쉽 라우터
-  
-  // ----------------------------------------------------------
-  // payment
-  // ----------------------------------------------------------
-  app.use('/api', require('./payment/paymentRouter'));          // 구매 라우터
+  app.use('/api/membership', require('./membership/membershipRouter')); // 멤버십 라우터
 
-
+  // ----------------------------------------------------------
+  // Payment
+  // ----------------------------------------------------------
+  app.use('/api', require('./payment/paymentRouter'));           // 구매 라우터
 };
- 

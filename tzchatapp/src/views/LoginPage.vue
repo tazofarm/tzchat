@@ -54,12 +54,12 @@
 
       <!-- 회원가입 링크 -->
       <div class="link-container">
-        <p>계정이 없으신가요? <router-link to="/signup">회원가입</router-link></p>
+        <p>계정이 없으신가요? <router-link to="/pass">회원가입</router-link></p>
       </div>
 
       <!-- 비밀번호 모를때, Pass 로그인 -->
       <div class="link-container">
-        <p>비밀번호를 잊으셨나요 ? <router-link to="/signup">P/W 찾기</router-link></p>
+        <p>비밀번호를 잊으셨나요 ? <router-link to="/pass">임시로그인</router-link></p>
       </div>
 
     </div>

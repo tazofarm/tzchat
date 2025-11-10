@@ -13,6 +13,10 @@ require('./Legal/UserAgreement');  //역할: 버전관리
 //membership
 require('./membership/MembershipOrder');  //역할: 멤버십 결제내역 (등급 구매 기록)
 
+//Pass
+require('./Pass/PassResult');  //역할: 멤버십 결제내역 (등급 구매 기록)
+
+
 //Payment
 require('./Payment/Payment');  //역할: 결제 / 구독 모델 뼈대
 
@@ -47,6 +51,9 @@ module.exports = {
 
   //Payment
   Payment: mongoose.model('Payment'),
+
+  //Pass
+  PassResult: mongoose.model('PassResult'),
 
 
   //Social

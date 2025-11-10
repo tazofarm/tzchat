@@ -14,11 +14,15 @@ import {
 
 //로그인 전
 import LoginPage from '@/views/LoginPage.vue'
-import LoginTestPage from '@/views/LoginTestPage.vue'
-import LoginMainPage from '@/views/LoginMainPage.vue'
-import LoginAutoPage from '@/views/LoginAutoPage.vue'
-import SignupPage from '@/views/SignupPage.vue'
 import HomePage from '@/views/HomePage.vue'
+
+import PassManual from '@/views/pass/PassManual.vue'
+import PassPortal from '@/views/pass/PassPortal.vue'
+import SignupPage from '@/views/pass/SignupPage.vue'
+import TempLogin from '@/views/pass/TempLogin.vue'
+import PhoneUpdate from '@/views/pass/Phoneupdated.vue'
+
+
 
 //삭제예정
 import Page0 from '@/components/03050_pages/del/0_emergency.vue'
@@ -52,8 +56,6 @@ import NoticeEditPage from '@/components/04910_Page9_Admin/detail/NoticeEditPage
 
 //purchase
 import purchaseMain from '@/components/05110_Membership/Page/membershipMain.vue'
-
-
 
 // setting
 import setting01 from '@/components/04710_Page7_setting/setlist/0001_s_notice.vue'
@@ -118,15 +120,19 @@ const DeletionPending = () => import('@/views/DeletionPending.vue')
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
-  { path: '/signup', component: SignupPage },
-  { path: '/loginmain', component: LoginMainPage },
-  { path: '/logintester', component: LoginTestPage },
-  { path: '/loginauto', component: LoginAutoPage },
+
+  // 🔐 PASS 관련(인증 없이 접근 가능)
+  { path: '/pass', name: 'PassPortal', component: PassPortal, meta: { public: true } },
+  { path: '/pass/manual', name: 'PassManual', component: PassManual, meta: { public: true, layout: 'blank' } },
+
+  // 🔐 회원가입/임시로그인도 공개
+  { path: '/signup', component: SignupPage, meta: { public: true } },
+  { path: '/templogin', component: TempLogin, meta: { public: true } },
 
   // ✅ 외부 공개 라우트(로그인 불필요)
-  { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage },
-  { path: '/legals/v2', name: 'LegalDocsV2Public', component: LegalDocs },
-  { path: '/legals/v2/:slug', name: 'LegalPageV2Public', component: LegalContainer, props: true },
+  { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage, meta: { public: true } },
+  { path: '/legals/v2', name: 'LegalDocsV2Public', component: LegalDocs, meta: { public: true } },
+  { path: '/legals/v2/:slug', name: 'LegalPageV2Public', component: LegalContainer, props: true, meta: { public: true } },
 
   // ✅ 탈퇴신청 전용(로그인 필요)
   {
@@ -165,6 +171,7 @@ const routes: RouteRecordRaw[] = [
       { path: '32page', component: Page32 },
       { path: '33page', component: Page33 },
       { path: '34page', component: Page34 },
+      { path: 'phoneupdate', component: PhoneUpdate },
 
       // minipage
       { path: 'user/:id', component: PageuserProfile, props: true },
@@ -174,7 +181,7 @@ const routes: RouteRecordRaw[] = [
         path: 'premiumuser/:id',
         component: PagepremiumProfile,
         props: true,
-        alias: ['/home/premuimuser/:id'], // 기존 오타 경로도 동작
+        alias: ['/home/premuimuser/:id'],
       },
 
       { path: 'chat/:id', component: ChatRoomPage, props: true },
@@ -235,16 +242,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
 
-      // ✅ 관리자 약관/정책 관리
-      {
-        path: 'admin/terms/:slug?',
-        name: 'AdminTerms',
-        component: () => import('@/legalpage/admin/TermsAdmin.vue'),
-        alias: ['/admin/terms/:slug?'],
-        meta: { requiresAuth: true, requiresMaster: true },
-      },
-
-      // ✅ 내부(로그인 후) 법적 문서 라우트 — 이름을 외부와 분리
+      // ✅ 내부(로그인 후) 법적 문서 라우트
       { path: 'legals/v2', name: 'LegalDocsV2Internal', component: LegalDocs },
       { path: 'legals/v2/:slug', name: 'LegalPageV2Internal', component: LegalContainer, props: true },
     ],
@@ -314,6 +312,11 @@ async function fetchAccountStatus(): Promise<'active' | 'pendingDeletion' | 'unk
 router.beforeEach(async (to, _from, next) => {
   const requiresAuth = to.matched.some((r) => r.meta.requiresAuth)
   const requiresMaster = to.matched.some((r) => r.meta.requiresMaster)
+
+  // 🔓 public 라우트는 인증 없이 통과
+  if (to.matched.some((r) => r.meta?.public)) {
+    return next()
+  }
 
   // 외부 약관/문서 경로는 로그인 없이 통과
   if (isLegalRoute(to.fullPath) && !requiresAuth && !requiresMaster) {

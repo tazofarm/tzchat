@@ -78,7 +78,7 @@
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
-                  <strong class="label pf-fullrow__label">{{ user.phone || '010-1234-1234' }}</strong>
+                  <strong class="label pf-fullrow__label">{{ user.phone }}</strong>
                   <IonButton
                     size="small"
                     color="gray"
@@ -472,13 +472,10 @@ async function onPasswordUpdated() {
   t.present()
 }
 
+
+
 async function onChangePhoneClick() {
-  const t = await toastController.create({
-    message: '전화번호 변경/인증 기능은 곧 제공됩니다.',
-    duration: 1200,
-    color: 'medium'
-  })
-  t.present()
+  router.push('/home/phoneupdate')
 }
 
 /* 이동 */

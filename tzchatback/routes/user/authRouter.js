@@ -27,7 +27,10 @@ const {
   DeletionRequest, DeviceToken, User,
   // legal
   Terms, UserAgreement,
+  // pass
+  PassResult,
 } = require('@/models');
+
 
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('@/config/emergency');
 
@@ -153,7 +156,7 @@ async function authFromJwtOrSession(req, res, next) {
 }
 
 // ======================================================
-// 회원가입
+// 회원가입 (PASS 연동: passTxId가 오면 서버 저장 PASS 결과로 강제 적용)
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -161,20 +164,49 @@ router.post('/signup', async (req, res) => {
   let {
     username, password, nickname, gender, birthyear, region1, region2,
     consents = [],
+    passTxId,     // ✅ 신규: PASS 트랜잭션 ID
   } = req.body || {};
+
   try {
     username = s(username);
     nickname = s(nickname);
     gender   = s(gender);
     region1  = s(region1);
     region2  = s(region2);
+    passTxId = s(passTxId);
+
+    // ✅ PASS 결과 오버라이드 값 컨테이너
+    let prOverride = null; // { birthyear, gender, phone, ciHash }
+
+    // ✅ passTxId가 있으면 PASS 결과를 불러와서 강제 적용 준비
+    if (passTxId) {
+      const pr = await PassResult.findOne({ txId: passTxId }).lean();
+      if (!pr || pr.status !== 'success') {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'PASS_TX_INVALID', passTxId });
+        return res.status(400).json({ ok: false, message: 'PASS 결과를 확인할 수 없습니다.' });
+      }
+      prOverride = {
+        birthyear: Number(pr.birthyear) || null,
+        gender: (pr.gender === 'man' || pr.gender === 'woman') ? pr.gender : '',
+        phone: pr.phone || '',          // E.164 형태가 저장되어 있음
+        ciHash: pr.ciHash || undefined, // 스파스 유니크
+      };
+    }
+
+    // 클라이언트 제공값(백워드 호환)
     const birthYearNum = birthyear ? parseInt(String(birthyear), 10) : undefined;
 
-    if (!username || !password || !nickname || !gender || !birthYearNum || !region1 || !region2) {
-      console.log('[API][RES] /signup 400 필수누락');
+    // ✅ 필수값 검증: PASS 유무에 따라 요구 항목이 다름
+    // - 공통: username/password/nickname/region1/region2
+    // - PASS 미사용 시: gender/birthyear 도 필수
+    const commonMissing = (!username || !password || !nickname || !region1 || !region2);
+    const extraMissing  = (!passTxId && (!gender || !birthYearNum));
+    if (commonMissing || extraMissing) {
+      console.log('[API][RES] /signup 400 필수누락', { passTxId: !!passTxId });
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
+    // ✅ 중복 검사
     const [userExists, nicknameExists] = await Promise.all([
       User.findOne({ username }).select('_id').lean(),
       User.findOne({ nickname }).select('_id').lean(),
@@ -188,29 +220,39 @@ router.post('/signup', async (req, res) => {
       return res.status(409).json({ ok: false, message: '닉네임 중복' });
     }
 
+    // ✅ 최종 저장값 확정 (PASS 우선)
+    const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
+    const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
+    const finalPhone     = prOverride?.phone     || undefined;   // undefined면 저장 생략
+    const finalCiHash    = prOverride?.ciHash    || undefined;   // undefined면 저장 생략
+
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
-    user = await User.create({
-      username,
-      password: hashed,
-      nickname,
-      gender: ['man', 'woman'].includes(String(gender)) ? String(gender) : 'man',
-      birthyear: Number.isFinite(birthYearNum) ? birthYearNum : undefined,
-      region1,
-      region2,
-      last_login: null,
+      user = await User.create({
+        username,
+        password: hashed,
+        nickname,
+        gender: finalGender,
+        birthyear: finalBirthyear,
+        region1,
+        region2,
+        last_login: null,
 
-      // ✅ 가입 즉시 기본 지급
-      heart: 400,   // 초기 하트
-      star: 0,
-      ruby: 0,
-      // lastDailyGrantAt는 설정하지 않음(아래 12시간 유예 로직으로 제어)
-    });
+        // PASS 연동 필드
+        phone: finalPhone,    // User 모델 pre-save 훅에서 E.164/phoneHash 정합성 보장
+        ciHash: finalCiHash,  // 스파스 유니크
+
+        // ✅ 가입 즉시 기본 지급(기존 정책 유지)
+        heart: 400,
+        star: 0,
+        ruby: 0,
+        // lastDailyGrantAt는 설정하지 않음(일일지급 로직에서 제어)
+      });
     } catch (e) {
       if (e && e.code === 11000) {
         const dupField = Object.keys(e.keyValue || {})[0];
-        const which = dupField === 'nickname' ? '닉네임' : '아이디';
+        const which = dupField === 'nickname' ? '닉네임' : (dupField === 'username' ? '아이디' : dupField);
         console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue: e.keyValue });
         return res.status(409).json({ ok: false, message: `${which} 중복` });
       }
@@ -226,7 +268,7 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ ok: false, message: '서버 오류' });
     }
 
-    // consents 저장(있을 때만)
+    // consents 저장(있을 때만) — 기존 로직 유지
     if (Array.isArray(consents) && consents.length > 0) {
       try {
         const activeConsents = await Terms.find({ isActive: true, kind: 'consent' })
@@ -272,7 +314,7 @@ router.post('/signup', async (req, res) => {
       }
     }
 
-    console.log('[API][RES] /signup 201', { userId: String(user._id), username });
+    console.log('[API][RES] /signup 201', { userId: String(user._id), username, passTxId: !!passTxId });
     return res.status(201).json({ ok: true, message: '회원가입 성공' });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'signup', raw: err, message: err?.message, code: err?.code, name: err?.name });
@@ -403,10 +445,13 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       'friendlist', 'blocklist',
       'emergency',
       'role', 'roles',
-      // ✅ 포인트 잔액 + 일일지급 기준시각 꼭 포함
+      // ✅ 추가: 전화/통신사 및 검증 메타
+      'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
+      // ✅ 포인트 잔액 + 일일지급 기준시각
       'heart', 'star', 'ruby', 'lastDailyGrantAt',
       'createdAt', 'updatedAt'
     ])
+
     .populate('friendlist', 'username nickname birthyear gender')
     .populate('blocklist', 'username nickname birthyear gender');
 

@@ -3,11 +3,28 @@
 // 인증 + 사용자 로드 미들웨어
 // - 세션/JWT로 userId 식별 → DB 조회 → req.user 주입
 // - 공통 컨텍스트: req._uid, req.auth.userId
+// - ✅ 공개(무인증) 경로 화이트리스트 추가: PASS/수동PASS/로그인/회원가입/헬스체크 등
+// - ✅ CORS 사전요청(OPTIONS) 통과
 // ------------------------------------------------------------
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
 const JWT_COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+
+// ✅ 무인증(오픈) 경로: 인증 없이 통과
+//    - pass: 정상 PASS (start/callback/status/route 등)
+//    - passmanual: 로컬 수동 PASS (manual/fail)
+//    - login/signup: 로그인/회원가입
+//    - health: 헬스체크 (구/신 엔드포인트 모두)
+const OPEN_PATHS = [
+  /^\/api\/auth\/pass(?:\/|$)/,        // 예) /api/auth/pass/start, /callback, /status, /route
+  /^\/api\/auth\/passmanual(?:\/|$)/,  // 예) /api/auth/passmanual/manual, /fail
+  /^\/api\/login(?:\/|$)/,
+  /^\/api\/signup(?:\/|$)/,
+  /^\/api\/health(?:\/|$)/,
+  /^\/healthz(?:\/|$)/,
+];
+
 let User;
 (() => {
   try {
@@ -32,6 +49,7 @@ let User;
 function extractJwtFromReq(req) {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
+
   const cookieHeader = req.headers.cookie || '';
   if (cookieHeader && cookieHeader.includes(`${JWT_COOKIE_NAME}=`)) {
     try {
@@ -43,12 +61,21 @@ function extractJwtFromReq(req) {
   }
   return null;
 }
+
 function pickUserId(decoded) {
   return String(decoded?.sub || decoded?.userId || decoded?.id || decoded?._id || '') || '';
 }
 
 module.exports = async function authMiddleware(req, res, next) {
   try {
+    const url = req.originalUrl || req.url || '';
+
+    // ✅ CORS preflight는 통과
+    if (req.method === 'OPTIONS') return next();
+
+    // ✅ 공개 경로는 인증 없이 통과
+    if (OPEN_PATHS.some(rx => rx.test(url))) return next();
+
     // 1) 세션 → userId
     let userId = req.session?.user?._id ? String(req.session.user._id) : '';
 
@@ -58,16 +85,20 @@ module.exports = async function authMiddleware(req, res, next) {
       if (!token) {
         return res.status(401).json({ ok: false, code: 'no_token', error: '로그인이 필요합니다.' });
       }
+
       let decoded;
-      try { decoded = jwt.verify(token, JWT_SECRET); }
-      catch (e) {
+      try {
+        decoded = jwt.verify(token, JWT_SECRET);
+      } catch (e) {
         const code = e?.name === 'TokenExpiredError' ? 'token_expired' : 'token_invalid';
         return res.status(401).json({ ok: false, code, error: '토큰이 유효하지 않습니다.' });
       }
+
       userId = pickUserId(decoded);
       if (!userId) {
         return res.status(401).json({ ok: false, code: 'token_no_subject', error: '토큰이 유효하지 않습니다.' });
       }
+
       // (선택) 세션 보조 주입
       if (req.session) {
         req.session.user = req.session.user || {};
@@ -79,9 +110,9 @@ module.exports = async function authMiddleware(req, res, next) {
     }
 
     // 3) 사용자 로드
-    const me = await User.findById(userId).lean
-      ? await User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email').lean()
-      : await User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email');
+    const me = await (User.findById(userId).lean
+      ? User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email').lean()
+      : User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email'));
     if (!me) {
       return res.status(404).json({ ok: false, error: '사용자를 찾을 수 없습니다.' });
     }

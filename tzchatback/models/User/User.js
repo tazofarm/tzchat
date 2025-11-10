@@ -11,6 +11,7 @@
 // - [개정] 필드 단위 unique/index 제거 → 스키마 하단에서 일괄 index 정의(중복 인덱스 경고 해소)
 // - [신규] 포인트 지갑(heart/star/ruby) + lastDailyGrantAt 추가
 // - [보강] 가입 보너스/등급변경 보너스 지급 (config/points 연동)
+// - [신규] PASS 매핑용 해시(ciHash/diHash) 추가 (원문 저장 금지)
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -185,6 +186,12 @@ const userSchema = new mongoose.Schema(
     // [탈퇴 관리 필드 - 호환용]
     isDeleted: { type: Boolean, default: false }, // ← 필드 인덱스 제거
     deletedAt: { type: Date, default: null },     // ← 필드 인덱스 제거
+
+    // ────────────────────────────────────────────────────────
+    // [신규] PASS 매핑용 해시 (CI/DI 원문 저장 금지)
+    // ────────────────────────────────────────────────────────
+    ciHash: { type: String, select: false },
+    diHash: { type: String, select: false },
   },
   {
     timestamps: true, // createdAt, updatedAt 자동 생성/관리
@@ -227,6 +234,10 @@ userSchema.index(
 
 // phoneHash는 값 있을 때만 유니크
 userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
+
+// [신규] PASS 해시 인덱스
+userSchema.index({ ciHash: 1 }, { unique: true, sparse: true, name: 'ciHash_1' });
+userSchema.index({ diHash: 1 }, { sparse: true, name: 'diHash_1' });
 
 // 등급별 리스트/집계용 (권장)
 userSchema.index({ user_level: 1 });

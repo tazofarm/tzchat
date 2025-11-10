@@ -39,7 +39,9 @@ server {
     client_max_body_size 20m;
 
     # ✅ CSP: 반드시 "한 줄"로! (HTTP/2는 헤더에 개행 금지)
-    add_header Content-Security-Policy "default-src 'self' capacitor:; connect-src 'self' https: wss: capacitor: data: blob:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' 'unsafe-inline' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob:; frame-ancestors 'self'; base-uri 'self';" always;
+    # - frame-src 추가(외부 PASS 페이지를 팝업/iframe로 여는 경우 대비)
+    # - worker-src 추가(Service Worker/FCM 등)
+    add_header Content-Security-Policy "default-src 'self' capacitor:; connect-src 'self' https: wss: capacitor: data: blob:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' 'unsafe-inline' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob:; frame-src 'self' https: data:; worker-src 'self' blob:; frame-ancestors 'self'; base-uri 'self';" always;
 
     # 공통 프록시 헤더
     proxy_set_header Host              $host;
@@ -133,7 +135,21 @@ server {
         error_log  /var/log/nginx/uploads_error.log;
     }
 
+    # -----------------------------------------------------
     # API 프록시
+    # -----------------------------------------------------
+    # PASS 콜백은 반드시 no-store (팝업/리다이렉트 캐시 방지)
+    location = /api/auth/pass/callback {
+        proxy_pass http://localhost:2000/api/auth/pass/callback;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Origin $http_origin;
+        add_header Cache-Control "no-store";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        access_log /var/log/nginx/api_access.log;
+        error_log  /var/log/nginx/api_error.log;
+    }
+
     location /api/ {
         proxy_pass http://localhost:2000;
         proxy_cache_bypass $http_upgrade;
@@ -154,7 +170,9 @@ server {
         error_log  /var/log/nginx/debug_error.log;
     }
 
+    # -----------------------------------------------------
     # WebSocket
+    # -----------------------------------------------------
     location = /socket.io {
         proxy_pass http://localhost:2000;
         proxy_buffering off;
@@ -180,7 +198,9 @@ server {
         error_log  /var/log/nginx/ws_error.log;
     }
 
+    # -----------------------------------------------------
     # SPA history
+    # -----------------------------------------------------
     location / {
         try_files $uri $uri/ /index.html;
         access_log /var/log/nginx/frontend_access.log;

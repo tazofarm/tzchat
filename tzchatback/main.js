@@ -99,7 +99,9 @@ app.use((req, res, next) => {
 // CORS
 // =======================================
 const cors = require('cors');
-const allowedOriginsList = [
+
+// 1) 기본 허용 목록
+const baseAllowed = [
   'https://tzchat.tazocode.com',
   'http://localhost',
   'http://localhost:8081',
@@ -114,6 +116,15 @@ const allowedOriginsList = [
   'https://localhost',
   'https://127.0.0.1',
 ];
+
+// 2) 환경변수 병합(CSV)
+const envWhitelist = (process.env.CORS_WHITELIST || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const allowedOriginsList = Array.from(new Set([...baseAllowed, ...envWhitelist]));
+
 const dynamicOriginAllow = [
   /^https?:\/\/localhost(:\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
@@ -148,7 +159,7 @@ app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight fo
   res.sendStatus(204);
 });
 
-console.log('🛡️  CORS 허용(고정):', allowedOriginsList.join(', '));
+console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
 console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
 
@@ -298,20 +309,6 @@ app.get('/api/health', (req, res) => {
 
 // ✅ 라우터 일괄 등록
 require('./routes')(app);
-
-/*
-safeMountRouter('/api/admin', './routes/adminRouter');
-safeMountRouter('/api', './routes/authRouter');
-safeMountRouter('/api', './routes/chatRouter');
-safeMountRouter('/api', './routes/emergencyRouter');
-safeMountRouter('/api', './routes/friendRouter');
-safeMountRouter('/api', './routes/profileImageRouter');
-safeMountRouter('/api/push', './routes/pushRouter');
-safeMountRouter('/api', './routes/supportRouter');
-safeMountRouter('/api', './routes/targetRouter');
-safeMountRouter('/api', './routes/userRouter');
-*/
-
 
 // =======================================
 // 3) Socket.IO 설정
