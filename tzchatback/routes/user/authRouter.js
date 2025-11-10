@@ -14,6 +14,19 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto'); // ⬅️ 추가
+
+// ⬇️ 추가: 해시/번호정규화 유틸
+const sha256Hex = (s = '') => crypto.createHash('sha256').update(String(s)).digest('hex');
+function normalizePhoneKR(raw = '') {
+  let clean = String(raw).replace(/[^\d+]/g, '');
+  if (!clean) return '';
+  if (clean.startsWith('+0')) clean = '+' + clean.slice(2);
+  if (clean.startsWith('+')) return clean;                // 이미 국제형식
+  if (clean.startsWith('0')) return '+82' + clean.slice(1); // 010 → +8210
+  if (clean.startsWith('82')) return '+' + clean;         // 82… → +82…
+  return '+82' + clean;                                   // 기타 → +82…
+}
 
 const {
   // chat
@@ -157,6 +170,8 @@ async function authFromJwtOrSession(req, res, next) {
 
 // ======================================================
 // 회원가입 (PASS 연동 강화: PassIdentity upsert + PassResult 소비)
+//  - PASS 전화번호를 E.164로 정규화하여 저장
+//  - 스키마 훅이 없어도 phoneHash/검증메타 보장
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -191,10 +206,13 @@ router.post('/signup', async (req, res) => {
         return res.status(410).json({ ok: false, message: '이미 사용된 PASS 토큰입니다.' });
       }
 
+      // ⬇️ 전화번호를 확실히 E.164(+82)로 맞춰 둠
+      const phoneE164 = pr.phone ? normalizePhoneKR(pr.phone) : '';
+
       prOverride = {
         birthyear: Number(pr.birthyear) || null,
         gender: (pr.gender === 'man' || pr.gender === 'woman') ? pr.gender : '',
-        phone: pr.phone || '',
+        phone: phoneE164,
         ciHash: pr.ciHash || undefined,
         diHash: pr.diHash || undefined,
         carrier: pr.carrier || '',
@@ -223,7 +241,7 @@ router.post('/signup', async (req, res) => {
     // ✅ 최종 저장값 확정 (PASS 우선)
     const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
     const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
-    const finalPhone     = prOverride?.phone     || undefined;
+    const finalPhone     = prOverride?.phone     || undefined;        // 이미 normalize 처리됨
     const finalCiHash    = prOverride?.ciHash    || undefined;
     const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
@@ -232,7 +250,9 @@ router.post('/signup', async (req, res) => {
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
-      user = await User.create({
+
+      // 기본 필드
+      const baseDoc = {
         username,
         password: hashed,
         nickname,
@@ -242,17 +262,24 @@ router.post('/signup', async (req, res) => {
         region2,
         last_login: null,
 
-        // PASS 연동 필드(스키마에 없는 필드는 Mongoose strict에 의해 무시됩니다)
-        phone: finalPhone,                 // User 훅에서 E.164 정규화 + phoneHash 자동 생성
-        carrier: finalCarrier,            // (스키마에 있으면 저장, 없으면 무시)
-        ciHash: finalCiHash,              // (참조용; 정본은 PassIdentity)
-        diHash: finalDiHash,              // (참조용)
-
         // 기본 지급(임시 정책)
         heart: 400,
         star: 0,
         ruby: 0,
-      });
+      };
+
+      // PASS 연동 필드 주입 (훅 없을 때도 보장)
+      if (finalPhone) {
+        baseDoc.phone = finalPhone;
+        baseDoc.phoneHash = sha256Hex(finalPhone);
+        baseDoc.phoneVerifiedAt = new Date();
+        baseDoc.phoneVerifiedBy = 'PASS';
+      }
+      if (finalCarrier) baseDoc.carrier = finalCarrier;
+      if (finalCiHash)  baseDoc.ciHash  = finalCiHash;
+      if (finalDiHash)  baseDoc.diHash  = finalDiHash;
+
+      user = await User.create(baseDoc);
     } catch (e) {
       if (e && e.code === 11000) {
         const dupField = Object.keys(e.keyValue || {})[0];
@@ -269,9 +296,11 @@ router.post('/signup', async (req, res) => {
     // ✅ PassIdentity 정본 매핑 upsert (CI 기준)
     try {
       if (finalCiHash) {
-        // phoneHash는 User 훅에서 생성되므로 조회하여 전달(없어도 됨)
-        const fresh = await User.findById(user._id).select('phoneHash').lean();
-        const phoneHash = fresh?.phoneHash || undefined;
+        // phoneHash는 스키마 훅이 없을 수도 있으므로 직접 보장
+        const fresh = await User.findById(user._id).select('phone phoneHash').lean();
+        const phoneHash =
+          fresh?.phoneHash ||
+          (fresh?.phone ? sha256Hex(fresh.phone) : (finalPhone ? sha256Hex(finalPhone) : undefined));
 
         if (typeof PassIdentity?.upsertByCI === 'function') {
           await PassIdentity.upsertByCI({
@@ -281,6 +310,13 @@ router.post('/signup', async (req, res) => {
             phoneHash,
             carrier: finalCarrier,
           });
+        } else {
+          // 구버전 호환: 최소 매핑
+          await PassIdentity.updateOne(
+            { ciHash: finalCiHash },
+            { $set: { userId: user._id, phoneHash, carrier: finalCarrier, updatedAt: new Date() } },
+            { upsert: true }
+          );
         }
       }
     } catch (e) {
@@ -351,7 +387,7 @@ router.post('/signup', async (req, res) => {
       }
     }
 
-    console.log('[API][RES] /signup 201', { userId: String(user._id), username, passTxId: !!passTxId });
+    console.log('[API][RES] /signup 201]', { userId: String(user._id), username, passTxId: !!passTxId });
     return res.status(201).json({ ok: true, message: '회원가입 성공' });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'signup', raw: err, message: err?.message, code: err?.code, name: err?.name });
@@ -469,7 +505,7 @@ router.post('/logout', async (req, res) => {
 //  - ✅ /me: 하트 일일 지급 보장(매일 11:00 KST) + wallet 동봉
 // ======================================================
 router.get('/me', authFromJwtOrSession, async (req, res) => {
-  console.time('[API][TIMING] GET /api/me');
+  console.time('[API][TIMING] GET /api/me]');
   const userId = req.auth.userId;
 
   try {
@@ -498,7 +534,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       .populate('blocklist', 'username nickname birthyear gender');
 
     if (!userDoc) {
-      console.timeEnd('[API][TIMING] GET /api/me');
+      console.timeEnd('[API][TIMING] GET /api/me]');
       console.log('[AUTH][ERR]', { step: 'me', code: 'NO_USER', userId });
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({ ok: false, message: '유저 없음' });
@@ -585,11 +621,11 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       search_marriage: raw.search_marriage ?? '전체',
     };
 
-    console.timeEnd('[API][TIMING] GET /api/me');
+    console.timeEnd('[API][TIMING] GET /api/me]');
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ ok: true, user, durationSeconds: EMERGENCY_DURATION_SECONDS });
   } catch (err) {
-    console.timeEnd('[API][TIMING] GET /api/me');
+    console.timeEnd('[API][TIMING] GET /api/me]');
     console.log('[AUTH][ERR]', { step: 'me', message: err?.message });
     res.setHeader('Cache-Control', 'no-store');
     return res.status(500).json({ ok: false, message: '서버 오류' });
@@ -703,4 +739,3 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
- 
