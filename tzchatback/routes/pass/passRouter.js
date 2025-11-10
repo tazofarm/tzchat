@@ -4,7 +4,7 @@
 // - GET  /start: mode=html 지원(팝업이 직접 이 엔드포인트를 열면 HTML 즉시 응답)
 // - ALL  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
 // - GET  /status: 상태 조회(폴링)
-// - GET  /route : 분기(signup | templogin)
+// - GET  /route : 분기(signup | templogin)  ← ★ now CI-only
 // - GET  /result/:txId : 단일 결과 조회(소모 여부 포함; consumed면 410)
 // ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
@@ -388,11 +388,10 @@ router.get('/result/:txId', async (req, res) => {
 });
 
 /* =========================================================
- * 5) 분기 결정 (회원가입 / 임시로그인)
+ * 5) 분기 결정 (회원가입 / 임시로그인) — ★ CI-only
  *   - 프론트 요구사항: route('signup'|'templogin') 반환
- *   - 우선 CI(정본: PassIdentity)로 매칭, 없으면 전화번호(E.164/sha256) 보조 매칭
+ *   - ✅ CI 매칭 있는 경우에만 templogin, 아니면 무조건 signup
  *   - consumed === true 면 410
- *   - ✅ 핵심: 유저가 없을 때 에러를 내지 말고 route: 'signup' 을 반환
  * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
@@ -418,12 +417,11 @@ router.get('/route', async (req, res) => {
       return json(res, 200, { ok: false, code: 'PASS_NOT_SUCCESS', status: doc.status });
     }
 
-    // 기본값
-    let routeName = 'signup';
+    // ----- ★ 분기: CI 기준만 사용 -----
     let userExists = false;
 
-    // 1) CI 우선 매칭: PassIdentity → User 1:1 정본
     if (doc.ciHash) {
+      // 1) PassIdentity에 userId 맵핑이 이미 있다면(선행 가입/연결된 경우)
       const ident = await PassIdentity.findOne({ ciHash: doc.ciHash })
         .select('userId')
         .lean()
@@ -431,31 +429,19 @@ router.get('/route', async (req, res) => {
 
       if (ident?.userId) {
         userExists = true;
-        routeName = 'templogin';
       } else {
-        // (폴백) 구버전 호환: User에 ciHash가 있던 경우
-        const byCiUser = await User.findOne({ $or: [{ ciHash: doc.ciHash }, { 'pass.ciHash': doc.ciHash }] })
+        // 2) 구/신 버전 호환: User.ciHash 또는 pass.ciHash 를 직접 검사
+        const byCiUser = await User.findOne({
+          $or: [{ ciHash: doc.ciHash }, { 'pass.ciHash': doc.ciHash }],
+        })
           .select('_id')
           .lean();
-        if (byCiUser?._id) {
-          userExists = true;
-          routeName = 'templogin';
-        }
+        if (byCiUser?._id) userExists = true;
       }
     }
 
-    // 2) CI 매칭 없으면 전화번호 보조 매칭
-    if (!userExists && doc.phone) {
-      const phone = normalizePhoneKR(doc.phone);
-      const phoneHash = sha256Hex(phone);
-      const byPhone = await User.findOne({ $or: [{ phone }, { phoneHash }] }).select('_id').lean();
-      if (byPhone?._id) {
-        userExists = true;
-        routeName = 'templogin';
-      }
-    }
+    const routeName = userExists ? 'templogin' : 'signup';
 
-    // ✅ 최종: 유저가 없으면 에러 대신 signup 으로 정상 분기
     return json(res, 200, {
       ok: true,
       route: routeName,
