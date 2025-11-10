@@ -738,4 +738,99 @@ router.get('/userinfo', async (req, res) => {
   }
 });
 
-module.exports = router;
+
+// ======================================================
+// PASS 인증 결과로 '내 전화번호' 업데이트
+// body: { txId }  (PASS 콜백으로 생성된 PassResult 의 txId)
+// - 1회성 소모(consume)
+// - User.phone (E.164) 저장 (스키마 훅으로 phoneHash 동기화)
+// - PassIdentity.phoneHash / carrier 갱신
+// - 최신 표시용 포맷/마스킹 함께 반환
+// ======================================================
+router.post('/auth/phone-update', authFromJwtOrSession, async (req, res) => {
+  const userId = req.auth.userId;
+  const { txId } = req.body || {};
+  if (!txId) return res.status(400).json({ ok: false, message: 'txId가 필요합니다.' });
+
+  try {
+    // 1) PASS 결과 로드 + 1회성 소모 (신/구버전 모두 처리)
+    let pr = null;
+    if (typeof PassResult?.consumeByTxId === 'function') {
+      pr = await PassResult.consumeByTxId(txId, userId);         // 전체 필드가 안 오면 아래에서 보강 조회
+    }
+    if (!pr) {
+      pr = await PassResult.findOne({ txId }).lean();            // 구버전/보강
+      if (!pr) return res.status(410).json({ ok: false, message: '이미 사용되었거나 유효하지 않은 PASS 토큰입니다.' });
+      if (pr.consumed === true) return res.status(410).json({ ok: false, message: '이미 사용된 PASS 토큰입니다.' });
+      await PassResult.updateOne({ txId }, { $set: { consumed: true, usedAt: new Date(), usedBy: userId } });
+    }
+    if (pr.status !== 'success') return res.status(400).json({ ok: false, message: 'PASS 인증이 성공 상태가 아닙니다.' });
+
+    // 2) 전화 E.164 정규화
+    const phoneE164 = pr.phone ? normalizePhoneKR(pr.phone) : '';
+    if (!phoneE164) return res.status(400).json({ ok: false, message: 'PASS 결과에 전화번호가 없습니다.' });
+
+    // 3) User.phone 저장(+ 검증 메타 갱신)
+    const me = await User.findById(userId);
+    if (!me) return res.status(404).json({ ok: false, message: '유저 없음' });
+
+    me.phone = phoneE164;
+    me.phoneVerifiedAt = new Date();
+    me.phoneVerifiedBy = 'PASS';
+    if (pr.carrier) me.carrier = pr.carrier;
+    await me.save(); // 스키마 훅이 있으면 phoneHash 자동, 없으면 아래서 보장
+
+    // 3-1) phoneHash 보장(훅이 없는 구스키마 대비)
+    if (!me.phoneHash && typeof me.updateOne === 'function') {
+      await me.updateOne({ $set: { phoneHash: sha256Hex(phoneE164) } });
+    }
+
+    // 4) PassIdentity 갱신 (CI 기준 있으면)
+    try {
+      const phoneHash = sha256Hex(phoneE164);
+      const carrier = pr.carrier || '';
+      if (pr.ciHash) {
+        if (typeof PassIdentity?.upsertByCI === 'function') {
+          await PassIdentity.upsertByCI({ ciHash: pr.ciHash, diHash: pr.diHash, userId, phoneHash, carrier });
+        } else if (typeof PassIdentity?.setPhone === 'function') {
+          await PassIdentity.setPhone({ ciHash: pr.ciHash, phoneHash, carrier });
+        } else {
+          await PassIdentity.updateOne(
+            { ciHash: pr.ciHash },
+            { $set: { userId, phoneHash, carrier, updatedAt: new Date() } },
+            { upsert: true }
+          );
+        }
+      }
+    } catch (e) {
+      console.log('[PASS][WARN] PassIdentity update failed:', e?.message);
+    }
+
+    // 5) 표시용 파생값
+    const formatE164KR = (p = '') => {
+      const s = String(p || '');
+      if (!s.startsWith('+82')) return s;
+      const tail = s.replace('+82', '');
+      const m = tail.match(/^10(\d{4})(\d{4})$/) || tail.match(/^(\d{2})(\d{4})(\d{4})$/);
+      if (m) return `+82 ${m[1].length === 2 ? m[1] : '10'}-${m[2]}-${m[3]}`;
+      return s;
+    };
+    const maskPhone = (p = '') => {
+      const s = String(p || '');
+      if (s.length < 4) return '****';
+      const last4 = s.slice(-4);
+      return `****-****-${last4}`;
+    };
+
+    return res.json({
+      ok: true,
+      message: '전화번호가 업데이트되었습니다.',
+      phone: phoneE164,
+      phoneFormatted: formatE164KR(phoneE164),
+      phoneMasked: maskPhone(phoneE164),
+    });
+  } catch (err) {
+    console.log('[AUTH][ERR][phone-update]', err?.message);
+    return res.status(500).json({ ok: false, message: '서버 오류' });
+  }
+});

@@ -79,7 +79,7 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">
-                    {{ user.phoneMasked || user.phoneFormatted || user.phone }}
+                    {{ user.phoneMasked || user.phoneFormatted || user.phone || '미등록' }}
                   </strong>
                   <IonButton
                     size="small"
