@@ -85,20 +85,23 @@ const isNative = Capacitor.isNativePlatform();
 // ✅ 웹(브라우저)에서만 localhost 판단
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
-// postMessage 수신(성공/실패)
+// postMessage 수신(PASS_RESULT: 성공/실패 공통)
 function handlePostMessage(ev) {
   try {
     const data = ev?.data || {};
+    if (data?.type !== 'PASS_RESULT') return;
 
-    if (data?.type === 'PASS_FAIL') {
-      lastFailCode.value = String(data?.reason || 'USER_CANCEL');
+    // 실패
+    if (data?.ok === false) {
+      lastFailCode.value = String(data?.code || 'FAIL');
       stopPopupAndPoll();
       mode.value = 'fail';
       busy.value = false;
       return;
     }
 
-    if (data?.type === 'PASS_RESULT' && data?.txId) {
+    // 성공
+    if (data?.ok === true && data?.txId) {
       txIdRef.value = String(data.txId);
       stopPopupAndPoll();
       proceedRouteByTx(txIdRef.value);
@@ -107,25 +110,29 @@ function handlePostMessage(ev) {
   } catch {}
 }
 
-// storage 폴백(성공/실패)
+// storage 폴백(PASS_RESULT_FALLBACK: 성공/실패 공통)
 function handleStorage(ev) {
   try {
-    if (ev.key === 'PASS_FAIL') {
-      const reason = ev.newValue ? String(ev.newValue) : 'USER_CANCEL';
-      localStorage.removeItem('PASS_FAIL');
-      lastFailCode.value = reason || 'USER_CANCEL';
+    if (ev.key !== 'PASS_RESULT_FALLBACK') return;
+    const raw = ev.newValue;
+    if (!raw) return;
+    localStorage.removeItem('PASS_RESULT_FALLBACK');
+
+    let data = null;
+    try { data = JSON.parse(raw); } catch { return; }
+    if (!data || data.type !== 'PASS_RESULT') return;
+
+    if (data.ok === false) {
+      lastFailCode.value = String(data.code || 'FAIL');
       stopPopupAndPoll();
       mode.value = 'fail';
       busy.value = false;
       return;
     }
-    if (ev.key === 'PASS_RESULT_TX') {
-      const tx = ev.newValue ? String(ev.newValue) : '';
-      if (!tx) return;
-      localStorage.removeItem('PASS_RESULT_TX');
-      txIdRef.value = tx;
+    if (data.ok === true && data.txId) {
+      txIdRef.value = String(data.txId);
       stopPopupAndPoll();
-      proceedRouteByTx(tx);
+      proceedRouteByTx(txIdRef.value);
       return;
     }
   } catch {}
@@ -136,19 +143,23 @@ function startHeartbeat() {
   heartbeat.value = setInterval(() => {
     try {
       if (openedWin.value && openedWin.value.closed) {
-        const tx = localStorage.getItem('PASS_RESULT_TX');
-        const fail = localStorage.getItem('PASS_FAIL');
-        if (tx) {
-          localStorage.removeItem('PASS_RESULT_TX');
-          txIdRef.value = String(tx);
-          stopPopupAndPoll();
-          proceedRouteByTx(txIdRef.value);
-        } else if (fail) {
-          localStorage.removeItem('PASS_FAIL');
-          lastFailCode.value = String(fail);
-          stopPopupAndPoll();
-          mode.value = 'fail';
-          busy.value = false;
+        const raw = localStorage.getItem('PASS_RESULT_FALLBACK');
+        if (raw) {
+          localStorage.removeItem('PASS_RESULT_FALLBACK');
+          let data = null;
+          try { data = JSON.parse(raw); } catch {}
+          if (data && data.type === 'PASS_RESULT') {
+            if (data.ok === false) {
+              lastFailCode.value = String(data.code || 'FAIL');
+              stopPopupAndPoll();
+              mode.value = 'fail';
+              busy.value = false;
+            } else if (data.ok === true && data.txId) {
+              txIdRef.value = String(data.txId);
+              stopPopupAndPoll();
+              proceedRouteByTx(txIdRef.value);
+            }
+          }
         }
       }
     } catch {}
@@ -188,6 +199,7 @@ onMounted(async () => {
   window.addEventListener('message', handlePostMessage);
   window.addEventListener('storage', handleStorage);
 
+  // 쿼리로 txId 전달되어 들어온 경우 즉시 분기
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
     txIdRef.value = qTx;
@@ -196,6 +208,7 @@ onMounted(async () => {
     await proceedRouteByTx(qTx);
   }
 
+  // 쿼리로 실패 코드가 들어온 경우
   const qFail = route.query.fail ? String(route.query.fail) : '';
   if (qFail) {
     lastFailCode.value = qFail;
@@ -233,12 +246,17 @@ async function proceedRouteByTx(txId) {
     const txt = await res.text();
     let j = null;
     try { j = JSON.parse(txt); } catch { throw new Error('ROUTE_NON_JSON'); }
-    if (!j?.ok || !j?.route) throw new Error(j?.code || 'ROUTE_ERROR');
+    if (!j?.ok) throw new Error(j?.code || 'ROUTE_ERROR');
 
-    if (j.route === 'signup') {
+    // ✅ 백엔드 변경 반영: next 값으로 분기
+    const next = j.next;
+    if (next === 'signup') {
       router.replace({ name: 'Signup', query: { passTxId: txId } });
-    } else if (j.route === 'templogin') {
+    } else if (next === 'templogin') {
       router.replace({ name: 'Home' });
+    } else if (next === 'pending') {
+      // 계속 대기(이상 시 폴링 유지)
+      if (!statusPoller.value) startStatusPolling(txId);
     } else {
       throw new Error('ROUTE_UNKNOWN');
     }
