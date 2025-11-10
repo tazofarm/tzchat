@@ -53,6 +53,43 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
+/* ──────────────── 공급사 필드 추출 유틸 ──────────────── */
+// 일부 환경에서 danal.parseCallback이 phone/carrier를 최상단에 넣지 않는 경우가 있어
+// raw 안의 다양한 키 후보를 스캔하여 보강한다.
+function extractPhoneFromParsed(parsed = {}) {
+  const raw = parsed.raw || {};
+  const candidates = [
+    parsed.phone,
+    raw.PHONE, raw.MOBILE_NO, raw.MOBILENO, raw.TEL_NO, raw.HP_NO,
+    raw.MOBILE, raw.CELLPHONE, raw.PHONENO, raw.PHONE_NO,
+    raw['PHONE_NO'], raw['MOBILENUM'], raw['MOBILE-NO'],
+  ];
+  for (const v of candidates) {
+    if (v && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+function extractCarrierFromParsed(parsed = {}) {
+  const raw = parsed.raw || {};
+  const candidates = [
+    parsed.carrier,
+    raw.TELCO, raw.TELCO_CODE, raw.CARRIER, raw.CI_TELECOM,
+    raw.TELECOM, raw.CARRIER_NAME
+  ];
+  for (const v of candidates) {
+    if (v && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+function mapCarrier(code) {
+  if (!code) return '';
+  const up = String(code).toUpperCase();
+  if (up.includes('SKT')) return up.includes('MVNO') ? 'SKT(MVNO)' : 'SKT';
+  if (up === 'KT' || up.includes('KT')) return up.includes('MVNO') ? 'KT(MVNO)' : 'KT';
+  if (up.includes('LG')) return up.includes('MVNO') ? 'LGU+(MVNO)' : 'LGU+';
+  return up;
+}
+
 /* ===================== 1) START ======================= */
 router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
 
@@ -88,10 +125,10 @@ router.all('/start', async (req, res) => {
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
     const code  = e?.code || e?.returnCode || 'START_ERROR';
-    const stage = e?.stage || 'UNKNOWN';
+    theStage = e?.stage || 'UNKNOWN';
     const msg   = e?.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
-    console.error('[PASS/start] error:', { code, stage, msg });
-    return json(res, 500, { ok: false, code, stage, message: msg });
+    console.error('[PASS/start] error:', { code, stage: theStage, msg });
+    return json(res, 500, { ok: false, code, stage: theStage, message: msg });
   }
 });
 
@@ -150,19 +187,27 @@ window.close();
       }
     }
 
+    // 1) 파싱
     const parsed = await danal.parseCallback(req);
     const txId = parsed.txId || `tx_${Date.now()}`;
 
+    // 2) 핵심 필드 가공 (누락 대비 다중 후보 추출)
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
     const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
-    const phone  = parsed.phone ? normalizePhoneKR(parsed.phone) : '';
+    const rawPhoneCandidate = extractPhoneFromParsed(parsed);
+    const phone  = rawPhoneCandidate ? normalizePhoneKR(rawPhoneCandidate) : '';
+
+    const rawCarrierCandidate = extractCarrierFromParsed(parsed);
+    const carrier = mapCarrier(rawCarrierCandidate);
+
     const ciHash = parsed.ci ? sha256Hex(parsed.ci) : '';
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
     const nameMasked = maskName(parsed.name || '');
 
+    // 3) rawMasked (민감정보 제거)
     const rawMasked = {
       ...parsed.raw,
       birthdate: birthdate || undefined,
@@ -170,10 +215,11 @@ window.close();
       ci: undefined,
       di: undefined,
       name: nameMasked,
-      phone,
+      phone,      // 정규화된 값으로 기록(표시/디버깅 용도)
+      carrier,    // 매핑된 통신사명
     };
 
-    // PassIdentity 스냅샷(추후 userId 매핑 용도)
+    // 4) PassIdentity 스냅샷(추후 userId 매핑 용도)
     let identityId = null;
     try {
       const ident = await PassIdentity.create({
@@ -181,7 +227,7 @@ window.close();
         diHash: diHash || undefined,
         name: nameMasked || undefined,
         phone: phone || undefined,
-        carrier: parsed.carrier || undefined,
+        carrier: carrier || undefined,
         birthyear: birthyear ?? undefined,
         gender: gender || undefined,
         createdAt: new Date(),
@@ -192,6 +238,7 @@ window.close();
       console.warn('[PASS/callback][identity] warn:', e?.message || e);
     }
 
+    // 5) 결과 upsert (★ phone/carrier를 반드시 저장)
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
@@ -204,8 +251,8 @@ window.close();
             name: nameMasked,
             birthyear,
             gender,
-            phone,
-            carrier: parsed.carrier || '',
+            phone: phone || '',                  // ← 핵심: 비어있더라도 키는 유지
+            carrier: carrier || '',              // ← 핵심: 매핑된 통신사 저장
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
             identityId: identityId || undefined,
@@ -215,11 +262,18 @@ window.close();
         },
         { upsert: true, new: true }
       );
-      console.log('[PASS/callback][upsert]', { txId: saved?.txId || txId, status: saved?.status || (parsed.success ? 'success' : 'fail') });
+      console.log('[PASS/callback][upsert]', {
+        txId: saved?.txId || txId,
+        status: saved?.status || (parsed.success ? 'success' : 'fail'),
+        hasPhone: !!(phone),
+        phoneSample: phone ? (phone.slice(0, 4) + '...' + phone.slice(-2)) : '(empty)',
+        carrier
+      });
     } catch (dbErr) {
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
+    // 6) 최종 응답
     return parsed.success ? endOk(txId) : endFail({
       code: parsed.failCode || 'FAIL',
       stage: 'CONFIRM',
