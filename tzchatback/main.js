@@ -1,16 +1,26 @@
 // main.js
 // 🌐 Express 기반 tzchat 서버 초기화 (Socket.IO 포함 + ✅ JWT 병행 지원)
+
+// ✅ .env를 어떤 require보다 먼저 로드(최상단)
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// (이하 기존 순서 유지)
 const express = require('express');
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
-const path = require('path');
 const fs = require('fs');
 require('module-alias/register');
 app.disable('x-powered-by');
 
+// (선택) 환경 로딩 확인 로그
+console.log('[ENV] NODE_ENV=', process.env.NODE_ENV || '(unset)');
+console.log('[ENV] DANAL_CPID?', !!process.env.DANAL_CPID, 'DANAL_PWD?', !!process.env.DANAL_PWD);
+
 const PORT = Number(process.env.PORT || 2000);
 const HOST = process.env.HOST || '0.0.0.0';
+
 
 // ✅ Mongo 연결 문자열 환경변수 "통일"
 // - 우선순위: MONGODB_URI > MONGO_URI > MONGO_URL > 기본값
