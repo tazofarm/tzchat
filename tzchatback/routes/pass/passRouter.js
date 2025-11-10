@@ -11,6 +11,9 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const qs = require('querystring');
+const iconv = require('iconv-lite');
+
 const { PassResult, User } = require('@/models');
 const danal = require('@/lib/pass/danalClient');
 
@@ -122,6 +125,7 @@ router.all('/start', async (req, res) => {
  * 2) PASS 콜백 (다날 WebAuth → 우리 서버)
  *    - CPCGI 역할: TID 수신 → UAS CONFIRM 호출 → PassResult upsert
  *    - 어떤 경우에도 200 HTML로 응답(팝업 postMessage 후 닫힘)
+ *    - EUC-KR 폼 본문을 raw 로 받아 UTF-8로 디코딩
  * =======================================================*/
 router.all('/callback', async (req, res) => {
   const targetOrigin = resolvePostMessageTarget();
@@ -161,6 +165,18 @@ PASS 실패. 창을 닫아주세요.
   };
 
   try {
+    // ✅ EUC-KR 폼 디코딩 (POST 전용, main.js에서 req.rawBody를 미리 캡처해 둬야 함)
+    if (req.method === 'POST') {
+      const ctype = (req.headers['content-type'] || '').toLowerCase();
+      if (ctype.includes('application/x-www-form-urlencoded')) {
+        if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
+          const text = iconv.decode(req.rawBody, 'euc-kr'); // EUC-KR → UTF-8
+          req.body = qs.parse(text);                         // querystring 파싱
+        }
+        // rawBody가 없다면(미들웨어 미적용) 기존 req.body 그대로 사용
+      }
+    }
+
     const parsed = await danal.parseCallback(req);
 
     const txId = parsed.txId || `tx_${Date.now()}`;

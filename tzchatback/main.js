@@ -66,6 +66,14 @@ const ChatRoom = require('./models/Chat/ChatRoom');
 // =======================================
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
+
+// ✅ 다날 콜백은 EUC-KR 이므로, 전역 파서보다 먼저 raw 로 캡처
+const expressRaw = express.raw({ type: '*/*', limit: '2mb' });
+app.post('/api/auth/pass/callback', expressRaw, (req, res, next) => {
+  req.rawBody = req.body; // Buffer
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
