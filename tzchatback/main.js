@@ -67,16 +67,20 @@ const ChatRoom = require('./models/Chat/ChatRoom');
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
 
-// ✅ 다날 콜백은 EUC-KR 이므로, 전역 파서보다 먼저 raw 로 캡처
-const expressRaw = express.raw({ type: '*/*', limit: '2mb' });
-app.post('/api/auth/pass/callback', expressRaw, (req, res, next) => {
-  req.rawBody = req.body; // Buffer
+// ✅ 다날 콜백은 EUC-KR x-www-form-urlencoded 이므로, 해당 경로만 raw로 선캡처
+const expressRaw = express.raw({ type: 'application/x-www-form-urlencoded', limit: '2mb' });
+// GET/POST 모두 콜백으로 들어올 수 있어 미리 훅을 건다 (POST일 때만 rawBody 세팅)
+app.all('/api/auth/pass/callback', expressRaw, (req, res, next) => {
+  if (req.method === 'POST') {
+    req.rawBody = req.body; // Buffer (iconv로 EUC-KR → UTF-8 디코딩에 사용)
+  }
   next();
 });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 console.log('📦 JSON 및 URL-Encoded 파서 활성화');
+
 
 /**
  * ✅ /public 정적 파일 서빙
