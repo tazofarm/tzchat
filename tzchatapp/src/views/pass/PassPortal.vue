@@ -240,14 +240,32 @@ onMounted(async () => {
   window.addEventListener('message', handlePostMessage);
   window.addEventListener('storage', handleStorage);
 
+  // 1) URL 쿼리 우선
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
     txIdRef.value = qTx;
     mode.value = 'running';
     busy.value = true;
     await proceedRouteByTx(qTx);
+    return;
   }
 
+  // 2) 팝업이 남겨둔 스토리지 폴백 회수
+  try {
+    const s = sessionStorage.getItem('passTxId') || '';
+    const l = localStorage.getItem('PASS_RESULT_TX') || '';
+    const tx = s || l;
+    if (tx) {
+      // 회수 후 즉시 분기
+      txIdRef.value = tx;
+      mode.value = 'running';
+      busy.value = true;
+      await proceedRouteByTx(tx);
+      return;
+    }
+  } catch {}
+
+  // 실패 안내 쿼리 처리
   const qFail = route.query.fail ? String(route.query.fail) : '';
   if (qFail) {
     lastFailCode.value = qFail;
@@ -255,6 +273,7 @@ onMounted(async () => {
     busy.value = false;
   }
 });
+
 
 onBeforeUnmount(() => {
   window.removeEventListener('message', handlePostMessage);
@@ -336,6 +355,12 @@ async function proceedRouteByTx(txId) {
       }
     };
 
+    // ✅ 분기하기 직전, 어느 경우든 회수할 수 있게 저장
+    try {
+      sessionStorage.setItem('passTxId', txId);
+      localStorage.setItem('PASS_RESULT_TX', txId);
+    } catch { /* noop */ }
+
     if (nextRoute === 'signup') {
       const qs = `?passTxId=${encodeURIComponent(txId)}`;
       const ok = await safeReplace(
@@ -343,7 +368,8 @@ async function proceedRouteByTx(txId) {
         `/signup${qs}`,
         `/signup${qs}`
       );
-      if (!ok) return;
+    if (!ok) return;
+
     } else if (nextRoute === 'templogin') {
       const ok = await safeReplace(
         { name: 'Home' },

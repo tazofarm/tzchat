@@ -110,9 +110,24 @@ const route = useRoute()
 function readInitialTxId(): string {
   const q1 = typeof route.query.txId === 'string' ? route.query.txId : ''
   const q2 = typeof route.query.passTxId === 'string' ? route.query.passTxId : ''
+  if (q1 || q2) return q1 || q2
+
+  // 라우터가 쿼리를 잃어버린 경우를 대비해 실제 URL 파싱
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    const s1 = sp.get('txId') || ''
+    const s2 = sp.get('passTxId') || ''
+    if (s1 || s2) return s1 || s2
+  } catch {}
+
   const s = sessionStorage.getItem('passTxId') || ''
-  return q1 || q2 || s
+  if (s) return s
+
+  // 팝업 폴백
+  const l = localStorage.getItem('PASS_RESULT_TX') || ''
+  return l
 }
+
 const txId = ref(readInitialTxId())
 
 const loadingPass = ref(false)
@@ -210,7 +225,11 @@ async function fetchPassStatus() {
   passError.value = ''
   passStatus.value = 'pending'
   try {
-    const res = await api.get(`/api/auth/pass/status`, { params: { txId: txId.value } })
+    const res = await api.get(`/api/auth/pass/status`, {
+  params: { txId: txId.value },
+  withCredentials: true, // ✅ 쿠키(세션/보안쿠키) 동반
+  })
+
     const j = res.data
     if (!j?.ok) throw new Error('PASS 상태 조회 실패')
 
@@ -246,12 +265,36 @@ async function refetchPass() {
 
 // 자동: 페이지 로드시 PASS 결과 확인
 onMounted(async () => {
+  // URL → 세션스토리지 → 로컬스토리지 순으로 재확인
+  if (!txId.value) {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const u1 = sp.get('txId') || sp.get('passTxId') || ''
+      if (u1) txId.value = u1
+    } catch {}
+  }
   if (!txId.value) {
     const s = sessionStorage.getItem('passTxId') || ''
     if (s) txId.value = s
   }
+  if (!txId.value) {
+    const l = localStorage.getItem('PASS_RESULT_TX') || ''
+    if (l) txId.value = l
+  }
+  if (txId.value) {
+    try { sessionStorage.setItem('passTxId', txId.value) } catch {}
+  }
   await fetchPassStatus()
 })
+
+// 라우터가 나중에 쿼리를 채워주는 상황 대응
+watch(() => route.query, () => {
+  const next = readInitialTxId()
+  if (next && next !== txId.value) {
+    txId.value = next
+    fetchPassStatus()
+  }
+}, { deep: true })
 
 // 제출
 async function onSubmit() {
