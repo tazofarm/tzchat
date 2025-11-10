@@ -147,12 +147,18 @@ const envWhitelist = (process.env.CORS_WHITELIST || '')
 
 const allowedOriginsList = Array.from(new Set([...baseAllowed, ...envWhitelist]));
 
+// 3) 동적/파트너 정규식 허용
 const dynamicOriginAllow = [
   /^https?:\/\/localhost(:\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
   /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
+];
+// ⬇️ PASS 인증 파트너 도메인 허용(브라우저가 Origin을 붙여 보낼 수 있음)
+const partnerOriginAllow = [
+  /^https?:\/\/([a-z0-9-]+\.)*teledit\.com$/i,   // 예: https://wauth.teledit.com
+  /^https?:\/\/([a-z0-9-]+\.)*danal\.co\.kr$/i,   // 예비: *.danal.co.kr
 ];
 
 app.use((req, res, next) => {
@@ -161,29 +167,52 @@ app.use((req, res, next) => {
 });
 const ALLOW_NULL_ORIGIN = true;
 
+// ⬇️ PASS 콜백/상태/라우팅은 항상 Origin 반영 (일부 환경에서 Origin이 붙어 cors가 차단되는 문제 회피)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/auth/pass/')) {
+    if (req.headers.origin) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Vary', 'Origin');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  }
+  next();
+});
+
 const corsOptions = {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (origin === 'null' && ALLOW_NULL_ORIGIN) return cb(null, true);
     if (allowedOriginsList.includes(origin)) return cb(null, true);
     if (dynamicOriginAllow.some((re) => re.test(origin))) return cb(null, true);
+    if (partnerOriginAllow.some((re) => re.test(origin))) return cb(null, true); // ⬅️ PASS 파트너 허용
     return cb(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization','Cache-Control',  'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'X-Requested-With'],
   maxAge: 600,
   optionsSuccessStatus: 204,
 };
+
 app.use((req, res, next) => { res.setHeader('Vary', 'Origin'); next(); });
 app.use(cors(corsOptions));
-app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path); next(); }, cors(corsOptions), (req, res) => {
-  res.sendStatus(204);
-});
+app.options(
+  /.*/,
+  (req, res, next) => {
+    console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
+    next();
+  },
+  cors(corsOptions),
+  (req, res) => res.sendStatus(204)
+);
 
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
-console.log('🛡️  CORS 허용(동적-사설망/에뚫레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 허용(동적-사설망):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 허용(파트너-PASS):', partnerOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
+
 
 // =======================================
 // 실행 모드
