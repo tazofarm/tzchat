@@ -67,13 +67,12 @@ router.get('/start/ping', (req, res) => {
 });
 
 router.all('/start', async (req, res) => {
-  // 항상 JSON로 응답(에러 포함)
   try {
     const intent = (req.body && req.body.intent) || (req.query && req.query.intent) || 'unified';
     const mode   = (req.query && req.query.mode)   || (req.body && req.body.mode)   || 'json';
-    const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);   // "1"|"true" 지원
+    const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);
 
-    // ✅ STUB 모드: 외부 통신 없이 파이프 확인 (임시 진단용)
+    // STUB: 파이프/프론트 점검용
     if (String(stub).toLowerCase() === '1' || String(stub).toLowerCase() === 'true') {
       const dummyHtml = `<!doctype html><html><body>
 <form id="f" action="about:blank" method="post">
@@ -84,11 +83,8 @@ router.all('/start', async (req, res) => {
       return json(res, 200, { ok: true, txId: `stub_${Date.now()}`, formHtml: dummyHtml });
     }
 
-    // ✅ 실제 시작(다날 Ready → TID → wauth 폼)
-    // 외부 통신에 타임아웃 가드(axios 기본 타임아웃 의존 대신 danalClient 내부에서 처리 권장)
     const out = await danal.buildStart({ intent, mode: 'json' });
 
-    // 안전 가드
     if (!out || (!out.formHtml && mode !== 'html')) {
       return json(res, 502, { ok: false, code: 'START_NO_FORM', message: 'formHtml not generated' });
     }
@@ -105,12 +101,22 @@ router.all('/start', async (req, res) => {
 
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
-    // 어떤 경우에도 HTML 에러페이지를 리턴하지 않도록 강제
-    console.error('[PASS/start] error:', e && (e.stack || e.message || e));
-    const message = (e && e.message) ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
-    return json(res, 500, { ok: false, code: 'START_ERROR', message });
+    // 상세 코드/스테이지를 프런트로 전달 → 콘솔에서 정확히 원인 식별
+    const code  = e && (e.code || e.returnCode) || 'START_ERROR';
+    const stage = e && e.stage || 'UNKNOWN';
+    const msg   = e && e.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
+
+    console.error('[PASS/start] error:', { code, stage, msg });
+
+    return json(res, 500, {
+      ok: false,
+      code,
+      stage,
+      message: msg,
+    });
   }
 });
+
 
 /* =========================================================
  * 2) PASS 콜백 (다날 WebAuth → 우리 서버)

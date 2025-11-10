@@ -30,55 +30,81 @@ function buildTargetUrl() {
   return `${resolveCallbackBase()}/api/auth/pass/callback`; // 우리 서버의 CPCGI 역할
 }
 
-// Ready(ITEMSEND): TID 발급
+// Ready(ITEMSEND): TID 발급 (에러 분류/타임아웃/로깅 강화)
 async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
   if (!CPID || !CPPWD) {
     const miss = [];
     if (!CPID) miss.push('DANAL_CPID');
     if (!CPPWD) miss.push('DANAL_PWD');
-    throw new Error(`Danal PASS env missing: ${miss.join(', ')}`);
+    const err = new Error(`Danal PASS env missing: ${miss.join(', ')}`);
+    err.code = 'ENV_MISSING';
+    err.stage = 'READY';
+    throw err;
   }
 
   const payload = {
-    // 고정 규격
     TXTYPE: 'ITEMSEND',
     SERVICE: 'UAS',
     AUTHTYPE: '36',
-    // 필수
     CPID,
     CPPWD,
-    TARGETURL: buildTargetUrl(), // 다날 WebAuth가 인증완료시 우리 CPCGI로 POST
+    TARGETURL: buildTargetUrl(),
     CPTITLE: cpTitle || 'tzchat.tazocode.com',
-    // 선택
     USERID: userId || '',
     ORDERID: orderId || '',
-    // 필요시 연령 제한: AGELIMIT: '019'
   };
 
   const body = qs.stringify(payload);
-  const res = await axios.post(UAS_URL, body, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
-    timeout: 7000,
-  });
+
+  let res;
+  try {
+    res = await axios.post(UAS_URL, body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+      timeout: 7000,
+      validateStatus: () => true, // 200이 아니어도 본문 파싱해 원인 노출
+    });
+  } catch (e) {
+    const err = new Error(`UAS request failed: ${e.message}`);
+    err.code = (e.code === 'ECONNABORTED') ? 'READY_TIMEOUT' : 'READY_NETWORK';
+    err.stage = 'READY';
+    throw err;
+  }
 
   const text = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '');
-  // 형태: "RETURNCODE=0000&RETURNMSG=OK&TID=xxxxxxxx..."
+  if (res.status !== 200) {
+    const err = new Error(`UAS HTTP ${res.status}: ${text.slice(0, 200)}`);
+    err.code = 'READY_HTTP';
+    err.stage = 'READY';
+    throw err;
+  }
+
   const map = new Map();
   for (const kv of text.split('&')) {
     const [k, v = ''] = kv.split('=');
-    if (k) map.set(k, v);
+    if (k) map.set(k.trim(), v);
   }
 
-  const code = map.get('RETURNCODE') || '';
+  const code = (map.get('RETURNCODE') || '').trim();
+  const msg  = (map.get('RETURNMSG')  || '').trim();
   if (code !== '0000') {
-    const msg = map.get('RETURNMSG') || 'UAS Ready failed';
-    throw new Error(`READY_FAILED(${code}): ${msg}`);
+    const err = new Error(`READY_FAILED(${code}): ${msg || 'no message'}`);
+    err.code = 'READY_FAIL';
+    err.stage = 'READY';
+    err.returnCode = code;
+    throw err;
   }
-  const tid = map.get('TID') || '';
-  if (!tid) throw new Error('READY_FAILED: TID empty');
+
+  const tid = (map.get('TID') || '').trim();
+  if (!tid) {
+    const err = new Error('READY_FAILED: empty TID');
+    err.code = 'READY_NO_TID';
+    err.stage = 'READY';
+    throw err;
+  }
 
   return { tid, raw: Object.fromEntries(map) };
 }
+
 
 // 다날 WebAuth로 보낼 자동 submit 폼(웹/모바일 공용)
 // ByPassValue는 CPCGI로 그대로 POST됨
