@@ -28,26 +28,26 @@
             <span>{{ buttonText }}</span>
           </ion-button>
 
-          <div v-if="lastFailCode" class="fail-code">
-            실패 코드: <code>{{ lastFailCode }}</code>
+          <div v-if="lastFail.code" class="fail-code">
+            실패 코드: <code>{{ lastFail.code }}</code>
           </div>
-
-          <div class="tips">
-            <p>인증이 완료되면 자동으로 분기됩니다:</p>
-            <ul>
-              <li>동일 CI가 없으면 → 회원가입</li>
-              <li>동일 CI가 있으면 → 임시로그인</li>
-            </ul>
+          <div v-if="lastFail.message" class="fail-code" style="opacity:.9">
+            사유: {{ lastFail.message }}
           </div>
         </div>
 
-        <!-- 🔎 실시간 디버그 패널 -->
+        <!-- 디버그 -->
         <div class="debug" v-if="showDebug">
           <h3>디버그</h3>
           <ul>
             <li><b>mode</b>: {{ mode }}</li>
             <li><b>txId</b>: {{ txIdRef || '—' }}</li>
-            <li><b>lastFailCode</b>: {{ lastFailCode || '—' }}</li>
+            <li><b>code</b>: {{ lastFail.code || '—' }}</li>
+            <li><b>stage</b>: {{ lastFail.stage || '—' }}</li>
+            <li><b>ctype</b>: {{ lastFail.ctype || '—' }}</li>
+            <li><b>charset</b>: {{ lastFail.charset || '—' }}</li>
+            <li><b>parsedKeys</b>: {{ (lastFail.parsedKeys || []).join(', ') || '—' }}</li>
+            <li v-if="lastFail.rawHead"><b>rawHead</b>: <code>{{ lastFail.rawHead }}</code></li>
             <li><b>lastEventAt</b>: {{ lastEventAtStr || '—' }}</li>
           </ul>
           <div class="btns">
@@ -72,15 +72,10 @@ import { Capacitor } from '@capacitor/core';
 const route = useRoute();
 const router = useRouter();
 
-/** ✅ 백엔드 절대 URL (환경별 .env에서 제공)
- *  - dev:  VITE_API_BASE_URL=http://localhost:2000
- *  - prod: VITE_API_BASE_URL=https://tzchat.tazocode.com
- */
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`;
+const api = (p) => `${API}${p.startsWith('/') ? p : '/'+p}`;
 
 const busy = ref(false);
-const lastFailCode = ref('');
 const statusPoller = ref(null);
 const openedWin = ref(null);
 const heartbeat = ref(null);
@@ -88,352 +83,223 @@ const watchdog = ref(null);
 const txIdRef = ref('');
 const lastEventAt = ref(0);
 
-// 버튼 렌더링 상태
-const mode = ref('idle'); // idle | running | fail
-const buttonText = computed(() => {
-  if (mode.value === 'running') return '인증중…';
-  if (mode.value === 'fail') return '인증 실패 · 재인증';
-  return 'PASS 인증하기';
+// 실패 상세
+const lastFail = ref({
+  code: '',
+  message: '',
+  stage: '',
+  ctype: '',
+  charset: '',
+  parsedKeys: [],
+  rawHead: '',
 });
-const buttonColor = computed(() => (mode.value === 'fail' ? 'danger' : 'primary'));
 
-// ✅ 앱(네이티브) 여부 우선 판단 → 앱이면 항상 서버 PASS
+const mode = ref('idle');
+const buttonText = computed(() => mode.value === 'running' ? '인증중…' : (mode.value === 'fail' ? '인증 실패 · 재인증' : 'PASS 인증하기'));
+const buttonColor = computed(() => mode.value === 'fail' ? 'danger' : 'primary');
+
 const isNative = Capacitor.isNativePlatform();
-// ✅ 웹(브라우저)에서만 localhost 판단
-const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
+const isLocal = !isNative && ['localhost','127.0.0.1'].includes(location.hostname);
 
-// 개발 중 디버그 패널 항상 표시 권장
 const showDebug = true;
-const lastEventAtStr = computed(() => (lastEventAt.value ? new Date(lastEventAt.value).toLocaleString() : ''));
+const lastEventAtStr = computed(() => lastEventAt.value ? new Date(lastEventAt.value).toLocaleString() : '');
 
-// 공통 업데이트
-function markEvent() { lastEventAt.value = Date.now(); }
-
-// 🔔 워치독: 콜백/폴백 미수신 시 강제 실패로 전환
-function startWatchdog() {
+function markEvent(){ lastEventAt.value = Date.now(); }
+function startWatchdog(){
   clearWatchdog();
-  watchdog.value = setTimeout(() => {
-    // 아직도 결과/txId 둘 다 없으면 실패 처리
+  watchdog.value = setTimeout(()=>{
     if (!txIdRef.value) {
-      lastFailCode.value = 'CALLBACK_TIMEOUT';
-      mode.value = 'fail';
-      busy.value = false;
-      stopPopupAndPoll();
+      setFail({ code:'CALLBACK_TIMEOUT', message:'콜백 수신 타임아웃(15s)', stage:'WATCHDOG' });
+      mode.value = 'fail'; busy.value = false; stopPopupAndPoll();
     }
-  }, 15000); // 15초
+  }, 15000);
 }
-function clearWatchdog() {
-  if (watchdog.value) {
-    clearTimeout(watchdog.value);
-    watchdog.value = null;
+function clearWatchdog(){ if (watchdog.value) { clearTimeout(watchdog.value); watchdog.value=null; } }
+
+function setFail(payload = {}) {
+  lastFail.value = {
+    code: payload.code || 'FAIL',
+    message: payload.message || '',
+    stage: payload.stage || '',
+    ctype: payload.ctype || '',
+    charset: payload.charset || '',
+    parsedKeys: payload.parsedKeys || [],
+    rawHead: payload.rawHead || '',
+  };
+}
+
+function handlePASS_RESULT(data) {
+  markEvent();
+  if (data.ok === false) {
+    setFail(data);
+    mode.value = 'fail'; busy.value = false;
+    stopPopupAndPoll(); clearWatchdog();
+    return;
+  }
+  if (data.ok === true && data.txId) {
+    txIdRef.value = String(data.txId);
+    stopPopupAndPoll(); clearWatchdog();
+    proceedRouteByTx(txIdRef.value);
   }
 }
 
-// postMessage 수신 (신규: PASS_RESULT 단일 포맷, 구버전 호환: PASS_FAIL)
-function handlePostMessage(ev) {
+function handlePostMessage(e){
   try {
-    const data = ev?.data || {};
-    if (!data) return;
-
-    // 🔙 하위호환: PASS_FAIL
-    if (data.type === 'PASS_FAIL') {
-      markEvent();
-      lastFailCode.value = String(data?.reason || 'USER_CANCEL');
-      mode.value = 'fail';
-      busy.value = false;
-      stopPopupAndPoll();
-      clearWatchdog();
-      return;
-    }
-
-    // ✅ 권장: PASS_RESULT { ok, txId, code? }
-    if (data.type === 'PASS_RESULT') {
-      markEvent();
-      if (data.ok === false) {
-        lastFailCode.value = String(data.code || 'FAIL');
-        mode.value = 'fail';
-        busy.value = false;
-        stopPopupAndPoll();
-        clearWatchdog();
-        return;
-      }
-      if (data.ok === true && data.txId) {
-        txIdRef.value = String(data.txId);
-        stopPopupAndPoll();
-        clearWatchdog();
-        proceedRouteByTx(txIdRef.value);
-        return;
-      }
-    }
+    const d = e?.data;
+    if (!d) return;
+    if (d.type === 'PASS_RESULT') return handlePASS_RESULT(d);
+    if (d.type === 'PASS_FAIL') return handlePASS_RESULT({ ok:false, code:String(d.reason||'FAIL'), stage:'LEGACY' });
   } catch {}
 }
 
-// storage 폴백 (서버에서 항상 PASS_RESULT_FALLBACK 저장하도록 권장)
-function handleStorage(ev) {
-  try {
-    if (ev.key !== 'PASS_RESULT_FALLBACK') return;
-    const raw = ev.newValue;
-    if (!raw) return;
+function handleStorage(e){
+  try{
+    if (e.key !== 'PASS_RESULT_FALLBACK') return;
+    const raw = e.newValue; if (!raw) return;
     localStorage.removeItem('PASS_RESULT_FALLBACK');
-
-    let data = null;
-    try { data = JSON.parse(raw); } catch { return; }
-    if (!data || data.type !== 'PASS_RESULT') return;
-
-    markEvent();
-    if (data.ok === false) {
-      lastFailCode.value = String(data.code || 'FAIL');
-      mode.value = 'fail';
-      busy.value = false;
-      stopPopupAndPoll();
-      clearWatchdog();
-      return;
-    }
-    if (data.ok === true && data.txId) {
-      txIdRef.value = String(data.txId);
-      stopPopupAndPoll();
-      clearWatchdog();
-      proceedRouteByTx(txIdRef.value);
-      return;
-    }
-  } catch {}
+    let d=null; try{ d=JSON.parse(raw);}catch{ return; }
+    if (d && d.type==='PASS_RESULT') handlePASS_RESULT(d);
+  }catch{}
 }
 
-function startHeartbeat() {
+function startHeartbeat(){
   if (heartbeat.value) clearInterval(heartbeat.value);
-  heartbeat.value = setInterval(() => {
-    try {
-      // 팝업이 닫혔을 때도 폴백 키 확인
+  heartbeat.value = setInterval(()=>{
+    try{
       if (openedWin.value && openedWin.value.closed) {
         const raw = localStorage.getItem('PASS_RESULT_FALLBACK');
         if (raw) {
           localStorage.removeItem('PASS_RESULT_FALLBACK');
-          let data = null;
-          try { data = JSON.parse(raw); } catch {}
-          if (data && data.type === 'PASS_RESULT') {
-            markEvent();
-            if (data.ok === false) {
-              lastFailCode.value = String(data.code || 'FAIL');
-              mode.value = 'fail';
-              busy.value = false;
-              stopPopupAndPoll();
-              clearWatchdog();
-            } else if (data.ok === true && data.txId) {
-              txIdRef.value = String(data.txId);
-              stopPopupAndPoll();
-              clearWatchdog();
-              proceedRouteByTx(txIdRef.value);
-            }
-          }
+          let d=null; try{ d=JSON.parse(raw);}catch{}
+          if (d && d.type==='PASS_RESULT') handlePASS_RESULT(d);
         }
       }
-    } catch {}
+    }catch{}
   }, 400);
 }
 
-function startStatusPolling(txId) {
+function startStatusPolling(txId){
   if (!txId) return;
   if (statusPoller.value) clearInterval(statusPoller.value);
-
-  statusPoller.value = setInterval(async () => {
-    try {
-      const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`), {
-        credentials: 'include'
-      });
-      const t = await res.text();
-      let j = null;
-      try { j = JSON.parse(t); } catch { return; }
+  statusPoller.value = setInterval(async ()=>{
+    try{
+      const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`), { credentials:'include' });
+      let j=null; try{ j=await res.json(); }catch{ return; }
       if (!j?.ok) return;
-
       if (j.status === 'fail') {
-        markEvent();
-        lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        stopPopupAndPoll();
-        clearWatchdog();
-        mode.value = 'fail';
-        busy.value = false;
+        setFail({ code:j?.result?.failCode || 'UNKNOWN', stage:'STATUS' });
+        stopPopupAndPoll(); clearWatchdog();
+        mode.value='fail'; busy.value=false;
       } else if (j.status === 'success') {
-        stopPopupAndPoll();
-        clearWatchdog();
+        stopPopupAndPoll(); clearWatchdog();
         await proceedRouteByTx(txId);
       }
-    } catch (e) {
-      console.warn('[poll] error', e);
-    }
+    }catch{}
   }, 1500);
 }
 
-onMounted(async () => {
+onMounted(async ()=>{
   window.addEventListener('message', handlePostMessage);
   window.addEventListener('storage', handleStorage);
 
-  // 쿼리로 txId 전달되어 들어온 경우 즉시 분기
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
     txIdRef.value = qTx;
-    mode.value = 'running';
-    busy.value = true;
-    startStatusPolling(qTx);
-    startWatchdog();
+    mode.value='running'; busy.value=true;
+    startStatusPolling(qTx); startWatchdog();
     await proceedRouteByTx(qTx);
   }
-
-  // 쿼리로 실패 코드가 들어온 경우
   const qFail = route.query.fail ? String(route.query.fail) : '';
   if (qFail) {
-    lastFailCode.value = qFail;
-    mode.value = 'fail';
-    busy.value = false;
+    setFail({ code:qFail, stage:'QUERY' });
+    mode.value='fail'; busy.value=false;
   }
 });
 
-onBeforeUnmount(() => {
+onBeforeUnmount(()=>{
   window.removeEventListener('message', handlePostMessage);
   window.removeEventListener('storage', handleStorage);
-  stopPopupAndPoll();
-  clearWatchdog();
+  stopPopupAndPoll(); clearWatchdog();
 });
 
-function stopPopupAndPoll() {
-  if (statusPoller.value) {
-    clearInterval(statusPoller.value);
-    statusPoller.value = null;
-  }
-  if (heartbeat.value) {
-    clearInterval(heartbeat.value);
-    heartbeat.value = null;
-  }
-  try {
-    if (openedWin.value && !openedWin.value.closed) openedWin.value.close();
-  } catch {}
-  openedWin.value = null;
+function stopPopupAndPoll(){
+  if (statusPoller.value){ clearInterval(statusPoller.value); statusPoller.value=null; }
+  if (heartbeat.value){ clearInterval(heartbeat.value); heartbeat.value=null; }
+  try{ if (openedWin.value && !openedWin.value.closed) openedWin.value.close(); }catch{}
+  openedWin.value=null;
 }
 
-async function forceStatusCheck() {
+async function forceStatusCheck(){
   if (!txIdRef.value) return;
-  try {
-    const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txIdRef.value)}`), {
-      credentials: 'include'
-    });
-    const j = await res.json();
-    markEvent();
+  try{
+    const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txIdRef.value)}`), { credentials:'include' });
+    const j = await res.json(); markEvent();
     if (j?.status === 'fail') {
-      lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-      mode.value = 'fail';
-      busy.value = false;
-      stopPopupAndPoll();
-      clearWatchdog();
+      setFail({ code:j?.result?.failCode || 'UNKNOWN', stage:'STATUS_FORCE' });
+      mode.value='fail'; busy.value=false; stopPopupAndPoll(); clearWatchdog();
     } else if (j?.status === 'success') {
-      stopPopupAndPoll();
-      clearWatchdog();
+      stopPopupAndPoll(); clearWatchdog();
       await proceedRouteByTx(txIdRef.value);
     }
-  } catch {}
+  }catch{}
 }
 
-function resetState() {
-  stopPopupAndPoll();
-  clearWatchdog();
-  txIdRef.value = '';
-  lastFailCode.value = '';
-  busy.value = false;
-  mode.value = 'idle';
-  lastEventAt.value = 0;
+function resetState(){
+  stopPopupAndPoll(); clearWatchdog();
+  txIdRef.value=''; lastEventAt.value=0;
+  setFail({});
+  busy.value=false; mode.value='idle';
 }
 
-async function proceedRouteByTx(txId) {
-  try {
-    const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), {
-      credentials: 'include'
-    });
-    const txt = await res.text();
-    let j = null;
-    try { j = JSON.parse(txt); } catch { throw new Error('ROUTE_NON_JSON'); }
+async function proceedRouteByTx(txId){
+  try{
+    const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), { credentials:'include' });
+    const j = await res.json();
     if (!j?.ok) throw new Error(j?.code || 'ROUTE_ERROR');
-
     const next = j.next;
-    if (next === 'signup') {
-      router.replace({ name: 'Signup', query: { passTxId: txId } });
-    } else if (next === 'templogin') {
-      router.replace({ name: 'Home' });
-    } else if (next === 'pending') {
-      // 계속 대기(이상 시 폴링 유지)
-      if (!statusPoller.value) startStatusPolling(txId);
-    } else {
-      throw new Error('ROUTE_UNKNOWN');
-    }
-  } catch (e) {
-    lastFailCode.value = e?.message || 'ROUTE_ERROR';
-    mode.value = 'fail';
-    busy.value = false;
+    if (next === 'signup') router.replace({ name:'Signup', query:{ passTxId: txId } });
+    else if (next === 'templogin') router.replace({ name:'Home' });
+    else if (next === 'pending') { if (!statusPoller.value) startStatusPolling(txId); }
+    else throw new Error('ROUTE_UNKNOWN');
+  }catch(e){
+    setFail({ code: e?.message || 'ROUTE_ERROR', stage:'ROUTE' });
+    mode.value='fail'; busy.value=false;
   }
 }
 
-async function onClickPass() {
-  lastFailCode.value = '';
+async function onClickPass(){
+  setFail({});
   if (busy.value) return;
+  busy.value=true; mode.value='running'; startWatchdog();
 
-  busy.value = true;
-  mode.value = 'running';
-  startWatchdog();
-
-  try {
-    // ✅ 앱이면 항상 서버 PASS. 웹에서만 localhost → 수동 PASS
+  try{
     if (isLocal) {
-      const manualUrl = `${location.origin}${router.resolve({ name: 'PassManual' }).href}`;
-      openedWin.value = window.open(
-        manualUrl,
-        'PASS_AUTH',
-        'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
-      );
-      startHeartbeat();
-      return;
+      const manualUrl = `${location.origin}${router.resolve({ name:'PassManual' }).href}`;
+      openedWin.value = window.open(manualUrl, 'PASS_AUTH', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no');
+      startHeartbeat(); return;
     }
 
     const resp = await fetch(api('/api/auth/pass/start'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ intent: 'unified' })
+      method:'POST', headers:{ 'Content-Type':'application/json' }, credentials:'include',
+      body: JSON.stringify({ intent:'unified' })
     });
+    const j = await resp.json();
+    if (!resp.ok || !j?.ok || !j?.formHtml) throw new Error(j?.code || 'START_ERROR');
 
-    const startText = await resp.text();
-    let startJson = null;
-    try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
-    if (!resp.ok || !startJson?.ok || !startJson?.formHtml) {
-      throw new Error(startJson?.code || 'START_ERROR');
-    }
-
-    // txId가 없더라도 콜백 이벤트로 회복 가능 → 폴링은 txId 있을 때만
-    txIdRef.value = startJson.txId || '';
-
-    openedWin.value = window.open(
-      '',
-      'PASS_AUTH',
-      'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
-    );
+    txIdRef.value = j.txId || '';
+    openedWin.value = window.open('', 'PASS_AUTH', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no');
     if (!openedWin.value) throw new Error('POPUP_BLOCKED');
-
-    openedWin.value.document.open();
-    openedWin.value.document.write(String(startJson.formHtml));
-    openedWin.value.document.close();
+    openedWin.value.document.open(); openedWin.value.document.write(String(j.formHtml)); openedWin.value.document.close();
 
     if (txIdRef.value) startStatusPolling(txIdRef.value);
     startHeartbeat();
-  } catch (e) {
-    lastFailCode.value = e?.message || 'START_ERROR';
-    mode.value = 'fail';
-    busy.value = false;
-    clearWatchdog();
+  }catch(e){
+    setFail({ code: e?.message || 'START_ERROR', stage:'START' });
+    mode.value='fail'; busy.value=false; clearWatchdog();
   }
 }
 
-// 🔙 뒤로가기
-function onBack() {
-  stopPopupAndPoll();
-  clearWatchdog();
-  router.replace('/login');
-}
+function onBack(){ stopPopupAndPoll(); clearWatchdog(); router.replace('/login'); }
 </script>
 
 <style scoped>
@@ -443,11 +309,8 @@ h2 { margin: 0 0 8px; }
 .desc { opacity: 0.85; margin-bottom: 16px; }
 .mr-2 { margin-right: 8px; }
 .fail-code { margin-top: 12px; color: var(--ion-color-danger); }
-.tips { margin-top: 16px; font-size: 0.95rem; opacity: 0.9; }
-.tips ul { margin: 6px 0 0 18px; }
-
 .debug { margin-top: 16px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.05); }
 .debug h3 { margin: 0 0 8px; font-size: 1rem; opacity: 0.9; }
-.debug ul { margin: 0; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.88rem; }
+.debug ul { margin: 0; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.88rem; word-break: break-all; }
 .debug .btns { margin-top: 10px; display: flex; gap: 8px; }
 </style>
