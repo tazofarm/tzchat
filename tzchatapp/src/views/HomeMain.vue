@@ -4,7 +4,7 @@
     <!-- 상단 영역 -->
     <IonHeader :translucent="true">
       <div class="top-wrap">
-        <TopSpace height="1vh" />
+        <TopSpace height="6vh" />
         <TopPoint height="4vh" />
       </div>
     </IonHeader>

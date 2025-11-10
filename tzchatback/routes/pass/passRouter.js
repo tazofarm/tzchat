@@ -12,7 +12,6 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const qs = require('querystring');
-const iconv = require('iconv-lite');
 
 const { PassResult, User } = require('@/models');
 const danal = require('@/lib/pass/danalClient');
@@ -170,13 +169,21 @@ PASS 실패. 창을 닫아주세요.
       const ctype = (req.headers['content-type'] || '').toLowerCase();
       if (ctype.includes('application/x-www-form-urlencoded')) {
         if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
-          const text = iconv.decode(req.rawBody, 'euc-kr'); // EUC-KR → UTF-8
-          req.body = qs.parse(text);                         // querystring 파싱
+          let text;
+          try {
+            // 동적 로드로 안전하게 (미설치라도 서버가 죽지 않도록)
+            const iconv = require('iconv-lite');
+            text = iconv.decode(req.rawBody, 'euc-kr'); // EUC-KR → UTF-8
+          } catch {
+            text = req.rawBody.toString('utf8');        // 폴백
+          }
+          req.body = qs.parse(text);                   // querystring 파싱
         }
         // rawBody가 없다면(미들웨어 미적용) 기존 req.body 그대로 사용
       }
     }
 
+    // 쿼리/바디가 완전 비어 브라우저에서 직접 GET로 연 경우도 항상 200으로 처리
     const parsed = await danal.parseCallback(req);
 
     const txId = parsed.txId || `tx_${Date.now()}`;
@@ -208,36 +215,33 @@ PASS 실패. 창을 닫아주세요.
       phone,
     };
 
-    await PassResult.findOneAndUpdate(
-      { txId },
-      {
-        $set: {
-          status: parsed.success ? 'success' : 'fail',
-          failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
-          name: nameMasked,
-          birthyear,
-          gender,
-          phone,
-          carrier: parsed.carrier || '',
-          ciHash: ciHash || undefined,
-          diHash: diHash || undefined,
-          rawMasked,
+    try {
+      await PassResult.findOneAndUpdate(
+        { txId },
+        {
+          $set: {
+            status: parsed.success ? 'success' : 'fail',
+            failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
+            name: nameMasked,
+            birthyear,
+            gender,
+            phone,
+            carrier: parsed.carrier || '',
+            ciHash: ciHash || undefined,
+            diHash: diHash || undefined,
+            rawMasked,
+          },
         },
-      },
-      { upsert: true, new: true }
-    );
+        { upsert: true, new: true }
+      );
+    } catch (dbErr) {
+      console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
+    }
 
     return parsed.success ? endOk(txId) : endFail(parsed.failCode || 'FAIL');
   } catch (e) {
-    console.error('[PASS/callback] error:', e && (e.stack || e.message || e));
-    try {
-      await PassResult.create({
-        txId: `tx_${Date.now()}`,
-        status: 'fail',
-        failCode: 'CALLBACK_ERROR',
-        rawMasked: { err: String(e && e.message || e) }
-      });
-    } catch (_) {}
+    console.error('[PASS/callback] hard error:', e?.stack || e?.message || e);
+    // 절대 500 내지 않음
     return endFail('CALLBACK_ERROR');
   }
 });

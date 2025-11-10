@@ -2,9 +2,8 @@
 <template>
   <ion-page class="phone-update">
     <ion-header>
-      <ion-toolbar>
+     
         <ion-title>전화번호 변경(PASS)</ion-title>
-      </ion-toolbar>
     </ion-header>
 
     <ion-content :fullscreen="true">
@@ -118,6 +117,7 @@ import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonButton, IonSpinner, IonCard, IonCardHeader, IonCardTitle, IonCardSubtitle, IonCardContent
 } from '@ionic/vue'
+import { Capacitor } from '@capacitor/core'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
@@ -246,7 +246,9 @@ async function onStartPass() {
   phase.value = 'start'
   busy.value = true
   try {
-    const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname)
+    // ✅ 네이티브(앱) 우선: 앱이면 항상 서버 PASS 사용
+    const isNative = Capacitor.isNativePlatform()
+    const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
 
     if (isLocal) {
       const url = router.resolve({ name: 'PassManual' }).href
@@ -272,6 +274,7 @@ async function onStartPass() {
       throw new Error(json?.message || '시작 실패')
     }
 
+    // 서버가 내려주는 PASS 이동 URL(또는 form HTML 처리 후의 최종 URL)
     openedWin.value = window.open(
       json.redirectUrl,
       'PASS_PHONE',

@@ -52,6 +52,7 @@ import {
 } from '@ionic/vue';
 import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { Capacitor } from '@capacitor/core';
 
 const route = useRoute();
 const router = useRouter();
@@ -79,7 +80,10 @@ const buttonText = computed(() => {
 });
 const buttonColor = computed(() => (mode.value === 'fail' ? 'danger' : 'primary'));
 
-const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+// ✅ 앱(네이티브) 여부 우선 판단 → 앱이면 항상 서버 PASS
+const isNative = Capacitor.isNativePlatform();
+// ✅ 웹(브라우저)에서만 localhost 판단
+const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
 // postMessage 수신(성공/실패)
 function handlePostMessage(ev) {
@@ -151,7 +155,6 @@ function startHeartbeat() {
   }, 400);
 }
 
-// (PassPortal.vue 중)  onMounted 위쪽 아무 곳에 추가(함수 선언부)
 function startStatusPolling(txId) {
   if (!txId) return;
   if (statusPoller.value) clearInterval(statusPoller.value);
@@ -180,7 +183,6 @@ function startStatusPolling(txId) {
     }
   }, 1500);
 }
-
 
 onMounted(async () => {
   window.addEventListener('message', handlePostMessage);
@@ -223,6 +225,31 @@ function stopPopupAndPoll() {
   openedWin.value = null;
 }
 
+async function proceedRouteByTx(txId) {
+  try {
+    const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), {
+      credentials: 'include'
+    });
+    const txt = await res.text();
+    let j = null;
+    try { j = JSON.parse(txt); } catch { throw new Error('ROUTE_NON_JSON'); }
+    if (!j?.ok || !j?.route) throw new Error(j?.code || 'ROUTE_ERROR');
+
+    if (j.route === 'signup') {
+      router.replace({ name: 'Signup', query: { passTxId: txId } });
+    } else if (j.route === 'templogin') {
+      router.replace({ name: 'Home' });
+    } else {
+      throw new Error('ROUTE_UNKNOWN');
+    }
+  } catch (e) {
+    console.error('[proceedRouteByTx] error', e);
+    lastFailCode.value = e?.message || 'ROUTE_ERROR';
+    mode.value = 'fail';
+    busy.value = false;
+  }
+}
+
 async function onClickPass() {
   lastFailCode.value = '';
   if (busy.value) return;
@@ -231,6 +258,7 @@ async function onClickPass() {
   mode.value = 'running';
 
   try {
+    // ✅ 앱이면 항상 서버 PASS. 웹에서만 localhost → 수동 PASS
     if (isLocal) {
       const manualUrl = `${location.origin}${router.resolve({ name: 'PassManual' }).href}`;
       openedWin.value = window.open(
@@ -249,7 +277,6 @@ async function onClickPass() {
       body: JSON.stringify({ intent: 'unified' })
     });
 
-    // 응답을 먼저 텍스트로 받고 JSON 파싱
     const startText = await resp.text();
     let startJson = null;
     try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
@@ -257,10 +284,8 @@ async function onClickPass() {
       throw new Error(startJson?.code || 'START_ERROR');
     }
 
-    // 서버가 내려준 txId 보관
     txIdRef.value = startJson.txId || '';
 
-    // 팝업을 열고 formHtml을 써서 다날 페이지로 POST 이동
     openedWin.value = window.open(
       '',
       'PASS_AUTH',
@@ -272,7 +297,6 @@ async function onClickPass() {
     openedWin.value.document.write(String(startJson.formHtml));
     openedWin.value.document.close();
 
-    // 상태 폴링 + 팝업 heartbeat 시작
     if (txIdRef.value) startStatusPolling(txIdRef.value);
     startHeartbeat();
   } catch (e) {
@@ -283,8 +307,7 @@ async function onClickPass() {
   }
 }
 
-
-// 🔙 뒤로가기: 모든 작업 정리 후 /login 이동
+// 🔙 뒤로가기
 function onBack() {
   stopPopupAndPoll();
   router.replace('/login');
