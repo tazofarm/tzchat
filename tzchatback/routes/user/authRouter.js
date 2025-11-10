@@ -156,7 +156,7 @@ async function authFromJwtOrSession(req, res, next) {
 }
 
 // ======================================================
-// 회원가입 (PASS 연동: passTxId가 오면 서버 저장 PASS 결과로 강제 적용)
+// 회원가입 (PASS 연동 강화: carrier/phoneVerified/phoneHash 반영 + PassResult 소비 마킹)
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -164,7 +164,7 @@ router.post('/signup', async (req, res) => {
   let {
     username, password, nickname, gender, birthyear, region1, region2,
     consents = [],
-    passTxId,     // ✅ 신규: PASS 트랜잭션 ID
+    passTxId,
   } = req.body || {};
 
   try {
@@ -175,10 +175,10 @@ router.post('/signup', async (req, res) => {
     region2  = s(region2);
     passTxId = s(passTxId);
 
-    // ✅ PASS 결과 오버라이드 값 컨테이너
-    let prOverride = null; // { birthyear, gender, phone, ciHash }
+    // ✅ PASS 결과 오버라이드 컨테이너
+    //    (서버가 신뢰하는 값만 사용)
+    let prOverride = null; // { birthyear, gender, phone, ciHash, carrier }
 
-    // ✅ passTxId가 있으면 PASS 결과를 불러와서 강제 적용 준비
     if (passTxId) {
       const pr = await PassResult.findOne({ txId: passTxId }).lean();
       if (!pr || pr.status !== 'success') {
@@ -188,17 +188,16 @@ router.post('/signup', async (req, res) => {
       prOverride = {
         birthyear: Number(pr.birthyear) || null,
         gender: (pr.gender === 'man' || pr.gender === 'woman') ? pr.gender : '',
-        phone: pr.phone || '',          // E.164 형태가 저장되어 있음
-        ciHash: pr.ciHash || undefined, // 스파스 유니크
+        phone: pr.phone || '',                 // E.164
+        ciHash: pr.ciHash || undefined,        // 스파스 유니크
+        carrier: pr.carrier || '',             // 통신사
       };
     }
 
     // 클라이언트 제공값(백워드 호환)
     const birthYearNum = birthyear ? parseInt(String(birthyear), 10) : undefined;
 
-    // ✅ 필수값 검증: PASS 유무에 따라 요구 항목이 다름
-    // - 공통: username/password/nickname/region1/region2
-    // - PASS 미사용 시: gender/birthyear 도 필수
+    // ✅ 필수값 검증
     const commonMissing = (!username || !password || !nickname || !region1 || !region2);
     const extraMissing  = (!passTxId && (!gender || !birthYearNum));
     if (commonMissing || extraMissing) {
@@ -211,20 +210,19 @@ router.post('/signup', async (req, res) => {
       User.findOne({ username }).select('_id').lean(),
       User.findOne({ nickname }).select('_id').lean(),
     ]);
-    if (userExists) {
-      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_USERNAME_PRECHECK', username });
-      return res.status(409).json({ ok: false, message: '아이디 중복' });
-    }
-    if (nicknameExists) {
-      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_NICKNAME_PRECHECK', nickname });
-      return res.status(409).json({ ok: false, message: '닉네임 중복' });
-    }
+    if (userExists) return res.status(409).json({ ok: false, message: '아이디 중복' });
+    if (nicknameExists) return res.status(409).json({ ok: false, message: '닉네임 중복' });
 
     // ✅ 최종 저장값 확정 (PASS 우선)
     const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
     const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
-    const finalPhone     = prOverride?.phone     || undefined;   // undefined면 저장 생략
-    const finalCiHash    = prOverride?.ciHash    || undefined;   // undefined면 저장 생략
+    const finalPhone     = prOverride?.phone     || undefined;
+    const finalCiHash    = prOverride?.ciHash    || undefined;
+    const finalCarrier   = prOverride?.carrier   || undefined;
+
+    // phoneHash (모델 훅이 없다면 서버에서 보강)
+    const crypto = require('crypto');
+    const phoneHash = finalPhone ? crypto.createHash('sha256').update(String(finalPhone)).digest('hex') : undefined;
 
     let user;
     try {
@@ -240,14 +238,17 @@ router.post('/signup', async (req, res) => {
         last_login: null,
 
         // PASS 연동 필드
-        phone: finalPhone,    // User 모델 pre-save 훅에서 E.164/phoneHash 정합성 보장
-        ciHash: finalCiHash,  // 스파스 유니크
+        phone: finalPhone,
+        phoneHash,                 // 모델 훅이 있으면 중복 저장되어도 무해
+        carrier: finalCarrier,
+        ciHash: finalCiHash,
+        phoneVerifiedAt: finalPhone ? new Date() : undefined,
+        phoneVerifiedBy: finalPhone ? 'pass' : undefined,
 
-        // ✅ 가입 즉시 기본 지급(기존 정책 유지)
+        // 기본 지급(기존 정책 유지)
         heart: 400,
         star: 0,
         ruby: 0,
-        // lastDailyGrantAt는 설정하지 않음(일일지급 로직에서 제어)
       });
     } catch (e) {
       if (e && e.code === 11000) {
@@ -256,16 +257,22 @@ router.post('/signup', async (req, res) => {
         console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue: e.keyValue });
         return res.status(409).json({ ok: false, message: `${which} 중복` });
       }
-      if (e?.name === 'ValidationError') {
-        console.log('[AUTH][ERR]', { step: 'signup', code: 'VALIDATION_ERROR', errors: e.errors });
-        return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
-      }
-      if (e?.name === 'CastError') {
-        console.log('[AUTH][ERR]', { step: 'signup', code: 'CAST_ERROR', path: e.path, value: e.value });
-        return res.status(400).json({ ok: false, message: '입력값 변환 중 오류가 발생했습니다.' });
-      }
+      if (e?.name === 'ValidationError') return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
+      if (e?.name === 'CastError')       return res.status(400).json({ ok: false, message: '입력값 변환 중 오류가 발생했습니다.' });
       console.log('[AUTH][ERR]', { step: 'signup', code: 'CREATE_USER_FAILED', message: e?.message });
       return res.status(500).json({ ok: false, message: '서버 오류' });
+    }
+
+    // ✅ PassResult 소비 마킹(있을 때만)
+    if (passTxId && prOverride) {
+      try {
+        await PassResult.updateOne(
+          { txId: passTxId },
+          { $set: { consumedByUserId: user._id, consumedAt: new Date() } }
+        );
+      } catch (e) {
+        console.log('[AUTH][WARN] PassResult.consume mark failed:', e?.message);
+      }
     }
 
     // consents 저장(있을 때만) — 기존 로직 유지
@@ -641,3 +648,4 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
+ 

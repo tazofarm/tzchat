@@ -27,17 +27,6 @@
                 </div>
               </div>
             </div>
-            <!--
-            <div class="pass-actions">
-              <button type="button" class="btn ghost sm" @click="refetchPass" :disabled="loadingPass">
-                새로고침
-              </button>
-              <router-link class="btn ghost sm" :to="{ name:'PassPortal' }">
-                PASS 다시 인증
-              </router-link>
-            </div>
-            -->
-
           </div>
 
           <!-- 기본 정보 -->
@@ -90,8 +79,6 @@
             </div>
             <p v-if="!form.region1" class="hint">먼저 지역1을 선택하세요.</p>
           </div>
-
-          <!-- 약관 동의 UI 제거 (로그인 후 별도 페이지에서 처리) -->
 
           <div class="button-col">
             <button type="submit" class="btn primary" :disabled="submitting || !isValid">
@@ -235,8 +222,8 @@ async function fetchPassStatus() {
         phone: j?.result?.phone ?? '',
         carrier: j?.result?.carrier ?? ''
       }
-      // ✅ 필요한 경우 회원가입 payload 기본값에 반영 (예: 닉네임 프리필은 제외)
-      // 여기서는 읽기 전용 표시만 하고, 서버가 passTxId로 신뢰 검증합니다.
+      // 필요 시 txId 보존
+      try { sessionStorage.setItem('passTxId', txId.value) } catch {}
     } else if (j.status === 'fail') {
       passStatus.value = 'fail'
       passResult.value = null
@@ -259,13 +246,11 @@ async function refetchPass() {
 
 // 자동: 페이지 로드시 PASS 결과 확인
 onMounted(async () => {
-  // 세션스토리지 폴백 보강
   if (!txId.value) {
     const s = sessionStorage.getItem('passTxId') || ''
     if (s) txId.value = s
   }
   await fetchPassStatus()
-  // PASS가 아닌 경로로 접근했더라도 배너로 상태 안내만 합니다.
 })
 
 // 제출
@@ -281,7 +266,7 @@ async function onSubmit() {
     nickname: form.value.nickname,
     region1: form.value.region1,
     region2: form.value.region2,
-    // ✅ 서버가 신뢰하는 것은 passTxId (서버의 PassResult와 대조)
+    // 서버는 passTxId로 최종 검증/반영
     passTxId: txId.value,
     // 참고용 프리필(서버에서는 passTxId 기준으로만 확정 저장 권장)
     birthyear: passResult.value?.birthyear ?? null,
@@ -297,7 +282,7 @@ async function onSubmit() {
 
     // 2) 자동 로그인
     try {
-      const loginRes = await AuthAPI.login({
+      await AuthAPI.login({
         username: form.value.username,
         password: form.value.password,
       })
@@ -311,12 +296,12 @@ async function onSubmit() {
         console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
       }
 
-      // 4) 서버 세션/JWT 확인(선택)
+      // 4) 세션/JWT 확인(선택)
       try { await api.get('/api/me') } catch {}
 
       // 5) 약관 미동의 분기
       try {
-        const status = await api.get('/api/terms/agreements/status') // { ok, data: { pending, items } }
+        const status = await api.get('/api/terms/agreements/status')
         const pending = status?.data?.data?.pending || []
         if (Array.isArray(pending) && pending.length > 0) {
           router.replace({ name: 'AgreementPagePublic', query: { return: resolveReturn() } })
@@ -340,7 +325,6 @@ async function onSubmit() {
 </script>
 
 <style scoped>
-/* 기존 스타일 유지 */
 ion-toolbar { --min-height: 44px; --padding-top: 0px; --padding-bottom: 0px; }
 ion-title { font-size: 16px; font-weight: 600; color: #fcfafa; }
 .container.onepage { width: min(640px, 92vw); margin: 4px auto 0; padding: 16px 4px 0; color: #111; max-height: calc(100vh - 56px - 8px); display: flex; align-items: flex-start; }
