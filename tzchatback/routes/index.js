@@ -17,6 +17,9 @@ module.exports = (app) => {
   app.use('/api/auth/pass', require('./pass/tempLoginRouter')); //temp login
   app.use('/api/user/pass-phone', require('./pass/phoneUpdateRouter')); //전화번호 업데이트
 
+  //degub
+  app.use('/api/debug', require('./debug/passEnvRouter')); //debug
+
   // 공개 약관/정책/공지
   app.use('/api/terms', require('./legal/termsPublicRouter'));   // 공개 약관/정책 조회, 버전 목록 등 (비인증)
   app.use('/api/legal', require('./legal/legalRouter'));         // 공개/동의 엔드포인트 혼재 (경로별 인증 구분)
