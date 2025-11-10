@@ -412,6 +412,27 @@ async function proceedRouteByTx(txId) {
       // 성공 이동 시에도 찌꺼기 제거 (서버는 소모형으로 방어)
       clearPassKeys();
     } else if (nextRoute === 'templogin') {
+      // ⬇️ 임시로그인 먼저 수행하여 JWT/세션을 확립한 후 이동
+      try {
+        const resp = await fetch(api(`/api/auth/pass/temp-login`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ txId, updateProfile: true })
+        });
+        const bodyText = await resp.text();
+        let jj = null;
+        try { jj = JSON.parse(bodyText); } catch { throw new Error('TEMPLOGIN_NON_JSON'); }
+        if (!resp.ok || !jj?.ok) throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
+      } catch (e) {
+        console.warn('[templogin] failed:', e);
+        lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
+        lastFailDetail.value = { response: String(e) };
+        mode.value = 'fail';
+        busy.value = false;
+        return;
+      }
+
       const ok = await safeReplace(
         { name: 'Home' },
         `/`,

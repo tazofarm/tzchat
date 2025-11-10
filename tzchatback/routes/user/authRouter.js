@@ -536,6 +536,24 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
 
     // 6) 응답 보강/정규화
     const searchRegions = Array.isArray(raw.search_regions) ? raw.search_regions : [];
+    // (응답 구성부 일부)
+    function formatE164KR(p = '') {
+      // +821012345678 → +82 10-1234-5678 형태 단순 포맷
+      const s = String(p || '');
+      if (!s.startsWith('+82')) return s;
+      const tail = s.replace('+82', '');
+      // 기대: 010xxxxxxxx → 10xxxxxxxx
+      const m = tail.match(/^10(\d{4})(\d{4})$/) || tail.match(/^(\d{2})(\d{4})(\d{4})$/);
+      if (m) return `+82 ${m[1].length === 2 ? m[1] : '10'}-${m[2]}-${m[3]}`;
+      return s;
+    }
+    function maskPhone(p = '') {
+      const s = String(p || '');
+      if (s.length < 4) return '****';
+      const last4 = s.slice(-4);
+      return `****-****-${last4}`;
+    }
+
     const user = {
       ...raw,
       role,
@@ -543,6 +561,9 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       isAdmin,
       wallet,
       searchRegions,
+      // 표시용 파생 필드
+      phoneFormatted: raw.phone ? formatE164KR(raw.phone) : null,
+      phoneMasked: raw.phone ? maskPhone(raw.phone) : null,
       emergency: {
         ...(raw.emergency || {}),
         isActive,
@@ -682,3 +703,4 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
+ 

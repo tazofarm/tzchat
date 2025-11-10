@@ -73,8 +73,27 @@ router.post('/start', requireAuth, async (req, res) => {
       rawMasked: { intent, userId }, // 이 트랜잭션이 누구의 변경용인지 바인딩
     });
 
-    const redirectUrl = await danal.buildStartUrl({ txId, intent });
-    return res.json({ ok: true, txId, redirectUrl });
+    let out;
+    try {
+      // 통일: passRouter와 같은 엔진 사용
+      out = await danal.buildStart({ intent, mode: 'json', txId });
+    } catch (e) {
+      console.error('[PHONE-UPDATE][start][DANAL_ERR]', { message: e?.message, code: e?.code, stage: e?.stage });
+      return res.status(502).json({ ok: false, code: 'DANAL_START_ERROR', message: 'phone update start failed' });
+    }
+
+    if (!out || !out.formHtml) {
+      return res.status(502).json({ ok: false, code: 'START_NO_FORM', message: 'formHtml not generated' });
+    }
+
+    // formHtml(팝업 주입용) + redirectUrl(지원 시) 모두 제공
+    return res.json({
+      ok: true,
+      txId,
+      formHtml: out.formHtml,
+      redirectUrl: out.redirectUrl || null
+    });
+    
   } catch (e) {
     console.error('[PHONE-UPDATE][start][ERR]', {
       userId, txId, message: e?.message, name: e?.name, code: e?.code,
@@ -157,4 +176,4 @@ router.post('/commit', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
- 
+  

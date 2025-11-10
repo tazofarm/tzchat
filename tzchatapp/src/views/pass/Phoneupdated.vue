@@ -116,8 +116,12 @@ const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 function buildAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' }
   try {
-    const token = localStorage.getItem('authToken')
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    // 다양한 키를 지원해 토큰을 최대한 찾기
+    const candidates = [
+      localStorage.getItem('TZCHAT_AUTH_TOKEN'),
+      localStorage.getItem('authToken'),
+    ].filter(Boolean)
+    if (candidates.length) headers['Authorization'] = `Bearer ${candidates[0]}`
   } catch {}
   return headers
 }
@@ -127,6 +131,7 @@ function clearPassStorage() {
   try {
     localStorage.removeItem('PASS_RESULT_TX')
     localStorage.removeItem('PASS_FAIL')
+    localStorage.removeItem('PASS_FAIL_DETAIL')
     localStorage.removeItem('PASS_TX')
     localStorage.removeItem('PASS_STATE')
   } catch {}
@@ -148,10 +153,15 @@ const heartbeat = ref(null)
 const endpointStart = '/api/user/pass-phone/start'
 const endpointCommit = '/api/user/pass-phone/commit'
 
+// 서버가 내려주는 표시용 필드를 우선 사용
 const maskedPhone = computed(() => {
+  const m = me.value?.phoneMasked || ''
+  const f = me.value?.phoneFormatted || ''
+  if (m) return m
+  if (f) return f
   const p = me.value?.phone || ''
   if (!p) return ''
-  return p.replace(/(\+\d{1,3})?(\d+)(\d{4})$/, (_, c = '', m, last) => `${c}${'*'.repeat((m||'').length)}${last}`)
+  return p.replace(/(\+\d{1,3})?(\d+)(\d{4})$/, (_, c = '', mid, last) => `${c}${'*'.repeat((mid||'').length)}${last}`)
 })
 const updatedFieldsLabel = computed(() => updatedFields.value.length ? updatedFields.value.join(', ') : '변경 없음')
 
@@ -256,6 +266,7 @@ async function onStartPass() {
       return
     }
 
+    // 서버가 formHtml을 내려주는 방식으로 통일
     const res = await fetch(apiUrl(endpointStart), {
       method: 'POST',
       headers: buildAuthHeaders(),
@@ -264,17 +275,23 @@ async function onStartPass() {
     const text = await res.text()
     let json = null
     try { json = JSON.parse(text) } catch { throw new Error('START_NON_JSON') }
-    if (!res.ok || !json?.ok) {
+    if (!res.ok || !json?.ok || !json?.formHtml) {
       if (res.status === 401) throw new Error('로그인이 필요합니다.')
       throw new Error(json?.message || '시작 실패')
     }
 
-    // 서버가 내려주는 PASS 이동 URL(또는 form HTML 처리 후의 최종 URL)
+    // 팝업 열고 formHtml 주입 (passRouter와 동일 플로우)
     openedWin.value = window.open(
-      json.redirectUrl,
+      '',
       'PASS_PHONE',
       'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
     )
+    if (!openedWin.value) throw new Error('POPUP_BLOCKED')
+
+    openedWin.value.document.open()
+    openedWin.value.document.write(String(json.formHtml))
+    openedWin.value.document.close()
+
     startHeartbeat()
   } catch (e) {
     console.error('[PhoneUpdate][start] error', e)
