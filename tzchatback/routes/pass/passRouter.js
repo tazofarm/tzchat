@@ -135,22 +135,27 @@ PASS 처리 완료. 창을 닫아주세요.
 </body></html>`);
   };
 
-  const endFail = (reason) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><body>
-<script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ type:'PASS_FAIL', reason: ${JSON.stringify(reason || 'UNKNOWN')} }, ${JSON.stringify(targetOrigin)});
-  } else {
-    try { localStorage.setItem('PASS_FAIL', ${JSON.stringify(String(reason || 'UNKNOWN'))}); } catch (e) {}
-  }
-} catch (e) {}
-window.close();
-</script>
-PASS 실패. 창을 닫아주세요.
-</body></html>`);
-  };
+      // reason: 문자열 또는 { code, stage, message, returnMsg, raw } 객체
+      const endFail = (reason) => {
+        const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        return res.end(`<!doctype html><html><body>
+    <script>
+    try {
+      const payload = { type: 'PASS_FAIL', reason: ${JSON.stringify(detail.code || 'UNKNOWN')}, detail: ${JSON.stringify(detail)} };
+      if (window.opener) {
+        window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
+      } else {
+        try { localStorage.setItem('PASS_FAIL', String(payload.reason)); } catch(e){}
+        try { localStorage.setItem('PASS_FAIL_DETAIL', JSON.stringify(payload.detail)); } catch(e){}
+      }
+    } catch (e) {}
+    window.close();
+    </script>
+    PASS 실패. 창을 닫아주세요.
+    </body></html>`);
+      };
+
 
   try {
     // 🔎 진입 로그(PII 최소화)
@@ -228,6 +233,7 @@ PASS 실패. 창을 닫아주세요.
           $set: {
             status: parsed.success ? 'success' : 'fail',
             failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
+            failMessage: parsed.returnMsg || null,   // ⬅️ 실패 사유(공급사 메시지)
             name: nameMasked,
             birthyear,
             gender,
@@ -245,7 +251,16 @@ PASS 실패. 창을 닫아주세요.
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-    return parsed.success ? endOk(txId) : endFail(parsed.failCode || 'FAIL');
+        return parsed.success
+      ? endOk(txId)
+      : endFail({
+          code: parsed.failCode || 'FAIL',
+          stage: 'CONFIRM',
+          message: parsed.returnMsg || '',
+          returnMsg: parsed.returnMsg || '',
+          raw: parsed.raw || {}
+        });
+
   } catch (e) {
     console.error('[PASS/callback] hard error:', e?.stack || e?.message || e);
     // 절대 500 내지 않음
@@ -283,17 +298,19 @@ router.get('/status', async (req, res) => {
       });
     }
 
-    if (doc.status === 'fail') {
-      return json(res, 200, {
-        ok: true,
-        status: 'fail',
-        result: {
-          txId: doc.txId,
-          status: doc.status,
-          failCode: doc.failCode || 'UNKNOWN',
-        },
-      });
-    }
+      if (doc.status === 'fail') {
+        return json(res, 200, {
+          ok: true,
+          status: 'fail',
+          result: {
+            txId: doc.txId,
+            status: doc.status,
+            failCode: doc.failCode || 'UNKNOWN',
+            failMessage: doc.failMessage || (doc.rawMasked && doc.rawMasked.RETURNMSG) || null  // ⬅️ 상세사유 동봉
+          },
+        });
+      }
+
 
     return json(res, 200, { ok: true, status: 'pending' });
   } catch (e) {
@@ -344,3 +361,4 @@ router.get('/route', async (req, res) => {
 });
 
 module.exports = router;
+ 

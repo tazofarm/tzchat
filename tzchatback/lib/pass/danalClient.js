@@ -146,8 +146,8 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
   const payload = {
     TXTYPE: 'CONFIRM',
     TID: tid,
-    CONFIRMOPTION: String(confirmOption), // 1 이면 CPID/ORDERID 필수
-    IDENOPTION: String(idenOption),       // 1 → DOB/SEX 로 분리
+    CONFIRMOPTION: String(confirmOption),
+    IDENOPTION: String(idenOption),
   };
   if (confirmOption === 1) {
     payload.CPID = CPID;
@@ -155,9 +155,22 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
   }
 
   const body = qs.stringify(payload);
-  const res = await axios.post(UAS_URL, body, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
-  });
+  let res;
+  try {
+    res = await axios.post(UAS_URL, body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+      timeout: 7000,
+      validateStatus: () => true
+    });
+  } catch (e) {
+    return {
+      success: false,
+      failCode: e.code === 'ECONNABORTED' ? 'CONFIRM_TIMEOUT' : 'CONFIRM_NETWORK',
+      returnMsg: e.message || '',
+      txId: tid,
+      raw: { error: e.message || String(e) }
+    };
+  }
 
   const text = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '');
   const map = new Map();
@@ -170,7 +183,7 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
   const ok = code === '0000';
 
   const dob = map.get('DOB') || '';
-  const sex = map.get('SEX') || ''; // 1/2
+  const sex = map.get('SEX') || '';
   const gender = sex === '1' ? 'M' : (sex === '2' ? 'F' : '');
 
   return {
@@ -179,15 +192,16 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
     returnMsg: map.get('RETURNMSG') || '',
     txId: map.get('TID') || tid,
     name: map.get('NAME') || '',
-    birthdate: dob,          // YYYYMMDD
-    gender,                  // 'M' | 'F'
-    phone: '',               // (UAS 표준 응답에는 없음)
-    carrier: '',             // (표준 응답에는 없음)
+    birthdate: dob,
+    gender,
+    phone: '',
+    carrier: '',
     ci: map.get('CI') || '',
     di: map.get('DI') || '',
     raw: Object.fromEntries(map),
   };
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Public API (passRouter에서 사용)
@@ -234,3 +248,4 @@ module.exports = {
     return result; // { success, name, birthdate, gender, ci, di, ... }
   },
 };
+ 

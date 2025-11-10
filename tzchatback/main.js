@@ -116,7 +116,7 @@ app.use((req, res, next) => {
   console.log(`📥 [요청] ${req.method} ${req.url}`);
   next();
 });
-
+ 
 // =======================================
 // CORS
 // =======================================
@@ -340,16 +340,24 @@ require('./routes')(app);
 app.use((err, req, res, next) => {
   console.error('[UNHANDLED]', req.method, req.originalUrl, '|', err && (err.stack || err.message || err));
   if (req.originalUrl && req.originalUrl.startsWith('/api/auth/pass/callback')) {
+    const detail = {
+      code: 'UNHANDLED_ERROR',
+      stage: 'SERVER',
+      message: String(err && (err.message || 'Internal Error')),
+      stackTop: String(err && err.stack ? err.stack.split('\n')[0] : '')
+    };
     return res
       .status(200)
       .set('Content-Type','text/html; charset=utf-8')
       .send(`<!doctype html><html><body>
 <script>
 try {
+  const payload = { type:'PASS_FAIL', reason:'UNHANDLED_ERROR', detail: ${JSON.stringify(detail)} };
   if (window.opener) {
-    window.opener.postMessage({ type:'PASS_FAIL', reason:'UNHANDLED_ERROR' }, '*');
+    window.opener.postMessage(payload, '*');
   } else {
     try { localStorage.setItem('PASS_FAIL','UNHANDLED_ERROR'); } catch(e){}
+    try { localStorage.setItem('PASS_FAIL_DETAIL', JSON.stringify(payload.detail)); } catch(e){}
   }
 } catch(e){}
 window.close();
@@ -359,6 +367,7 @@ window.close();
   }
   res.status(500).json({ ok:false, code:'UNHANDLED', message: err?.message || 'Internal Error' });
 });
+
 
 // =======================================
 // 3) Socket.IO 설정
