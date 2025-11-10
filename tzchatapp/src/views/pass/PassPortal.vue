@@ -285,7 +285,6 @@ async function proceedRouteByTx(txId) {
     const txt = await res.text();
     let j = null;
     try { j = JSON.parse(txt); } catch {
-      // 응답이 JSON이 아니면 원문을 상세로 노출
       lastFailCode.value = 'ROUTE_NON_JSON';
       lastFailDetail.value = { raw: txt };
       mode.value = 'fail';
@@ -293,7 +292,7 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
-    // 서버에서 ok:false 이면 코드/메시지 그대로 표시
+    // 서버가 실패를 명시한 경우 그대로 노출
     if (!res.ok || j?.ok === false) {
       lastFailCode.value = j?.code || 'ROUTE_ERROR';
       lastFailDetail.value = j;
@@ -302,7 +301,6 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
-    // 서버가 route 또는 next 필드 중 하나를 보낼 수 있음 → 통일
     const nextRoute = j?.route || j?.next;
     if (!nextRoute) {
       lastFailCode.value = 'ROUTE_MISSING';
@@ -312,21 +310,53 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
+    // 네비게이션 안전 실행기(이름→경로→강제 이동 순 폴백)
+    const safeReplace = async (preferredTo, fallbackPath, finalHref) => {
+      try {
+        await router.replace(preferredTo);
+        return true;
+      } catch (e1) {
+        console.warn('[route] replace by name failed → try path', e1);
+        try {
+          await router.replace({ path: fallbackPath });
+          return true;
+        } catch (e2) {
+          console.warn('[route] replace by path failed → hard redirect', e2);
+          try {
+            window.location.assign(finalHref);
+            return true;
+          } catch (e3) {
+            lastFailCode.value = 'ROUTE_NAV_FAIL';
+            lastFailDetail.value = { response: j, e1: String(e1), e2: String(e2), e3: String(e3) };
+            mode.value = 'fail';
+            busy.value = false;
+            return false;
+          }
+        }
+      }
+    };
+
     if (nextRoute === 'signup') {
-      const target = router.hasRoute && router.hasRoute('Signup')
-        ? { name: 'Signup', query: { passTxId: txId } }
-        : { path: '/signup', query: { passTxId: txId } };
-      await router.replace(target);
+      const qs = `?passTxId=${encodeURIComponent(txId)}`;
+      const ok = await safeReplace(
+        { name: 'Signup', query: { passTxId: txId } },
+        `/signup${qs}`,
+        `/signup${qs}`
+      );
+      if (!ok) return;
     } else if (nextRoute === 'templogin') {
-      const target = router.hasRoute && router.hasRoute('Home')
-        ? { name: 'Home' }
-        : { path: '/' };
-      await router.replace(target);
+      const ok = await safeReplace(
+        { name: 'Home' },
+        `/`,
+        `/`
+      );
+      if (!ok) return;
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
       mode.value = 'fail';
       busy.value = false;
+      return;
     }
   } catch (e) {
     console.error('[proceedRouteByTx] error', e);
@@ -339,6 +369,7 @@ async function proceedRouteByTx(txId) {
     busy.value = false;
   }
 }
+
 
 
 async function onClickPass() {
