@@ -83,6 +83,7 @@ router.all('/start', async (req, res) => {
       return json(res, 200, { ok: true, txId: `stub_${Date.now()}`, formHtml: dummyHtml });
     }
 
+    // 다날 클라이언트가 Ready→Start 처리 후 formHtml/body 반환
     const out = await danal.buildStart({ intent, mode: 'json' });
 
     if (!out || (!out.formHtml && mode !== 'html')) {
@@ -99,6 +100,7 @@ router.all('/start', async (req, res) => {
       return res.status(200).send(out.body);
     }
 
+    // 프론트는 txId(=TID)와 formHtml을 받아 팝업 주입
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
     const code  = e && (e.code || e.returnCode) || 'START_ERROR';
@@ -226,6 +228,26 @@ PASS 실패. 창을 닫아주세요.
       phone,
     };
 
+    // 최신 PASS 식별 스냅샷도 별도 테이블에 보관(매핑 용도)
+    let identityId = null;
+    try {
+      const ident = await PassIdentity.create({
+        ciHash: ciHash || undefined,
+        diHash: diHash || undefined,
+        name: nameMasked || undefined,
+        phone: phone || undefined,
+        carrier: parsed.carrier || undefined,
+        birthyear: birthyear ?? undefined,
+        gender: gender || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      identityId = ident?._id || null;
+    } catch (e) {
+      // unique 제약 등으로 실패해도 치명적이지 않으므로 경고만
+      console.warn('[PASS/callback][identity] warn:', e?.message || e);
+    }
+
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
@@ -242,8 +264,10 @@ PASS 실패. 창을 닫아주세요.
             carrier: parsed.carrier || '',
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
+            identityId: identityId || undefined,
             rawMasked,
           },
+          $setOnInsert: { consumed: false, createdAt: new Date() },
         },
         { upsert: true, new: true }
       );
@@ -368,6 +392,7 @@ router.get('/result/:txId', async (req, res) => {
  *   - 프론트 요구사항: route('signup'|'templogin') 반환
  *   - 우선 CI(정본: PassIdentity)로 매칭, 없으면 전화번호(E.164/sha256) 보조 매칭
  *   - consumed === true 면 410
+ *   - ✅ 핵심: 유저가 없을 때 에러를 내지 말고 route: 'signup' 을 반환
  * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
@@ -399,17 +424,19 @@ router.get('/route', async (req, res) => {
 
     // 1) CI 우선 매칭: PassIdentity → User 1:1 정본
     if (doc.ciHash) {
-      const idMap = await PassIdentity.findOne({ ciHash: doc.ciHash })
+      const ident = await PassIdentity.findOne({ ciHash: doc.ciHash })
         .select('userId')
         .lean()
         .catch(() => null);
 
-      if (idMap?.userId) {
+      if (ident?.userId) {
         userExists = true;
         routeName = 'templogin';
       } else {
         // (폴백) 구버전 호환: User에 ciHash가 있던 경우
-        const byCiUser = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
+        const byCiUser = await User.findOne({ $or: [{ ciHash: doc.ciHash }, { 'pass.ciHash': doc.ciHash }] })
+          .select('_id')
+          .lean();
         if (byCiUser?._id) {
           userExists = true;
           routeName = 'templogin';
@@ -428,7 +455,7 @@ router.get('/route', async (req, res) => {
       }
     }
 
-    // 최종 응답(프론트는 route 필드를 사용)
+    // ✅ 최종: 유저가 없으면 에러 대신 signup 으로 정상 분기
     return json(res, 200, {
       ok: true,
       route: routeName,
