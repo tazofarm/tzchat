@@ -136,7 +136,7 @@ app.use((req, res, next) => {
 });
 
 // =======================================
-// CORS
+// CORS  (PASS 콜백은 CORS 검사 "제외")
 // =======================================
 const cors = require('cors');
 
@@ -157,18 +157,18 @@ const baseAllowed = [
 ];
 
 const envWhitelist = (process.env.CORS_WHITELIST || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+  .split(',').map(s => s.trim()).filter(Boolean);
 
 const allowedOriginsList = Array.from(new Set([...baseAllowed, ...envWhitelist]));
 
+// 🔁 동적 허용: 사설망 + 다날/테드릿 도메인(와일드카드)
 const dynamicOriginAllow = [
   /^https?:\/\/localhost(:\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
   /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*(teledit\.com|danal\.co\.kr)(:\d+)?$/i,   // 👈 다날/테드릿
 ];
 
 app.use((req, res, next) => {
@@ -176,6 +176,12 @@ app.use((req, res, next) => {
   next();
 });
 const ALLOW_NULL_ORIGIN = true;
+
+// NOTE: 콜백은 서버→서버 호출이므로 CORS 미적용
+function isPassCallback(req) {
+  // 필요시 .startsWith로 충분
+  return req.path === '/api/auth/pass/callback' || req.originalUrl?.startsWith('/api/auth/pass/callback');
+}
 
 const corsOptions = {
   origin: (origin, cb) => {
@@ -191,11 +197,24 @@ const corsOptions = {
   maxAge: 600,
   optionsSuccessStatus: 204,
 };
+
 app.use((req, res, next) => { res.setHeader('Vary', 'Origin'); next(); });
-app.use(cors(corsOptions));
-app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path); next(); }, cors(corsOptions), (req, res) => {
-  res.sendStatus(204);
+
+// ✅ 콜백은 CORS 미들웨어 "우회"
+app.use((req, res, next) => {
+  if (isPassCallback(req)) return next();
+  return cors(corsOptions)(req, res, next);
 });
+
+// Preflight 처리도 콜백은 우회
+app.options('/api/auth/pass/callback', (req, res) => res.sendStatus(204));
+app.options(/.*/, (req, res, next) => {
+  console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
+  next();
+}, cors(corsOptions), (req, res) => res.sendStatus(204));
+
+console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
+console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터+다날):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
 console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
