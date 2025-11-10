@@ -1,11 +1,11 @@
 // backend/routes/pass/passRouter.js
 // base: /api/auth/pass
-// - POST /start: 서버 PASS 시작(다날 Ready → TID → wauth Start.php 자동전송 폼 생성)
-// - GET  /start: mode=html 지원(팝업이 직접 이 엔드포인트를 열면 HTML 즉시 응답)
-// - ALL  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
-// - GET  /status: 상태 조회(폴링)
-// - GET  /route : 분기(signup | templogin)  ← ★ now CI-only
-// - GET  /result/:txId : 단일 결과 조회(소모 여부 포함; consumed면 410)
+// - POST /start
+// - GET  /start?mode=html
+// - ALL  /callback
+// - GET  /status
+// - GET  /route              ← ★ 실제 User 존재검증 추가(CI-only)
+// - GET  /result/:txId
 // ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
 const express = require('express');
@@ -29,26 +29,20 @@ function normalizePhoneKR(raw = '') {
   let clean = String(raw).replace(/[^\d+]/g, '');
   if (!clean) return '';
   if (clean.startsWith('+0')) clean = '+' + clean.slice(2);
-  if (clean.startsWith('+')) return clean;                 // 이미 국제 형식
-  if (clean.startsWith('0')) return '+82' + clean.slice(1);// 010… → +8210…
-  if (clean.startsWith('82')) return '+' + clean;          // 82… → +82…
-  return '+82' + clean;                                    // 나머지 가드
+  if (clean.startsWith('+')) return clean;
+  if (clean.startsWith('0')) return '+82' + clean.slice(1);
+  if (clean.startsWith('82')) return '+' + clean;
+  return '+82' + clean;
 }
 
-// postMessage 대상 오리진
 function resolvePostMessageTarget() {
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProd) {
-    return (
-      process.env.API_ORIGIN ||
-      process.env.PASS_CALLBACK_PROD ||
-      'https://tzchat.tazocode.com'
-    );
+    return process.env.API_ORIGIN || process.env.PASS_CALLBACK_PROD || 'https://tzchat.tazocode.com';
   }
   return '*';
 }
 
-// 공통 JSON 응답 유틸 (항상 JSON + no-cache)
 function json(res, status, body) {
   res.set({
     'Content-Type': 'application/json; charset=utf-8',
@@ -59,12 +53,8 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
-/* =========================================================
- * 1) PASS 시작
- * =======================================================*/
-router.get('/start/ping', (req, res) => {
-  return json(res, 200, { ok: true, pong: true, now: Date.now() });
-});
+/* ===================== 1) START ======================= */
+router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
 
 router.all('/start', async (req, res) => {
   try {
@@ -72,20 +62,15 @@ router.all('/start', async (req, res) => {
     const mode   = (req.query && req.query.mode)   || (req.body && req.body.mode)   || 'json';
     const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);
 
-    // STUB: 파이프/프론트 점검용
     if (String(stub).toLowerCase() === '1' || String(stub).toLowerCase() === 'true') {
       const dummyHtml = `<!doctype html><html><body>
-<form id="f" action="about:blank" method="post">
-  <input type="hidden" name="TID" value="STUB_${Date.now()}">
-</form>
+<form id="f" action="about:blank" method="post"><input type="hidden" name="TID" value="STUB_${Date.now()}"></form>
 <script>document.getElementById('f').submit();</script>
 </body></html>`;
       return json(res, 200, { ok: true, txId: `stub_${Date.now()}`, formHtml: dummyHtml });
     }
 
-    // 다날 클라이언트가 Ready→Start 처리 후 formHtml/body 반환
     const out = await danal.buildStart({ intent, mode: 'json' });
-
     if (!out || (!out.formHtml && mode !== 'html')) {
       return json(res, 502, { ok: false, code: 'START_NO_FORM', message: 'formHtml not generated' });
     }
@@ -100,24 +85,17 @@ router.all('/start', async (req, res) => {
       return res.status(200).send(out.body);
     }
 
-    // 프론트는 txId(=TID)와 formHtml을 받아 팝업 주입
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
-    const code  = e && (e.code || e.returnCode) || 'START_ERROR';
-    const stage = e && e.stage || 'UNKNOWN';
-    const msg   = e && e.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
+    const code  = e?.code || e?.returnCode || 'START_ERROR';
+    const stage = e?.stage || 'UNKNOWN';
+    const msg   = e?.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
     console.error('[PASS/start] error:', { code, stage, msg });
-
     return json(res, 500, { ok: false, code, stage, message: msg });
   }
 });
 
-/* =========================================================
- * 2) PASS 콜백 (다날 WebAuth → 우리 서버)
- *    - 어떤 경우에도 200 HTML로 응답(팝업 postMessage 후 닫힘)
- *    - EUC-KR 폼 본문을 raw 로 받아 UTF-8로 디코딩
- *    - 진입/디코딩/저장 단계별 최소 로그
- * =======================================================*/
+/* ===================== 2) CALLBACK ==================== */
 router.all('/callback', async (req, res) => {
   const targetOrigin = resolvePostMessageTarget();
 
@@ -128,17 +106,11 @@ router.all('/callback', async (req, res) => {
 try {
   if (window.opener) {
     window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
-  } else {
-    try { localStorage.setItem('PASS_RESULT_TX', ${JSON.stringify(txId)}); } catch (e) {}
-  }
+  } else { try { localStorage.setItem('PASS_RESULT_TX', ${JSON.stringify(txId)}); } catch (e) {} }
 } catch (e) {}
 window.close();
-</script>
-PASS 처리 완료. 창을 닫아주세요.
-</body></html>`);
+</script>OK</body></html>`);
   };
-
-  // reason: 문자열 또는 { code, stage, message, returnMsg, raw } 객체
   const endFail = (reason) => {
     const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
     res.set('Content-Type', 'text/html; charset=utf-8');
@@ -154,66 +126,39 @@ try {
   }
 } catch (e) {}
 window.close();
-</script>
-PASS 실패. 창을 닫아주세요.
-</body></html>`);
+</script>FAIL</body></html>`);
   };
 
   try {
-    // 🔎 진입 로그(PII 최소화)
     try {
       const ctype = (req.headers['content-type'] || '').toLowerCase();
       const hasRaw = Buffer.isBuffer(req.rawBody);
       const rawLen = hasRaw ? req.rawBody.length : 0;
-      console.log('[PASS/callback][hit]', {
-        method: req.method,
-        ctype,
-        hasRaw,
-        rawLen,
-        q: Object.keys(req.query || {}),
-        b: Object.keys(req.body || {}),
-      });
-    } catch (e) {
-      console.warn('[PASS/callback][log] warn:', e?.message || e);
-    }
+      console.log('[PASS/callback][hit]', { method: req.method, ctype, hasRaw, rawLen, q: Object.keys(req.query||{}), b: Object.keys(req.body||{}) });
+    } catch {}
 
-    // ✅ EUC-KR 폼 디코딩 (POST 전용, main.js에서 req.rawBody 선캡처 필요)
     if (req.method === 'POST') {
       const ctype = (req.headers['content-type'] || '').toLowerCase();
       if (ctype.includes('application/x-www-form-urlencoded')) {
         if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
           let text;
-          try {
-            const iconv = require('iconv-lite');               // 동적 로드
-            text = iconv.decode(req.rawBody, 'euc-kr');        // EUC-KR → UTF-8
-          } catch (e) {
-            console.warn('[PASS/callback] iconv-lite not available, fallback to utf8:', e?.message || e);
-            text = req.rawBody.toString('utf8');               // 폴백
-          }
+          try { text = require('iconv-lite').decode(req.rawBody, 'euc-kr'); }
+          catch { text = req.rawBody.toString('utf8'); }
           req.body = qs.parse(text);
-          console.log('[PASS/callback][decoded]', { len: text.length, keys: Object.keys(req.body || {}) });
-        } else {
-          console.warn('[PASS/callback] rawBody missing, skip decode');
+          console.log('[PASS/callback][decoded]', { len: text.length, keys: Object.keys(req.body||{}) });
         }
       }
     }
 
-    // 쿼리/바디가 비어도 danal.parseCallback은 안전(기본값 보정)
     const parsed = await danal.parseCallback(req);
-
     const txId = parsed.txId || `tx_${Date.now()}`;
 
-    // birthdate(YYYYMMDD) → birthyear
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
-    const birthyear = birthdate ? Number(birthdate.slice(0, 4)) : (Number(parsed.birthyear) || null);
+    const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
+    const g = String(parsed.gender || '').toUpperCase();
+    const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
-    // 성별: M/F → man/woman
-    const g = (parsed.gender || '').toString().toUpperCase();
-    const gender =
-      g === 'M' || g === 'MAN' ? 'man' :
-      g === 'F' || g === 'WOMAN' ? 'woman' : '';
-
-    const phone = parsed.phone ? normalizePhoneKR(parsed.phone) : '';
+    const phone  = parsed.phone ? normalizePhoneKR(parsed.phone) : '';
     const ciHash = parsed.ci ? sha256Hex(parsed.ci) : '';
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
     const nameMasked = maskName(parsed.name || '');
@@ -228,7 +173,7 @@ PASS 실패. 창을 닫아주세요.
       phone,
     };
 
-    // 최신 PASS 식별 스냅샷도 별도 테이블에 보관(매핑 용도)
+    // PassIdentity 스냅샷(추후 userId 매핑 용도)
     let identityId = null;
     try {
       const ident = await PassIdentity.create({
@@ -244,7 +189,6 @@ PASS 실패. 창을 닫아주세요.
       });
       identityId = ident?._id || null;
     } catch (e) {
-      // unique 제약 등으로 실패해도 치명적이지 않으므로 경고만
       console.warn('[PASS/callback][identity] warn:', e?.message || e);
     }
 
@@ -256,7 +200,7 @@ PASS 실패. 창을 닫아주세요.
             intent: parsed.intent || 'unified',
             status: parsed.success ? 'success' : 'fail',
             failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
-            failMessage: parsed.returnMsg || null,   // 실패 사유(공급사 메시지)
+            failMessage: parsed.returnMsg || null,
             name: nameMasked,
             birthyear,
             gender,
@@ -276,26 +220,21 @@ PASS 실패. 창을 닫아주세요.
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-    return parsed.success
-      ? endOk(txId)
-      : endFail({
-          code: parsed.failCode || 'FAIL',
-          stage: 'CONFIRM',
-          message: parsed.returnMsg || '',
-          returnMsg: parsed.returnMsg || '',
-          raw: parsed.raw || {}
-        });
+    return parsed.success ? endOk(txId) : endFail({
+      code: parsed.failCode || 'FAIL',
+      stage: 'CONFIRM',
+      message: parsed.returnMsg || '',
+      returnMsg: parsed.returnMsg || '',
+      raw: parsed.raw || {}
+    });
 
   } catch (e) {
     console.error('[PASS/callback] hard error:', e?.stack || e?.message || e);
-    // 절대 500 내지 않음
     return endFail('CALLBACK_ERROR');
   }
 });
 
-/* =========================================================
- * 3) 상태 조회 (폴링)
- * =======================================================*/
+/* ===================== 3) STATUS ====================== */
 router.get('/status', async (req, res) => {
   try {
     const { txId } = req.query;
@@ -304,10 +243,7 @@ router.get('/status', async (req, res) => {
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 200, { ok: true, status: 'pending' });
 
-    if (doc.consumed === true) {
-      // 폴링에서는 상태값으로 알려주기만 하고, 최종 처리는 /result 에서 410 처리
-      return json(res, 200, { ok: true, status: 'consumed', txId });
-    }
+    if (doc.consumed === true) return json(res, 200, { ok: true, status: 'consumed', txId });
 
     if (doc.status === 'success') {
       return json(res, 200, {
@@ -316,7 +252,6 @@ router.get('/status', async (req, res) => {
         result: {
           txId: doc.txId,
           status: doc.status,
-          failCode: null,
           ciHash: doc.ciHash || null,
           diHash: doc.diHash || null,
           name: doc.name || '',
@@ -348,21 +283,15 @@ router.get('/status', async (req, res) => {
   }
 });
 
-/* =========================================================
- * 4) 단일 결과 조회 (/result/:txId)
- *    - consumed === true 이면 410 Gone
- * =======================================================*/
+/* ===================== 4) RESULT ====================== */
 router.get('/result/:txId', async (req, res) => {
   try {
     const { txId } = req.params || {};
-    if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID', message: 'txId required' });
+    if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID' });
 
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 404, { ok: false, code: 'NOT_FOUND' });
-
-    if (doc.consumed === true) {
-      return json(res, 410, { ok: false, code: 'CONSUMED', message: 'This PASS token has been consumed.' });
-    }
+    if (doc.consumed === true) return json(res, 410, { ok: false, code: 'CONSUMED' });
 
     return json(res, 200, {
       ok: true,
@@ -383,71 +312,57 @@ router.get('/result/:txId', async (req, res) => {
     });
   } catch (e) {
     console.error('[PASS/result] error:', e);
-    return json(res, 500, { ok: false, code: 'RESULT_ERROR', message: '결과 조회 실패' });
+    return json(res, 500, { ok: false, code: 'RESULT_ERROR' });
   }
 });
 
-/* =========================================================
- * 5) 분기 결정 (회원가입 / 임시로그인) — ★ CI-only
- *   - 프론트 요구사항: route('signup'|'templogin') 반환
- *   - ✅ CI 매칭 있는 경우에만 templogin, 아니면 무조건 signup
- *   - consumed === true 면 410
- * =======================================================*/
+/* ===================== 5) ROUTE (CI-only & real user check) ====================== */
+// 조건:
+//  - PassResult.status === 'success' && consumed !== true
+//  - CI가 존재하고,
+//  - 아래 순서로 "실제 User"가 존재하는지 확인:
+//    (A) PassIdentity.userId → 실제 User 존재 확인
+//    (B) User.ciHash 또는 User.pass.ciHash 로 직접 조회
+//  - 어디에도 실제 User가 없으면 route='signup', 있으면 route='templogin'
 router.get('/route', async (req, res) => {
   try {
     const { txId } = req.query;
-    if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID', message: 'txId required' });
+    if (!txId) return json(res, 400, { ok: false, code: 'NO_TXID' });
 
-    const doc = await PassResult.findOne({ txId }).lean();
-    if (!doc) return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
+    const pr = await PassResult.findOne({ txId }).lean();
+    if (!pr) return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
+    if (pr.consumed === true) return json(res, 410, { ok: false, code: 'CONSUMED' });
+    if (pr.status === 'fail') return json(res, 200, { ok: false, code: pr.failCode || 'FAIL', message: pr.failMessage || 'pass failed' });
+    if (pr.status !== 'success') return json(res, 200, { ok: false, code: 'PASS_NOT_SUCCESS', status: pr.status });
 
-    if (doc.consumed === true) {
-      return json(res, 410, { ok: false, code: 'CONSUMED', message: 'This PASS token has been consumed.' });
+    // CI 없으면 → 가입
+    if (!pr.ciHash) {
+      return json(res, 200, { ok: true, route: 'signup', txId, userExists: false });
     }
 
-    // 실패/미완료 처리
-    if (doc.status === 'fail') {
-      return json(res, 200, {
-        ok: false,
-        code: doc.failCode || 'FAIL',
-        message: doc.failMessage || 'pass failed',
-      });
-    }
-    if (doc.status !== 'success') {
-      return json(res, 200, { ok: false, code: 'PASS_NOT_SUCCESS', status: doc.status });
-    }
-
-    // ----- ★ 분기: CI 기준만 사용 -----
     let userExists = false;
 
-    if (doc.ciHash) {
-      // 1) PassIdentity에 userId 맵핑이 이미 있다면(선행 가입/연결된 경우)
-      const ident = await PassIdentity.findOne({ ciHash: doc.ciHash })
-        .select('userId')
-        .lean()
-        .catch(() => null);
-
+    // (A) identityId → userId 매핑 검사 + 실제 User 존재 확인
+    if (pr.identityId) {
+      const ident = await PassIdentity.findOne({ _id: pr.identityId }).select('userId ciHash').lean().catch(() => null);
       if (ident?.userId) {
-        userExists = true;
-      } else {
-        // 2) 구/신 버전 호환: User.ciHash 또는 pass.ciHash 를 직접 검사
-        const byCiUser = await User.findOne({
-          $or: [{ ciHash: doc.ciHash }, { 'pass.ciHash': doc.ciHash }],
-        })
-          .select('_id')
-          .lean();
-        if (byCiUser?._id) userExists = true;
+        const linked = await User.findOne({ _id: ident.userId }).select('_id').lean();
+        if (linked?._id) userExists = true; // 진짜 유저가 있을 때만 인정
       }
     }
 
-    const routeName = userExists ? 'templogin' : 'signup';
+    // (B) 직접 CI로 User 조회 (구/신 버전 호환)
+    if (!userExists) {
+      const found = await User.findOne({
+        $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
+      })
+        .select('_id')
+        .lean();
+      if (found?._id) userExists = true;
+    }
 
-    return json(res, 200, {
-      ok: true,
-      route: routeName,
-      txId,
-      userExists,
-    });
+    const routeName = userExists ? 'templogin' : 'signup';
+    return json(res, 200, { ok: true, route: routeName, txId, userExists });
   } catch (e) {
     console.error('[PASS/route] error:', e);
     return json(res, 500, { ok: false, code: 'ROUTE_UNHANDLED', message: e?.message || '분기 결정 실패' });
