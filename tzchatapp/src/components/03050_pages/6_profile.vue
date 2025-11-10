@@ -382,6 +382,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { onIonViewWillEnter } from '@ionic/vue'   // ⬅️ 추가
 import { toastController, alertController, IonIcon, IonButton } from '@ionic/vue'
 import axios from '@/lib/api'
 import { useRouter } from 'vue-router'
@@ -851,7 +852,7 @@ async function collectLocalContactHashes(){
 async function feedbackOK(message){ (await toastController.create({ message, duration: 1200, color: 'success' })).present() }
 
 /* 초기 로딩 */
-onMounted(async () => {
+async function loadMe() {
   try {
     const res = await axios.get('/api/me', { withCredentials: true })
     user.value = res.data.user
@@ -872,10 +873,21 @@ onMounted(async () => {
     // 🔒 일반/라이트: 프리미엄 전용 토글은 OFF로 강제 유지
     if (!canEditFieldLocal('onlyWithPhoto'))      { onlyWithPhoto.value = false }
     if (!canEditFieldLocal('matchPremiumOnly'))   { matchPremiumOnly.value = false }
+
+    console.log('[PROFILE] /me 로드 완료', { nickname: nickname.value })
   } catch (err) {
     console.error('유저 정보 로딩 실패:', err)
   }
-})
+}
+
+// ✅ 최초 1회 로드
+onMounted(loadMe)
+
+// ✅ 페이지 복귀 시 자동 새로고침
+onIonViewWillEnter(loadMe)
+
+// ✅ PASS 번호 변경 이벤트 시 즉시 갱신
+window.addEventListener('pass:phone-updated', loadMe)
 
 /* 기타 */
 const formatDate = (s) => (!s ? '없음' : new Date(s).toLocaleString())
