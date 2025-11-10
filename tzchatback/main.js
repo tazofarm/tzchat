@@ -67,35 +67,6 @@ const ChatRoom = require('./models/Chat/ChatRoom');
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
 
-/*
- * ✅ 콜백 보호막: EUC-KR x-www-form-urlencoded 본문을 위해 raw 선캡처
- *    - 어떤 Content-Type 으로 와도 Buffer 확보
- *    - 이후 라우터에서 필요하면 EUC-KR → UTF-8 디코딩
- *    - 전역 파서보다 "반드시 앞"에 위치
- */
-const expressRaw = express.raw({ type: '*/*', limit: '2mb' });
-app.all('/api/auth/pass/callback', expressRaw, (req, res, next) => {
-  if (req.method === 'POST' && req.body && Buffer.isBuffer(req.body)) {
-    req.rawBody = req.body; // iconv에서 사용할 원본 Buffer
-  }
-  next();
-});
-
-/**
- * 🔎 콜백 디버그 미들웨어(라이트 로그)
- *    - 에러 재현 시 서버 로그에서 즉시 원인 단서 확보
- */
-app.all('/api/auth/pass/callback', (req, res, next) => {
-  try {
-    const ct = req.headers['content-type'] || '(none)';
-    const clen = req.headers['content-length'] || '(none)';
-    console.log('[PASS/CB][IN]', req.method, 'CT=', ct, 'CL=', clen, 'qs=', req.query && Object.keys(req.query));
-    if (req.rawBody) {
-      console.log('[PASS/CB][RAW]', 'bytes=', req.rawBody.length);
-    }
-  } catch {}
-  next();
-});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -215,10 +186,8 @@ app.options(/.*/, (req, res, next) => {
 
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
 console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터+다날):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
-
-console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
-console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
+
 
 // =======================================
 // 실행 모드
