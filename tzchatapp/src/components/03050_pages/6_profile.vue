@@ -78,7 +78,9 @@
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
-                  <strong class="label pf-fullrow__label">{{ user.phone }}</strong>
+                  <strong class="label pf-fullrow__label">
+                    {{ user.phoneMasked || user.phoneFormatted || user.phone }}
+                  </strong>
                   <IonButton
                     size="small"
                     color="gray"

@@ -156,7 +156,7 @@ async function authFromJwtOrSession(req, res, next) {
 }
 
 // ======================================================
-// 회원가입 (PASS 연동 강화: carrier/phoneVerified/phoneHash 반영 + PassResult 소비 마킹)
+// 회원가입 (PASS 연동: passTxId가 오면 서버 저장 PASS 결과로 강제 적용)
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -164,7 +164,7 @@ router.post('/signup', async (req, res) => {
   let {
     username, password, nickname, gender, birthyear, region1, region2,
     consents = [],
-    passTxId,
+    passTxId,     // ✅ 신규: PASS 트랜잭션 ID
   } = req.body || {};
 
   try {
@@ -175,10 +175,10 @@ router.post('/signup', async (req, res) => {
     region2  = s(region2);
     passTxId = s(passTxId);
 
-    // ✅ PASS 결과 오버라이드 컨테이너
-    //    (서버가 신뢰하는 값만 사용)
-    let prOverride = null; // { birthyear, gender, phone, ciHash, carrier }
+    // ✅ PASS 결과 오버라이드 값 컨테이너
+    let prOverride = null; // { birthyear, gender, phone, ciHash }
 
+    // ✅ passTxId가 있으면 PASS 결과를 불러와서 강제 적용 준비
     if (passTxId) {
       const pr = await PassResult.findOne({ txId: passTxId }).lean();
       if (!pr || pr.status !== 'success') {
@@ -188,16 +188,17 @@ router.post('/signup', async (req, res) => {
       prOverride = {
         birthyear: Number(pr.birthyear) || null,
         gender: (pr.gender === 'man' || pr.gender === 'woman') ? pr.gender : '',
-        phone: pr.phone || '',                 // E.164
-        ciHash: pr.ciHash || undefined,        // 스파스 유니크
-        carrier: pr.carrier || '',             // 통신사
+        phone: pr.phone || '',          // E.164 형태가 저장되어 있음
+        ciHash: pr.ciHash || undefined, // 스파스 유니크
       };
     }
 
     // 클라이언트 제공값(백워드 호환)
     const birthYearNum = birthyear ? parseInt(String(birthyear), 10) : undefined;
 
-    // ✅ 필수값 검증
+    // ✅ 필수값 검증: PASS 유무에 따라 요구 항목이 다름
+    // - 공통: username/password/nickname/region1/region2
+    // - PASS 미사용 시: gender/birthyear 도 필수
     const commonMissing = (!username || !password || !nickname || !region1 || !region2);
     const extraMissing  = (!passTxId && (!gender || !birthYearNum));
     if (commonMissing || extraMissing) {
@@ -210,19 +211,20 @@ router.post('/signup', async (req, res) => {
       User.findOne({ username }).select('_id').lean(),
       User.findOne({ nickname }).select('_id').lean(),
     ]);
-    if (userExists) return res.status(409).json({ ok: false, message: '아이디 중복' });
-    if (nicknameExists) return res.status(409).json({ ok: false, message: '닉네임 중복' });
+    if (userExists) {
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_USERNAME_PRECHECK', username });
+      return res.status(409).json({ ok: false, message: '아이디 중복' });
+    }
+    if (nicknameExists) {
+      console.log('[AUTH][ERR]', { step: 'signup', code: 'DUP_NICKNAME_PRECHECK', nickname });
+      return res.status(409).json({ ok: false, message: '닉네임 중복' });
+    }
 
     // ✅ 최종 저장값 확정 (PASS 우선)
     const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
     const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
-    const finalPhone     = prOverride?.phone     || undefined;
-    const finalCiHash    = prOverride?.ciHash    || undefined;
-    const finalCarrier   = prOverride?.carrier   || undefined;
-
-    // phoneHash (모델 훅이 없다면 서버에서 보강)
-    const crypto = require('crypto');
-    const phoneHash = finalPhone ? crypto.createHash('sha256').update(String(finalPhone)).digest('hex') : undefined;
+    const finalPhone     = prOverride?.phone     || undefined;   // undefined면 저장 생략
+    const finalCiHash    = prOverride?.ciHash    || undefined;   // undefined면 저장 생략
 
     let user;
     try {
@@ -238,17 +240,14 @@ router.post('/signup', async (req, res) => {
         last_login: null,
 
         // PASS 연동 필드
-        phone: finalPhone,
-        phoneHash,                 // 모델 훅이 있으면 중복 저장되어도 무해
-        carrier: finalCarrier,
-        ciHash: finalCiHash,
-        phoneVerifiedAt: finalPhone ? new Date() : undefined,
-        phoneVerifiedBy: finalPhone ? 'pass' : undefined,
+        phone: finalPhone,    // User 모델 pre-save 훅에서 E.164/phoneHash 정합성 보장
+        ciHash: finalCiHash,  // 스파스 유니크
 
-        // 기본 지급(기존 정책 유지)
+        // ✅ 가입 즉시 기본 지급(기존 정책 유지)
         heart: 400,
         star: 0,
         ruby: 0,
+        // lastDailyGrantAt는 설정하지 않음(일일지급 로직에서 제어)
       });
     } catch (e) {
       if (e && e.code === 11000) {
@@ -257,22 +256,16 @@ router.post('/signup', async (req, res) => {
         console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue: e.keyValue });
         return res.status(409).json({ ok: false, message: `${which} 중복` });
       }
-      if (e?.name === 'ValidationError') return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
-      if (e?.name === 'CastError')       return res.status(400).json({ ok: false, message: '입력값 변환 중 오류가 발생했습니다.' });
+      if (e?.name === 'ValidationError') {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'VALIDATION_ERROR', errors: e.errors });
+        return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
+      }
+      if (e?.name === 'CastError') {
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'CAST_ERROR', path: e.path, value: e.value });
+        return res.status(400).json({ ok: false, message: '입력값 변환 중 오류가 발생했습니다.' });
+      }
       console.log('[AUTH][ERR]', { step: 'signup', code: 'CREATE_USER_FAILED', message: e?.message });
       return res.status(500).json({ ok: false, message: '서버 오류' });
-    }
-
-    // ✅ PassResult 소비 마킹(있을 때만)
-    if (passTxId && prOverride) {
-      try {
-        await PassResult.updateOne(
-          { txId: passTxId },
-          { $set: { consumedByUserId: user._id, consumedAt: new Date() } }
-        );
-      } catch (e) {
-        console.log('[AUTH][WARN] PassResult.consume mark failed:', e?.message);
-      }
     }
 
     // consents 저장(있을 때만) — 기존 로직 유지
@@ -431,37 +424,53 @@ router.post('/logout', async (req, res) => {
 // 내 정보(/me) & 공개 유저 목록 & 내 친구 ID 목록
 //  - ✅ /me: 하트 일일 지급 보장(매일 11:00 KST) + wallet 동봉
 // ======================================================
+// ===== /api/me (교체본: phone 강제 포함 + 보기 좋은 포맷/마스킹 동봉) =====
 router.get('/me', authFromJwtOrSession, async (req, res) => {
   console.time('[API][TIMING] GET /api/me');
   const userId = req.auth.userId;
 
+  // 보기 좋은 전화번호 포맷터(+82 -> 010-1234-5678)
+  function formatKRPhone(e164 = '') {
+    const s = String(e164 || '').replace(/[^\d+]/g, '');
+    if (!s) return '';
+    if (!s.startsWith('+82')) return s;   // 해외번호는 그대로 노출(원하면 여기서 다른 포맷 추가)
+    const local = '0' + s.slice(3);       // +82 10... -> 010...
+    // 010-1234-5678 / 010-123-4567 모두 지원
+    return local.replace(/^(01[016789])(\d{3,4})(\d{4})$/, (_, a, b, c) => `${a}-${b}-${c}`);
+  }
+
+  // 안전한 마스킹(가운데 국번만 *)
+  function maskPhone(p = '') {
+    const s = String(p);
+    return s.replace(/^(01[016789]-?)(\d{3,4})(-?\d{4})$/, (_, a, b, c) => `${a}${'*'.repeat(b.length)}${c}`);
+  }
+
   try {
     // 1) 유저 문서 로드(lean 아님: 지급/저장 필요)
-  const userDoc = await User.findById(userId)
-    .select([
-      'username', 'nickname', 'birthyear', 'gender',
-      'region1', 'region2', 'preference', 'selfintro',
-      'profileImages', 'profileMain', 'profileImage', 'last_login',
-      'user_level', 'refundCountTotal',
-      'search_birthyear1', 'search_birthyear2',
-      'search_region1', 'search_region2', 'search_regions',
-      'search_preference',
-      'search_disconnectLocalContacts', 'search_allowFriendRequests',
-      'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
-      'marriage', 'search_marriage',
-      'friendlist', 'blocklist',
-      'emergency',
-      'role', 'roles',
-      // ✅ 추가: 전화/통신사 및 검증 메타
-      'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
-      // ✅ 포인트 잔액 + 일일지급 기준시각
-      'heart', 'star', 'ruby', 'lastDailyGrantAt',
-      'createdAt', 'updatedAt'
-    ])
-
-    .populate('friendlist', 'username nickname birthyear gender')
-    .populate('blocklist', 'username nickname birthyear gender');
-
+    const userDoc = await User.findById(userId)
+      .select([
+        'username', 'nickname', 'birthyear', 'gender',
+        'region1', 'region2', 'preference', 'selfintro',
+        'profileImages', 'profileMain', 'profileImage', 'last_login',
+        'user_level', 'refundCountTotal',
+        'search_birthyear1', 'search_birthyear2',
+        'search_region1', 'search_region2', 'search_regions',
+        'search_preference',
+        'search_disconnectLocalContacts', 'search_allowFriendRequests',
+        'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
+        'marriage', 'search_marriage',
+        'friendlist', 'blocklist',
+        'emergency',
+        'role', 'roles',
+        // ✅ 전화/통신사 및 검증 메타
+        '+phone',                // ← select:false 방지 (중요)
+        'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy', 'phoneHash',
+        // ✅ 포인트 잔액 + 일일지급 기준시각
+        'heart', 'star', 'ruby', 'lastDailyGrantAt',
+        'createdAt', 'updatedAt'
+      ])
+      .populate('friendlist', 'username nickname birthyear gender')
+      .populate('blocklist', 'username nickname birthyear gender');
 
     if (!userDoc) {
       console.timeEnd('[API][TIMING] GET /api/me');
@@ -493,6 +502,26 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
     }
 
     // 4) 관리자/역할 정보
+    function resolveRole(u) {
+      if (!u) return '';
+      if (u.role) return String(u.role);
+      if (Array.isArray(u.roles)) {
+        if (u.roles.includes('master')) return 'master';
+        if (u.roles.includes('admin')) return 'admin';
+        if (u.roles.length > 0) return String(u.roles[0]);
+      }
+      if (u.username === 'master') return 'master';
+      return 'user';
+    }
+    function resolveIsAdmin(u) {
+      if (!u) return false;
+      if (u.isAdmin === true) return true;
+      const role = resolveRole(u);
+      if (role === 'master' || role === 'admin') return true;
+      if (Array.isArray(u.roles) && (u.roles.includes('master') || u.roles.includes('admin'))) return true;
+      if (u.username === 'master') return true;
+      return false;
+    }
     const role = resolveRole(raw);
     const roles = Array.isArray(raw.roles) ? raw.roles : (role ? [role] : []);
     const isAdmin = resolveIsAdmin(raw);
@@ -500,8 +529,11 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
     // 5) 지갑 요약(프론트 편의)
     const wallet = pointService.getWalletSummary(userDoc);
 
-    // 6) 응답 보강/정규화
+    // 6) 응답 보강/정규화 + 전화번호 포맷/마스킹
     const searchRegions = Array.isArray(raw.search_regions) ? raw.search_regions : [];
+    const phoneFormatted = formatKRPhone(raw.phone || '');
+    const phoneMasked    = maskPhone(phoneFormatted || raw.phone || '');
+
     const user = {
       ...raw,
       role,
@@ -528,6 +560,10 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       search_matchPremiumOnly: raw.search_matchPremiumOnly ?? 'OFF',
       marriage: raw.marriage ?? '미혼',
       search_marriage: raw.search_marriage ?? '전체',
+
+      // ✅ 표시용 필드
+      phoneFormatted, // 010-1234-5678
+      phoneMasked,    // 010-****-5678
     };
 
     console.timeEnd('[API][TIMING] GET /api/me');
@@ -540,6 +576,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
     return res.status(500).json({ ok: false, message: '서버 오류' });
   }
 });
+
 
 router.get('/users', async (_req, res) => {
   try {
