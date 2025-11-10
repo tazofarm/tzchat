@@ -67,6 +67,15 @@ const ChatRoom = require('./models/Chat/ChatRoom');
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
 
+// ✅ 다날 콜백은 EUC-KR x-www-form-urlencoded 이므로, 해당 경로만 raw로 선캡처
+const expressRaw = express.raw({ type: 'application/x-www-form-urlencoded', limit: '2mb' });
+// GET/POST 모두 콜백으로 들어올 수 있어 미리 훅을 건다 (POST일 때만 rawBody 세팅)
+app.all('/api/auth/pass/callback', expressRaw, (req, res, next) => {
+  if (req.method === 'POST') {
+    req.rawBody = req.body; // Buffer (iconv로 EUC-KR → UTF-8 디코딩에 사용)
+  }
+  next();
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -75,6 +84,8 @@ console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
 /**
  * ✅ /public 정적 파일 서빙
+ * - public 폴더가 없으면 종료하지 않고 경고 후 건너뜁니다.
+ * - 루트(/)에 직접 물지 않고 /public 경로에만 매핑해 SPA와 충돌 방지.
  */
 const publicDir = path.join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
@@ -107,10 +118,11 @@ app.use((req, res, next) => {
 });
 
 // =======================================
-// CORS  (PASS 콜백은 CORS 검사 "제외")
+// CORS
 // =======================================
 const cors = require('cors');
 
+// 1) 기본 허용 목록
 const baseAllowed = [
   'https://tzchat.tazocode.com',
   'http://localhost',
@@ -127,19 +139,20 @@ const baseAllowed = [
   'https://127.0.0.1',
 ];
 
+// 2) 환경변수 병합(CSV)
 const envWhitelist = (process.env.CORS_WHITELIST || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 const allowedOriginsList = Array.from(new Set([...baseAllowed, ...envWhitelist]));
 
-// 🔁 동적 허용: 사설망 + 다날/테드릿 도메인(와일드카드)
 const dynamicOriginAllow = [
   /^https?:\/\/localhost(:\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
   /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
   /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/i,
-  /^https?:\/\/([a-z0-9-]+\.)*(teledit\.com|danal\.co\.kr)(:\d+)?$/i,   // 👈 다날/테드릿
 ];
 
 app.use((req, res, next) => {
@@ -147,12 +160,6 @@ app.use((req, res, next) => {
   next();
 });
 const ALLOW_NULL_ORIGIN = true;
-
-// NOTE: 콜백은 서버→서버 호출이므로 CORS 미적용
-function isPassCallback(req) {
-  // 필요시 .startsWith로 충분
-  return req.path === '/api/auth/pass/callback' || req.originalUrl?.startsWith('/api/auth/pass/callback');
-}
 
 const corsOptions = {
   origin: (origin, cb) => {
@@ -168,26 +175,15 @@ const corsOptions = {
   maxAge: 600,
   optionsSuccessStatus: 204,
 };
-
 app.use((req, res, next) => { res.setHeader('Vary', 'Origin'); next(); });
-
-// ✅ 콜백은 CORS 미들웨어 "우회"
-app.use((req, res, next) => {
-  if (isPassCallback(req)) return next();
-  return cors(corsOptions)(req, res, next);
+app.use(cors(corsOptions));
+app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path); next(); }, cors(corsOptions), (req, res) => {
+  res.sendStatus(204);
 });
 
-// Preflight 처리도 콜백은 우회
-app.options('/api/auth/pass/callback', (req, res) => res.sendStatus(204));
-app.options(/.*/, (req, res, next) => {
-  console.log('[CORS-OPTIONS] Preflight for', req.headers.origin || '(no-origin)', req.path);
-  next();
-}, cors(corsOptions), (req, res) => res.sendStatus(204));
-
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
-console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터+다날):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 허용(동적-사설망/에뚫레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
-
 
 // =======================================
 // 실행 모드
@@ -337,40 +333,32 @@ app.get('/api/health', (req, res) => {
 require('./routes')(app);
 
 /* ---------------------------------------
- * 🧯 전역 에러 핸들러(콜백은 항상 200 HTML로 변환)
- *  - 프런트엔드엔 구체 사유 전달(UNHANDLED_<code> 형태)
+ * 🧯 전역 에러 핸들러(여기 추가)
+ *  - /api/auth/pass/callback 에러도 200 HTML로 변환하여 팝업 닫히게 처리
+ *  - 그 외는 JSON 500
  * ------------------------------------- */
 app.use((err, req, res, next) => {
-  const code = (err && (err.code || err.type || err.name)) || 'ERROR';
-  const msg  = (err && err.message) || '';
-  console.error('[UNHANDLED]', req.method, req.originalUrl, '|', code, msg, '\n', err && err.stack);
-
+  console.error('[UNHANDLED]', req.method, req.originalUrl, '|', err && (err.stack || err.message || err));
   if (req.originalUrl && req.originalUrl.startsWith('/api/auth/pass/callback')) {
-    const payload = {
-      type: 'PASS_RESULT',
-      ok: false,
-      code: `UNHANDLED_${code}`.toUpperCase(),
-      message: msg || 'Unhandled error',
-      stage: 'GLOBAL_HANDLER'
-    };
-    const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+    return res
+      .status(200)
+      .set('Content-Type','text/html; charset=utf-8')
+      .send(`<!doctype html><html><body>
 <script>
-(function(){
-  var data = ${JSON.stringify(payload).replace(/</g,'\\u003c')};
-  try {
-    if (window.opener && typeof window.opener.postMessage === 'function') {
-      window.opener.postMessage(data, '*');
-    }
-    try { localStorage.setItem('PASS_RESULT_FALLBACK', JSON.stringify(data)); } catch(e){}
-  } catch(e){}
-  window.close();
-})();
-</script>완료</body></html>`;
-    return res.status(200).set('Content-Type','text/html; charset=utf-8').send(html);
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_FAIL', reason:'UNHANDLED_ERROR' }, '*');
+  } else {
+    try { localStorage.setItem('PASS_FAIL','UNHANDLED_ERROR'); } catch(e){}
   }
-  res.status(500).json({ ok:false, code:'UNHANDLED_'+code, message: msg || 'Internal Error' });
+} catch(e){}
+window.close();
+</script>
+콜백 처리 중 오류(프론트로 FAIL 전달). 창을 닫아주세요.
+</body></html>`);
+  }
+  res.status(500).json({ ok:false, code:'UNHANDLED', message: err?.message || 'Internal Error' });
 });
-
 
 // =======================================
 // 3) Socket.IO 설정
@@ -521,6 +509,7 @@ app.set('emit', {
       };
       await notifyRoomParticipantsForList(roomId, lastPayload);
 
+      // 푸시 전송: 참여자 조회 후 보낸 사람 제외하고 일괄 전송
       try {
         const room = await ChatRoom.findById(roomId).select('participants').lean();
         const senderId = typeof message?.sender === 'object' ? message.sender?._id : message?.sender;

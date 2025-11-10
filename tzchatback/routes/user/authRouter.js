@@ -31,6 +31,7 @@ const {
   PassResult,
 } = require('@/models');
 
+
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('@/config/emergency');
 
 // ✅ 포인트 서비스(하트·스타·루비)
@@ -429,29 +430,31 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
 
   try {
     // 1) 유저 문서 로드(lean 아님: 지급/저장 필요)
-    const userDoc = await User.findById(userId)
-      .select([
-        'username', 'nickname', 'birthyear', 'gender',
-        'region1', 'region2', 'preference', 'selfintro',
-        'profileImages', 'profileMain', 'profileImage', 'last_login',
-        'user_level', 'refundCountTotal',
-        'search_birthyear1', 'search_birthyear2',
-        'search_region1', 'search_region2', 'search_regions',
-        'search_preference',
-        'search_disconnectLocalContacts', 'search_allowFriendRequests',
-        'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
-        'marriage', 'search_marriage',
-        'friendlist', 'blocklist',
-        'emergency',
-        'role', 'roles',
-        // ✅ 추가: 전화/통신사 및 검증 메타
-        'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
-        // ✅ 포인트 잔액 + 일일지급 기준시각
-        'heart', 'star', 'ruby', 'lastDailyGrantAt',
-        'createdAt', 'updatedAt'
-      ])
-      .populate('friendlist', 'username nickname birthyear gender')
-      .populate('blocklist', 'username nickname birthyear gender');
+  const userDoc = await User.findById(userId)
+    .select([
+      'username', 'nickname', 'birthyear', 'gender',
+      'region1', 'region2', 'preference', 'selfintro',
+      'profileImages', 'profileMain', 'profileImage', 'last_login',
+      'user_level', 'refundCountTotal',
+      'search_birthyear1', 'search_birthyear2',
+      'search_region1', 'search_region2', 'search_regions',
+      'search_preference',
+      'search_disconnectLocalContacts', 'search_allowFriendRequests',
+      'search_allowNotifications', 'search_onlyWithPhoto', 'search_matchPremiumOnly',
+      'marriage', 'search_marriage',
+      'friendlist', 'blocklist',
+      'emergency',
+      'role', 'roles',
+      // ✅ 추가: 전화/통신사 및 검증 메타
+      'phone', 'carrier', 'phoneVerifiedAt', 'phoneVerifiedBy',
+      // ✅ 포인트 잔액 + 일일지급 기준시각
+      'heart', 'star', 'ruby', 'lastDailyGrantAt',
+      'createdAt', 'updatedAt'
+    ])
+
+    .populate('friendlist', 'username nickname birthyear gender')
+    .populate('blocklist', 'username nickname birthyear gender');
+
 
     if (!userDoc) {
       console.timeEnd('[API][TIMING] GET /api/me');
@@ -557,7 +560,7 @@ router.get('/my-friends', authFromJwtOrSession, async (req, res) => {
 });
 
 // ======================================================
-// 비밀번호 변경 (로그인 상태, 현재 비밀번호 검증)
+// 비밀번호 변경
 // ======================================================
 router.put('/update-password', authFromJwtOrSession, async (req, res) => {
   const userId = req.auth.userId;
@@ -595,115 +598,6 @@ router.put('/update-password', authFromJwtOrSession, async (req, res) => {
     return res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
   } catch (err) {
     console.log('[AUTH][ERR]', { step: 'updatePassword', message: err?.message });
-    return res.status(500).json({ ok: false, message: '서버 오류로 비밀번호 변경에 실패했습니다.' });
-  }
-});
-
-// ======================================================
-// 비밀번호 재설정(분실) - PASS 결과 기반 (비로그인)
-// ======================================================
-router.post('/password/reset-lookup', async (req, res) => {
-  try {
-    const passTxId = s(req.body?.passTxId);
-    if (!passTxId) {
-      return res.status(400).json({ ok: false, message: 'passTxId가 필요합니다.' });
-    }
-    const pr = await PassResult.findOne({ txId: passTxId }).lean();
-    if (!pr || pr.status !== 'success') {
-      return res.status(400).json({ ok: false, message: 'PASS 결과를 확인할 수 없습니다.' });
-    }
-
-    // 우선순위: ciHash → phone
-    const query = pr.ciHash ? { ciHash: pr.ciHash } : (pr.phone ? { phone: pr.phone } : null);
-    if (!query) {
-      return res.status(404).json({ ok: false, message: '식별 정보가 없습니다.' });
-    }
-
-    const user = await User.findOne(query).select('username');
-    if (!user) {
-      return res.status(404).json({ ok: false, message: '연결된 계정을 찾을 수 없습니다.' });
-    }
-    return res.json({ ok: true, username: user.username });
-  } catch (err) {
-    console.log('[AUTH][ERR]', { step: 'password.reset.lookup', message: err?.message });
-    return res.status(500).json({ ok: false, message: '서버 오류' });
-  }
-});
-
-router.post('/password/reset-with-pass', async (req, res) => {
-  try {
-    const passTxId = s(req.body?.passTxId);
-    const next = s(req.body?.next);
-    if (!passTxId || !next) {
-      return res.status(400).json({ ok: false, message: '필수 항목 누락(passTxId/next)' });
-    }
-    if (next.length < 4) {
-      return res.status(400).json({ ok: false, message: '새 비밀번호는 4자 이상을 권장합니다.' });
-    }
-
-    const pr = await PassResult.findOne({ txId: passTxId }).lean();
-    if (!pr || pr.status !== 'success') {
-      return res.status(400).json({ ok: false, message: 'PASS 결과를 확인할 수 없습니다.' });
-    }
-
-    const query = pr.ciHash ? { ciHash: pr.ciHash } : (pr.phone ? { phone: pr.phone } : null);
-    if (!query) {
-      return res.status(404).json({ ok: false, message: '식별 정보가 없습니다.' });
-    }
-
-    const user = await User.findOne(query).select('+password username');
-    if (!user) {
-      return res.status(404).json({ ok: false, message: '연결된 계정을 찾을 수 없습니다.' });
-    }
-
-    // 동일 비밀번호 재사용 방지(선택)
-    const isReuse = await bcrypt.compare(String(next), String(user.password || ''));
-    if (isReuse) {
-      return res.status(400).json({ ok: false, message: '이전과 다른 새 비밀번호를 사용해 주세요.' });
-    }
-
-    user.password = await bcrypt.hash(String(next), 10);
-    await user.save();
-
-    console.log('[AUTH][RES] password.reset.with.pass OK', { userId: String(user._id) });
-    return res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
-  } catch (err) {
-    console.log('[AUTH][ERR]', { step: 'password.reset.with.pass', message: err?.message });
-    return res.status(500).json({ ok: false, message: '서버 오류로 비밀번호 변경에 실패했습니다.' });
-  }
-});
-
-// ======================================================
-// 로그인 상태 전용: 현재 비밀번호 없이 변경
-// ======================================================
-router.put('/update-password-no-current', authFromJwtOrSession, async (req, res) => {
-  try {
-    const userId = req.auth.userId;
-    const next = s(req.body?.next);
-    if (!next) {
-      return res.status(400).json({ ok: false, message: '새 비밀번호를 입력해 주세요.' });
-    }
-    if (next.length < 4) {
-      return res.status(400).json({ ok: false, message: '새 비밀번호는 4자 이상을 권장합니다.' });
-    }
-
-    const user = await User.findById(userId).select('+password');
-    if (!user) {
-      return res.status(404).json({ ok: false, message: '사용자를 찾을 수 없습니다.' });
-    }
-
-    const isReuse = await bcrypt.compare(String(next), String(user.password || ''));
-    if (isReuse) {
-      return res.status(400).json({ ok: false, message: '이전과 다른 새 비밀번호를 사용해 주세요.' });
-    }
-
-    user.password = await bcrypt.hash(String(next), 10);
-    await user.save();
-
-    console.log('[AUTH][RES] update-password-no-current OK', { userId });
-    return res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
-  } catch (err) {
-    console.log('[AUTH][ERR]', { step: 'updatePasswordNoCurrent', message: err?.message });
     return res.status(500).json({ ok: false, message: '서버 오류로 비밀번호 변경에 실패했습니다.' });
   }
 });

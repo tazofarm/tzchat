@@ -19,9 +19,9 @@ import { connectSocket, getSocket } from '@/lib/socket'
 // ✅ 사용자 스토어(소켓 바인딩용)
 import { useUserStore } from '@/store/user'
 
-// ✅ (제거) 안드로이드 권한 유틸 자동요청 관련 import 삭제
-// import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
-// import { Capacitor } from '@capacitor/core'
+// ✅ (추가) 안드로이드 권한 유틸
+import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
+import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app' // ✅ 딥링크 수신
 
 /* Ionicons */
@@ -281,20 +281,20 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
-    // ✅ (제거) 앱 시작시 알림/위치 권한 자동요청 및 테스트 알림 실행 제거
-    // try {
-    //   if (Capacitor.getPlatform() === 'android') {
-    //     const res = await requestBasicPermissions()
-    //     console.log('🔐 [perm] requested →', res)
-    //     if (res.notification) {
-    //       await testLocalNotification()
-    //     }
-    //   } else {
-    //     console.log('↪️ non-Android platform: 권한 요청 생략')
-    //   }
-    // } catch (e: any) {
-    //   console.warn('⚠️ 권한 요청 중 오류:', e?.message)
-    // }
+    // ✅ 안드로이드에서만 기본 권한 요청(알림/위치)
+    try {
+      if (Capacitor.getPlatform() === 'android') {
+        const res = await requestBasicPermissions()
+        console.log('🔐 [perm] requested →', res)
+        if (res.notification) {
+          await testLocalNotification()
+        }
+      } else {
+        console.log('↪️ non-Android platform: 권한 요청 생략')
+      }
+    } catch (e: any) {
+      console.warn('⚠️ 권한 요청 중 오류:', e?.message)
+    }
 
     // ✅ tzchat:// 딥링크 처리
     CapApp.addListener('appUrlOpen', async ({ url }) => {

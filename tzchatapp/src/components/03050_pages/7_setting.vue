@@ -1,4 +1,3 @@
-<!-- (Frontend) Settings 섹션 컴포넌트 - 권한요청/테스트 알림 메뉴 제거 버전 -->
 <template>
   <!-- 🔹 상단바 (반갑습니다 / 관리자 / 로그아웃) -->
   <div class="top-bar">
@@ -40,12 +39,30 @@
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">
+        <!--  
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+        -->  
           <span>로그아웃</span>
         </li>
 
         <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="goPage('/home/setting/0020')">
+        <!--  
+          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
+        -->  
           <span>회원탈퇴</span>
+        </li>
+
+        <!-- ✅ 권한 관련: 알림/위치 요청 -->
+        <li class="list-item" @click="askPerms">
+          <ion-icon :icon="icons.notificationsOutline" class="icon-left" aria-hidden="true" />
+          <span>권한 요청 (알림/위치)</span>
+        </li>
+
+        <!-- ✅ 권한 관련: 테스트 알림 보내기 -->
+        <li class="list-item" @click="sendTestNoti">
+          <ion-icon :icon="icons.locateOutline" class="icon-left" aria-hidden="true" />
+          <span>테스트 알림 보내기</span>
         </li>
       </ul>
     </div>
@@ -57,11 +74,30 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { IonButton, IonIcon } from '@ionic/vue'
 import { App } from '@capacitor/app'
-import { happyOutline, settingsOutline } from 'ionicons/icons'
+import {
+  happyOutline,
+  settingsOutline,
+  logOutOutline,
+  trashOutline,
+  notificationsOutline,
+  locateOutline,
+} from 'ionicons/icons'
 import { api, AuthAPI } from '@/lib/api'
+import { Capacitor } from '@capacitor/core'
+import {
+  requestBasicPermissions,
+  testLocalNotification,
+} from '@/lib/permissions'
 
 const router = useRouter()
-const icons = { happyOutline, settingsOutline }
+const icons = {
+  happyOutline,
+  settingsOutline,
+  logOutOutline,
+  trashOutline,
+  notificationsOutline,
+  locateOutline,
+}
 
 const nickname = ref<string>('')
 const meRole = ref<string>('')
@@ -127,6 +163,7 @@ function detectOS() {
 }
 async function getAppVersion() {
   try {
+    // ❌ mod.App.getInfo() → ✅ App.getInfo()
     const info = await App.getInfo()
     return info.version || String((info as any).build) || 'unknown'
   } catch {
@@ -162,6 +199,38 @@ async function openSupportMail() {
 
   const href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   window.location.href = href
+}
+
+/** ✅ 권한 요청(알림/위치) */
+const askPerms = async () => {
+  try {
+    if (Capacitor.getPlatform() !== 'android') {
+      console.log('↪️ non-Android platform: 권한 요청은 Android에서만 수행됩니다.')
+      return
+    }
+    const res = await requestBasicPermissions()
+    console.log('[SettingsSections] 권한 요청 결과:', res)
+    if (res.notification) {
+      console.log('🔔 알림 권한 승인됨 → 테스트 알림 예약')
+      await testLocalNotification()
+    }
+  } catch (e: any) {
+    console.warn('⚠️ 권한 요청 중 오류:', e?.message)
+  }
+}
+
+/** ✅ 테스트 알림 (알림 권한 승인 시 표시) */
+const sendTestNoti = async () => {
+  try {
+    if (Capacitor.getPlatform() !== 'android') {
+      console.log('↪️ non-Android platform: 테스트 알림은 Android에서만 수행됩니다.')
+      return
+    }
+    await testLocalNotification()
+    console.log('✅ 테스트 알림 스케줄 완료')
+  } catch (e: any) {
+    console.warn('⚠️ 테스트 알림 오류:', e?.message)
+  }
 }
 </script>
 

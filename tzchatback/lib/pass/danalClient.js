@@ -12,9 +12,8 @@ const qs = require('querystring');
 const CPID = process.env.DANAL_CPID || process.env.PASS_CPID || '';
 const CPPWD = process.env.DANAL_PWD  || process.env.PASS_PWD  || '';
 const UAS_URL = (process.env.DANAL_BASE_URL || 'https://uas.teledit.com/uas/').replace(/\/+$/, '') + '/';
-
-// ✅ 공용 v1.0 Start.php 사용 (웹/모바일 자동 분기: 다날 권장)
-const WAUTH_START_V1 = 'https://wauth.teledit.com/v1.0/Start.php';
+const WAUTH_WEB_START = 'https://wauth.teledit.com/Danal/WebAuth/Web/Start.php';
+const WAUTH_MOBILE_START = 'https://wauth.teledit.com/Danal/WebAuth/Mobile/Start.php';
 
 // 콜백 베이스(우리 CPCGI 엔드포인트) 결정
 function resolveCallbackBase() {
@@ -49,7 +48,7 @@ async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
     AUTHTYPE: '36',
     CPID,
     CPPWD,
-    TARGETURL: buildTargetUrl(),             // ✅ 인증 완료시 다날 → 우리 CPCGI
+    TARGETURL: buildTargetUrl(),
     CPTITLE: cpTitle || 'tzchat.tazocode.com',
     USERID: userId || '',
     ORDERID: orderId || '',
@@ -107,35 +106,29 @@ async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
 }
 
 
-// 다날 WebAuth로 보낼 자동 submit 폼
-// ※ BackURL은 브라우저가 보는 경로(선택)이며, TARGETURL은 서버↔서버(CPCGI).
-//   혼선 방지를 위해 BackURL도 우리 콜백으로 통일(다날이 무시해도 무해)
-function buildWauthFormHtml({
-  tid,
-  bgColor = '00',
-  charSet = 'EUC-KR',
-  backUrl,
-  extraBypass = {},
-}) {
+// 다날 WebAuth로 보낼 자동 submit 폼(웹/모바일 공용)
+// ByPassValue는 CPCGI로 그대로 POST됨
+function buildWauthFormHtml({ tid, bgColor = '00', charSet = 'EUC-KR', backUrl, useMobile = false, extraBypass = {} }) {
+  const startUrl = useMobile ? WAUTH_MOBILE_START : WAUTH_WEB_START;
+
   // 필수: TID
   // 선택: BackURL, BgColor, IsCharSet, 그 외 모든 필드는 CPCGI에 ByPass로 전달
   const fields = {
     TID: tid,
-    BackURL: backUrl || buildTargetUrl(), // ✅ 명시적으로 우리 콜백(혼선 방지)
+    BackURL: backUrl || `${resolveCallbackBase()}/debug/pass-back`, // 없으면 빈값 가능
     BgColor: bgColor,
-    IsCharSet: charSet,                   // EUC-KR 권장
-    ...extraBypass,                       // 예: { ByPassValue: intent }
+    IsCharSet: charSet,
+    ...extraBypass,
   };
 
   const inputs = Object.entries(fields)
     .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`)
     .join('\n');
 
-  // ✅ EUC-KR 메타+폼 인코딩 명시
   return `<!doctype html>
-<html><head><meta charset="euc-kr"><title>Danal PASS</title></head>
+<html><head><meta charset="utf-8"><title>Danal PASS</title></head>
 <body>
-<form id="passStart" action="${WAUTH_START_V1}" method="post" accept-charset="euc-kr">
+<form id="passStart" action="${startUrl}" method="post">
 ${inputs}
 </form>
 <script>document.getElementById('passStart').submit();</script>
@@ -210,17 +203,17 @@ module.exports = {
   async buildStart({ orderId, userId, intent, mode = 'json' }) {
     const { tid } = await startReady({ orderId, userId, cpTitle: 'tzchat.tazocode.com' });
 
+    const backUrl = `${resolveCallbackBase()}/api/auth/pass/back`; // 선택(없어도 됨)
     const formHtml = buildWauthFormHtml({
       tid,
-      // BackURL: 명시하지 않으면 buildWauthFormHtml 내부에서 callback으로 설정
+      backUrl,
       bgColor: '00',
       charSet: 'EUC-KR',
+      useMobile: false,       // 필요 시 UA보고 분기
       extraBypass: { ByPassValue: intent || 'unified' },
     });
 
-    return (mode === 'html')
-      ? { contentType: 'text/html', body: formHtml }
-      : { formHtml, tid };
+    return (mode === 'html') ? { contentType: 'text/html', body: formHtml } : { formHtml, tid };
   },
 
   /**

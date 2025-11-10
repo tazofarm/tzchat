@@ -1,23 +1,20 @@
 // backend/routes/pass/passRouter.js
 // base: /api/auth/pass
-// - POST /start
-// - GET  /start?mode=html
-// - ALL  /callback
-// - GET  /status
-// - GET  /route
+// - POST /start: 서버 PASS 시작(다날 Ready → TID → wauth Start.php 자동전송 폼 생성)
+// - GET  /start: mode=html 지원(팝업이 직접 이 엔드포인트를 열면 HTML 즉시 응답)
+// - ALL  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
+// - GET  /status: 상태 조회(폴링)
+// - GET  /route : 분기(signup | templogin)
+//
+// ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const qs = require('querystring');
 
 const { PassResult, User } = require('@/models');
 const danal = require('@/lib/pass/danalClient');
-const {
-  decodeBody,
-  parseFormLike,
-  validateMinimalFields,
-  getCharset,
-} = require('@/lib/pass/danalCallback');
 
 const sha256Hex = (s = '') => crypto.createHash('sha256').update(String(s)).digest('hex');
 
@@ -27,17 +24,18 @@ const maskName = (name = '') => {
   return n[0] + '*'.repeat(Math.max(1, n.length - 1));
 };
 
+// KR 기본 E.164 정규화 (+국제번호면 그대로)
 function normalizePhoneKR(raw = '') {
   let clean = String(raw).replace(/[^\d+]/g, '');
   if (!clean) return '';
   if (clean.startsWith('+0')) clean = '+' + clean.slice(2);
-  if (clean.startsWith('+')) return clean;
-  if (clean.startsWith('0')) return '+82' + clean.slice(1);
-  return '+82' + clean;
+  if (clean.startsWith('+')) return clean;            // 이미 국제 형식
+  if (clean.startsWith('0')) return '+82' + clean.slice(1); // 010… → +8210…
+  return '+82' + clean;                               // 나머지 가드
 }
 
+// postMessage 대상 오리진
 function resolvePostMessageTarget() {
-  if (process.env.PASS_POSTMSG_ORIGIN) return process.env.PASS_POSTMSG_ORIGIN;
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProd) {
     return (
@@ -49,6 +47,7 @@ function resolvePostMessageTarget() {
   return '*';
 }
 
+// 공통 JSON 응답 유틸 (항상 JSON + no-cache)
 function json(res, status, body) {
   res.set({
     'Content-Type': 'application/json; charset=utf-8',
@@ -62,7 +61,9 @@ function json(res, status, body) {
 /* =========================================================
  * 1) PASS 시작
  * =======================================================*/
-router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
+router.get('/start/ping', (req, res) => {
+  return json(res, 200, { ok: true, pong: true, now: Date.now() });
+});
 
 router.all('/start', async (req, res) => {
   try {
@@ -70,6 +71,7 @@ router.all('/start', async (req, res) => {
     const mode   = (req.query && req.query.mode)   || (req.body && req.body.mode)   || 'json';
     const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);
 
+    // STUB: 파이프/프론트 점검용
     if (String(stub).toLowerCase() === '1' || String(stub).toLowerCase() === 'true') {
       const dummyHtml = `<!doctype html><html><body>
 <form id="f" action="about:blank" method="post">
@@ -99,160 +101,118 @@ router.all('/start', async (req, res) => {
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
     const code  = e && (e.code || e.returnCode) || 'START_ERROR';
-    const stage = e && e.stage || 'START';
+    const stage = e && e.stage || 'UNKNOWN';
     const msg   = e && e.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
     console.error('[PASS/start] error:', { code, stage, msg });
+
     return json(res, 500, { ok: false, code, stage, message: msg });
   }
 });
 
 /* =========================================================
- * 2) PASS 콜백
+ * 2) PASS 콜백 (다날 WebAuth → 우리 서버)
+ *    - 어떤 경우에도 200 HTML로 응답(팝업 postMessage 후 닫힘)
+ *    - EUC-KR 폼 본문을 raw 로 받아 UTF-8로 디코딩
+ *    - 진입/디코딩/저장 단계별 최소 로그
  * =======================================================*/
-const raw = express.raw({ type: '*/*', limit: '1mb' });
-
-function popupCloseHtml(payload, targetOrigin) {
-  const jsonStr = JSON.stringify(payload).replace(/</g, '\\u003c');
-  const origin = JSON.stringify(targetOrigin || '*');
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><title>PASS Callback</title></head>
-<body>
-<script>
-(function(){
-  try {
-    var data = ${jsonStr};
-    try {
-      if (window.opener && typeof window.opener.postMessage === 'function') {
-        window.opener.postMessage(data, ${origin});
-      }
-      try { localStorage.setItem('PASS_RESULT_FALLBACK', JSON.stringify(data)); } catch (e) {}
-    } catch (e) { /* noop */ }
-  } catch(e) { /* noop */ }
-  window.close();
-})();
-</script>
-완료
-</body></html>`;
-}
-
-// 🔎 잘못 들어온 "시작 폼"을 감지(RESULT_CODE 없음 + dnData/BackURL 등)
-function looksLikeStartForm(form = {}) {
-  const keys = Object.keys(form || {}).map(k => k.toLowerCase());
-  const hasStartKeys = ['dndata', 'backurl'].some(k => keys.includes(k));
-  const hasResult = keys.includes('result_code') || keys.includes('resultcode');
-  return hasStartKeys && !hasResult;
-}
-
-// 🔁 wauth Start.php로 서버에서 릴레이(자동 제출)
-function relayToWauthHtml(form = {}) {
-  const WAUTH_URL =
-    process.env.PASS_WAUTH_URL ||
-    'https://wauth.teledit.com/v1.0/Start.php';
-
-  // form key/value를 그대로 보존하여 wauth로 전달
-  const inputs = Object.entries(form)
-    .map(([k, v]) => {
-      const name = String(k);
-      const val = v == null ? '' : String(v);
-      const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-      return `<input type="hidden" name="${esc(name)}" value="${esc(val)}">`;
-    })
-    .join('\n');
-
-  return `<!doctype html>
-<html><head><meta charset="euc-kr"><title>Relay to WAuth</title></head>
-<body>
-<form id="wauth" action="${WAUTH_URL}" method="post" accept-charset="euc-kr">
-${inputs}
-</form>
-<script>document.getElementById('wauth').submit();</script>
-</body></html>`;
-}
-
-router.all('/callback', raw, async (req, res) => {
+router.all('/callback', async (req, res) => {
   const targetOrigin = resolvePostMessageTarget();
-  let stage = 'IN';
+
+  const endOk = (txId) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><body>
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
+  } else {
+    try { localStorage.setItem('PASS_RESULT_TX', ${JSON.stringify(txId)}); } catch (e) {}
+  }
+} catch (e) {}
+window.close();
+</script>
+PASS 처리 완료. 창을 닫아주세요.
+</body></html>`);
+  };
+
+  const endFail = (reason) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><body>
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_FAIL', reason: ${JSON.stringify(reason || 'UNKNOWN')} }, ${JSON.stringify(targetOrigin)});
+  } else {
+    try { localStorage.setItem('PASS_FAIL', ${JSON.stringify(String(reason || 'UNKNOWN'))}); } catch (e) {}
+  }
+} catch (e) {}
+window.close();
+</script>
+PASS 실패. 창을 닫아주세요.
+</body></html>`);
+  };
+
   try {
-    const ctype = (req.headers['content-type'] || '').toLowerCase();
-    const charset = getCharset(ctype);
-    const rawBuf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
-    console.log('[PASS/CB][IN]', { method: req.method, ctype, charset, rawLen: rawBuf.length });
-
-    stage = 'DECODE';
-    const text = decodeBody(rawBuf, ctype);
-    const rawHead = text ? text.slice(0, 200) : '';
-    if (rawHead) console.log('[PASS/CB][RAW.head]', rawHead);
-
-    stage = 'PARSE_FORM';
-    let form = text ? parseFormLike(text) : {};
-    form = { ...(req.query || {}), ...(form || {}) };
-    const parsedKeys = Object.keys(form || {});
-    console.log('[PASS/CB][PARSED.keys]', parsedKeys);
-
-    // ✅ A안: 시작폼이 잘못 우리 콜백으로 들어온 경우 → wauth 로 릴레이하여 정상 플로우 복구
-    if (looksLikeStartForm(form)) {
-      console.warn('[PASS/CB][EARLY_START_POST] Start-form hit our callback. Relaying to wauth.');
-      res.set('Content-Type', 'text/html; charset=euc-kr');
-      return res.status(200).send(relayToWauthHtml(form));
-    }
-
-    stage = 'MIN_CHECK';
-    const { ok: minOk, fields: minFields, missing } = validateMinimalFields(form);
-    if (!minOk) {
-      const payload = {
-        type: 'PASS_RESULT',
-        ok: false,
-        code: 'UNHANDLED_MISSING_FIELDS',
-        message: '필수 콜백 필드 누락',
-        stage,
-        ctype,
-        charset,
-        parsedKeys,
-        rawHead,
-        txId: form.TID || form.tid || form.txId || null,
-      };
-      res.set('Content-Type', 'text/html; charset=utf-8');
-      return res.status(200).send(popupCloseHtml(payload, targetOrigin));
-    }
-
-    stage = 'PARSE_VENDOR';
-    let parsed = null;
+    // 🔎 진입 로그(PII 최소화)
     try {
-      req.body = form; // vendor 파서 호환
-      parsed = await danal.parseCallback(req);
+      const ctype = (req.headers['content-type'] || '').toLowerCase();
+      const hasRaw = Buffer.isBuffer(req.rawBody);
+      const rawLen = hasRaw ? req.rawBody.length : 0;
+      console.log('[PASS/callback][hit]', {
+        method: req.method,
+        ctype,
+        hasRaw,
+        rawLen,
+        q: Object.keys(req.query || {}),
+        b: Object.keys(req.body || {}),
+      });
     } catch (e) {
-      console.warn('[PASS/CB][WARN] parseCallback fail:', e?.message || e);
-      parsed = {
-        success: (minFields.RESULT_CODE === '0000' || minFields.RESULT_CODE === 'SUCCESS' || minFields.RESULT_CODE === '0'),
-        txId: form.TID || form.tid || form.txId || null,
-        failCode: (minFields.RESULT_CODE && !(minFields.RESULT_CODE === '0000' || minFields.RESULT_CODE === 'SUCCESS' || minFields.RESULT_CODE === '0'))
-          ? String(minFields.RESULT_CODE) : null,
-        name: form.NAME || form.name || '',
-        birthdate: form.BIRTHDATE || form.birthdate || '',
-        birthyear: form.BIRTHYEAR || form.birthyear || '',
-        gender: form.GENDER || form.gender || '',
-        phone: form.PHONE || form.phone || '',
-        carrier: form.CARRIER || form.carrier || '',
-        ci: form.CI || form.ci || '',
-        di: form.DI || form.di || '',
-        raw: form,
-      };
+      console.warn('[PASS/callback][log] warn:', e?.message || e);
     }
 
-    stage = 'SHAPE';
-    const txId = parsed.txId || form.TID || form.tid || form.txId || `tx_${Date.now()}`;
+    // ✅ EUC-KR 폼 디코딩 (POST 전용, main.js에서 req.rawBody 선캡처 필요)
+    if (req.method === 'POST') {
+      const ctype = (req.headers['content-type'] || '').toLowerCase();
+      if (ctype.includes('application/x-www-form-urlencoded')) {
+        if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
+          let text;
+          try {
+            const iconv = require('iconv-lite');               // 동적 로드
+            text = iconv.decode(req.rawBody, 'euc-kr');        // EUC-KR → UTF-8
+          } catch (e) {
+            console.warn('[PASS/callback] iconv-lite not available, fallback to utf8:', e?.message || e);
+            text = req.rawBody.toString('utf8');               // 폴백
+          }
+          req.body = qs.parse(text);
+          console.log('[PASS/callback][decoded]', { len: text.length, keys: Object.keys(req.body || {}) });
+        } else {
+          console.warn('[PASS/callback] rawBody missing, skip decode');
+        }
+      }
+    }
+
+    // 쿼리/바디가 비어도 danal.parseCallback은 안전(기본값 보정)
+    const parsed = await danal.parseCallback(req);
+
+    const txId = parsed.txId || `tx_${Date.now()}`;
+
+    // birthdate(YYYYMMDD) → birthyear
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
     const birthyear = birthdate ? Number(birthdate.slice(0, 4)) : (Number(parsed.birthyear) || null);
+
+    // 성별: M/F → man/woman
     const g = (parsed.gender || '').toString().toUpperCase();
     const gender =
       g === 'M' || g === 'MAN' ? 'man' :
       g === 'F' || g === 'WOMAN' ? 'woman' : '';
+
     const phone = parsed.phone ? normalizePhoneKR(parsed.phone) : '';
     const ciHash = parsed.ci ? sha256Hex(parsed.ci) : '';
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
     const nameMasked = maskName(parsed.name || '');
+
     const rawMasked = {
-      ...(parsed.raw || form || {}),
+      ...parsed.raw,
       birthdate: birthdate || undefined,
       birthyear,
       ci: undefined,
@@ -261,14 +221,13 @@ router.all('/callback', raw, async (req, res) => {
       phone,
     };
 
-    stage = 'UPSERT';
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
         {
           $set: {
             status: parsed.success ? 'success' : 'fail',
-            failCode: parsed.success ? null : (parsed.failCode || minFields.RESULT_CODE || 'UNKNOWN'),
+            failCode: parsed.success ? null : (parsed.failCode || 'UNKNOWN'),
             name: nameMasked,
             birthyear,
             gender,
@@ -277,50 +236,25 @@ router.all('/callback', raw, async (req, res) => {
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
             rawMasked,
-            _dbg: { ctype, charset, parsedKeys, rawHead },
           },
         },
         { upsert: true, new: true }
       );
-      console.log('[PASS/CB][UPSERT]', { txId: saved?.txId || txId, status: saved?.status || (parsed.success ? 'success' : 'fail') });
+      console.log('[PASS/callback][upsert]', { txId: saved?.txId || txId, status: saved?.status || (parsed.success ? 'success' : 'fail') });
     } catch (dbErr) {
-      console.warn('[PASS/CB][DB] upsert warn:', dbErr?.message || dbErr);
+      console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-    stage = 'REPLY';
-    const payload = parsed.success
-      ? { type: 'PASS_RESULT', ok: true, txId, stage, ctype, charset, parsedKeys }
-      : {
-          type: 'PASS_RESULT',
-          ok: false,
-          code: (parsed.failCode || minFields.RESULT_CODE || 'FAIL').toString().toUpperCase(),
-          message: '벤더 실패 코드 반환',
-          stage,
-          txId,
-          ctype,
-          charset,
-          parsedKeys,
-          rawHead,
-        };
-
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(popupCloseHtml(payload, targetOrigin));
+    return parsed.success ? endOk(txId) : endFail(parsed.failCode || 'FAIL');
   } catch (e) {
-    console.error('[PASS/CB][ERR] UNHANDLED:', e?.stack || e?.message || e);
-    const payload = {
-      type: 'PASS_RESULT',
-      ok: false,
-      code: 'UNHANDLED_ERROR',
-      message: e?.message || 'UNHANDLED_ERROR',
-      stage,
-    };
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(popupCloseHtml(payload, targetOrigin));
+    console.error('[PASS/callback] hard error:', e?.stack || e?.message || e);
+    // 절대 500 내지 않음
+    return endFail('CALLBACK_ERROR');
   }
 });
 
 /* =========================================================
- * 3) 상태 조회
+ * 3) 상태 조회 (폴링)
  * =======================================================*/
 router.get('/status', async (req, res) => {
   try {
@@ -369,7 +303,7 @@ router.get('/status', async (req, res) => {
 });
 
 /* =========================================================
- * 4) 분기
+ * 4) 분기 결정 (회원가입 / 임시로그인)
  * =======================================================*/
 router.get('/route', async (req, res) => {
   try {
@@ -387,13 +321,19 @@ router.get('/route', async (req, res) => {
       return json(res, 200, { ok: true, next: 'pending', txId });
     }
 
+    // success
     if (!doc.ciHash) {
       return json(res, 200, { ok: true, next: 'signup', txId });
     }
 
     const existing = await User.findOne({ ciHash: doc.ciHash }).select('_id').lean();
     if (existing) {
-      return json(res, 200, { ok: true, next: 'templogin', txId, userId: String(existing._id) });
+      return json(res, 200, {
+        ok: true,
+        next: 'templogin',
+        txId,
+        userId: String(existing._id),
+      });
     }
 
     return json(res, 200, { ok: true, next: 'signup', txId });

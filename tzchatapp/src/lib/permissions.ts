@@ -1,10 +1,10 @@
 // src/lib/permissions.ts
 // -------------------------------------------------------------
-// 안드로이드 권한 유틸 (알림/위치) - Capacitor 기반
-// ✅ 변경사항(중요):
-//   - 기본 동작을 "확인만(check)"으로 축소. 자동으로 요청(prompt)하지 않음.
-//   - 필요 시에만 명시적으로 요청하도록 옵션 제공({ request: true }).
-//   - testLocalNotification 도 권한 미승인 시 조용히 return(팝업/요청 X).
+// 안드로이드 기본 권한 유틸 (알림/위치) - Capacitor 기반
+// - Local Notifications: Android 13+ POST_NOTIFICATIONS 런타임 처리
+// - Geolocation: COARSE/FINE 위치 권한 요청 + 실제 1회 위치 조회(실사용 증빙)
+// - 필요 플러그인: @capacitor/local-notifications, @capacitor/geolocation
+//   npm i @capacitor/local-notifications @capacitor/geolocation && npx cap sync
 // -------------------------------------------------------------
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications, type PermissionStatus as NotiPermStatus } from '@capacitor/local-notifications'
@@ -14,12 +14,14 @@ import { Geolocation, type PermissionStatus as GeoPermStatus } from '@capacitor/
 const ANDROID_DEFAULT_CHANNEL_ID = 'default'
 const ANDROID_DEFAULT_CHANNEL_NAME = '일반 알림'
 
+// 안드로이드 여부
 const isAndroid = () => Capacitor.getPlatform() === 'android'
 
-/** (Android) 알림 채널을 확보합니다. (이미 있으면 아무 일도 없음) */
+/** (Android) 알림 채널을 확보합니다. */
 async function ensureAndroidNotificationChannel() {
   if (!isAndroid()) return
   try {
+    // 채널 생성은 존재해도 중복 에러 없이 넘어갑니다.
     await LocalNotifications.createChannel({
       id: ANDROID_DEFAULT_CHANNEL_ID,
       name: ANDROID_DEFAULT_CHANNEL_NAME,
@@ -35,111 +37,62 @@ async function ensureAndroidNotificationChannel() {
   }
 }
 
-/* -------------------------------------------------------------
- * 🔔 알림 권한
- * -----------------------------------------------------------*/
-export type EnsurePermOptions = { request?: boolean } // request=true 인 경우에만 실제 요청
-
-/** 알림 권한 상태만 확인 (요청 X) */
-export async function checkNotificationPermission(): Promise<boolean> {
+/** 🔔 알림 권한을 확인/요청합니다. (Android 13+ 런타임 권한 포함) */
+export async function ensureNotificationPermission(): Promise<boolean> {
   try {
-    const status: NotiPermStatus = await LocalNotifications.checkPermissions()
-    return status.display === 'granted'
-  } catch (e) {
-    console.warn('[perm] notification check error', e)
-    return false
-  }
-}
-
-/** 알림 권한 보장 (기본: 확인만; 옵션으로 요청 가능) */
-export async function ensureNotificationPermission(opts: EnsurePermOptions = {}): Promise<boolean> {
-  try {
-    // 안드로이드라면 채널만 미리 확보(채널 생성 자체는 팝업 유발 안 함)
+    // 채널을 먼저 보장(안드로이드)
     await ensureAndroidNotificationChannel()
 
-    const has = await checkNotificationPermission()
-    if (has) return true
+    const status: NotiPermStatus = await LocalNotifications.checkPermissions()
+    if (status.display === 'granted') return true
 
-    if (opts.request) {
-      const req: NotiPermStatus = await LocalNotifications.requestPermissions()
-      return req.display === 'granted'
-    }
-    // 기본은 요청하지 않음
-    return false
+    const req: NotiPermStatus = await LocalNotifications.requestPermissions()
+    return req.display === 'granted'
   } catch (e) {
-    console.warn('[perm] notification ensure error', e)
+    console.warn('[perm] notification error', e)
     return false
   }
 }
 
-/* -------------------------------------------------------------
- * 📍 위치 권한
- * -----------------------------------------------------------*/
-export async function checkLocationPermission(): Promise<boolean> {
+/** 📍 위치 권한을 확인/요청합니다. (정밀 위치 포함) */
+export async function ensureLocationPermission(): Promise<boolean> {
   try {
     const status: GeoPermStatus = await Geolocation.checkPermissions()
-    return status.location === 'granted'
-  } catch (e) {
-    console.warn('[perm] location check error', e)
-    return false
-  }
-}
+    if (status.location === 'granted') return true
 
-/** 위치 권한 보장 (기본: 확인만; 옵션으로 요청 가능) */
-export async function ensureLocationPermission(opts: EnsurePermOptions = {}): Promise<boolean> {
-  try {
-    const has = await checkLocationPermission()
-    if (has) return true
+    const req: GeoPermStatus = await Geolocation.requestPermissions()
+    if (req.location !== 'granted') return false
 
-    if (opts.request) {
-      const req: GeoPermStatus = await Geolocation.requestPermissions()
-      if (req.location !== 'granted') return false
-
-      // 실제 1회 조회는 "요청 시"에만 시도(옵션 사용 시)
-      try {
-        await Geolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 7000,
-          maximumAge: 0,
-        })
-      } catch (e) {
-        console.warn('[perm] getCurrentPosition warn', e)
-      }
-      return true
+    // 실제 1회 조회: “형식적 요청”이 아닌 “실사용” 신호로 유리
+    // (오류가 나도 권한 자체는 부여된 상태이므로 실패를 fatal로 보지 않습니다.)
+    try {
+      await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 7000,
+        maximumAge: 0,
+      })
+    } catch (e) {
+      console.warn('[perm] getCurrentPosition warn', e)
     }
-    // 기본은 요청하지 않음
-    return false
+    return true
   } catch (e) {
-    console.warn('[perm] location ensure error', e)
+    console.warn('[perm] location error', e)
     return false
   }
 }
 
-/* -------------------------------------------------------------
- * 🧰 배치 헬퍼
- * -----------------------------------------------------------*/
-/** 기본 권한(알림/위치)을 한 번에 처리 (기본: 확인만, 요청 없음) */
-export async function requestBasicPermissions(opts: EnsurePermOptions = {}): Promise<{ notification: boolean; location: boolean }> {
+/** ✅ 한 번에 기본 권한(알림/위치)을 요청합니다. */
+export async function requestBasicPermissions(): Promise<{ notification: boolean; location: boolean }> {
   const [n, l] = await Promise.all([
-    ensureNotificationPermission(opts),
-    ensureLocationPermission(opts),
+    ensureNotificationPermission(),
+    ensureLocationPermission(),
   ])
   return { notification: n, location: l }
 }
 
-/* -------------------------------------------------------------
- * 🔔 테스트 알림
- * -----------------------------------------------------------*/
-/** 테스트 알림 (권한 승인 상태에서만 발송, 미승인 시 요청하지 않고 조용히 종료) */
-export async function testLocalNotification(): Promise<boolean> {
+/** 🔔 테스트 알림(권한 승인 후 실제 표시 확인용) */
+export async function testLocalNotification() {
   try {
-    const granted = await checkNotificationPermission()
-    if (!granted) {
-      // 권한 없으면 조용히 종료(팝업/요청 안 함)
-      console.log('[perm] testLocalNotification skipped: permission not granted')
-      return false
-    }
-
     await ensureAndroidNotificationChannel()
     await LocalNotifications.schedule({
       notifications: [
@@ -152,9 +105,7 @@ export async function testLocalNotification(): Promise<boolean> {
         },
       ],
     })
-    return true
   } catch (e) {
     console.warn('[perm] testLocalNotification error', e)
-    return false
   }
 }

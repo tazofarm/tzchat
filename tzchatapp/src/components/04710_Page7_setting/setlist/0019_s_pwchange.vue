@@ -1,32 +1,43 @@
+
+<!-- 비밀번호 변경 -->
+
+
 <!-- src/views/PasswordChangePage.vue -->
 <template>
   <ion-page class="password-page theme-gold-dark">
+    <!-- 헤더: 블랙+골드 -->
     <ion-header>
       <ion-toolbar>
-        <ion-buttons slot="start"></ion-buttons>
+        <ion-buttons slot="start">
+          <!-- 히스토리가 없을 때 이동할 기본 경로를 원하는 페이지로 바꾸세요 
+          <ion-back-button defaultHref="/home/profile" aria-label="뒤로가기" />
+          -->
+        </ion-buttons>
+
         <ion-title>비밀번호 변경</ion-title>
+
         <ion-buttons slot="end">
+          <!-- 필요 시 우측 닫기대신 도움말 등으로 교체 가능 -->
           <ion-button @click="goBack" aria-label="닫기(우측)">닫기</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
+    <!-- 본문 -->
     <ion-content :fullscreen="true">
-      <!-- 아이디 표시 카드 -->
-      <div class="id-card">
-        <div class="id-row">
-          <span class="id-label">아이디</span>
-          <span class="id-value">{{ displayUsername || '확인 중…' }}</span>
-        </div>
-        <p class="id-hint" v-if="passTxId">
-          PASS 인증 결과를 바탕으로 비밀번호를 재설정합니다.
-        </p>
-        <p class="id-hint" v-else>
-          로그인 상태에서 비밀번호를 변경합니다.
-        </p>
-      </div>
-
       <ion-list inset>
+        <!-- 현재 비밀번호 -->
+        <ion-item>
+          <ion-label position="stacked">현재 비밀번호</ion-label>
+          <ion-input
+            type="password"
+            placeholder="현재 비밀번호"
+            v-model="form.current"
+            @ionInput="logInput('current', $event)"
+            autocomplete="current-password"
+          />
+        </ion-item>
+
         <!-- 새 비밀번호 -->
         <ion-item>
           <ion-label position="stacked">새 비밀번호</ion-label>
@@ -54,8 +65,12 @@
 
       <!-- 액션 버튼 -->
       <div class="btn-row">
-        <ion-button expand="block" @click="onSubmit" :disabled="isSubmitting">
-          {{ isSubmitting ? '변경 중...' : (passTxId ? '재설정' : '변경') }}
+        <ion-button
+          expand="block"
+          @click="onSubmit"
+          :disabled="isSubmitting"
+        >
+          {{ isSubmitting ? '변경 중...' : '변경' }}
         </ion-button>
       </div>
     </ion-content>
@@ -64,40 +79,37 @@
 
 <script setup lang="ts">
 // -------------------------------------------------------
-// PasswordChangePage.vue (비밀번호 "재설정/변경" 통합 페이지)
-// - 비로그인(분실) + PASS 기반: POST /api/password/reset-with-pass
-// - 로그인 상태: PUT /api/update-password-no-current
-// - 상단에 아이디 노출 (query.username || PASS lookup || /api/me)
+// PasswordChangePage.vue (블랙+골드 테마 / 페이지 버전)
+// - PUT /api/update-password (세션 기반)
+// - 주석/로그 최대화
+// - 성공 시 이전 화면으로 이동(router.back())
 // -------------------------------------------------------
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton,
-  IonContent, IonList, IonItem, IonLabel, IonInput
+  IonContent, IonList, IonItem, IonLabel, IonInput, IonBackButton
 } from '@ionic/vue'
-import { reactive, ref, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 const router = useRouter()
-const route = useRoute()
 
-const form = reactive({ next: '', confirm: '' })
+const form = reactive({ current: '', next: '', confirm: '' })
 const isSubmitting = ref(false)
-const displayUsername = ref<string>('')
-
-const passTxId = String(route.query.passTxId || '') || ''
-const queryUsername = String(route.query.username || '') || ''
 
 function goBack () {
-  try { router.back() } catch { router.push('/login') }
+  try { router.back() } catch { router.push('/home/profile') }
 }
 
 function logInput (key: string, ev: any) {
+  // 입력 로그는 보안상 마스킹 처리
   const masked = '•'.repeat(String(ev?.target?.value ?? '').length)
   console.debug(`[PasswordPage] input ${key}: ${masked}`)
 }
 
 function validate () {
-  if (!form.next || !form.confirm) {
-    alert('새 비밀번호와 확인을 입력해 주세요.')
+  // 클라이언트 1차 검증 (서버에서 최종 검증 필수)
+  if (!form.current || !form.next || !form.confirm) {
+    alert('모든 항목을 입력해 주세요.')
     return false
   }
   if (form.next.length < 4) {
@@ -108,89 +120,46 @@ function validate () {
     alert('새 비밀번호가 일치하지 않습니다.')
     return false
   }
-  return true
-}
-
-async function lookupUsernameByPass () {
-  if (!passTxId) return
-  try {
-    const res = await fetch('/api/password/reset-lookup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ passTxId })
-    })
-    const json = await res.json().catch(() => ({}))
-    if (res.ok && json?.ok && json?.username) {
-      displayUsername.value = json.username
-    }
-  } catch {}
-}
-
-async function fallbackUsernameFromMe () {
-  try {
-    const res = await fetch('/api/me', { credentials: 'include' })
-    const json = await res.json().catch(() => ({}))
-    if (res.ok && json?.ok && json?.user?.username && !displayUsername.value) {
-      displayUsername.value = json.user.username
-    }
-  } catch {}
-}
-
-onMounted(async () => {
-  if (queryUsername) {
-    displayUsername.value = queryUsername
-  }
-  if (passTxId && !displayUsername.value) {
-    await lookupUsernameByPass()
-  }
-  if (!displayUsername.value) {
-    await fallbackUsernameFromMe()
-  }
-})
-
-async function resetWithPass () {
-  console.info('[PasswordPage] send → POST /api/password/reset-with-pass')
-  const res = await fetch('/api/password/reset-with-pass', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ passTxId, next: form.next })
-  })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok || json?.ok === false) {
-    throw new Error(json?.message || `서버 오류(${res.status})`)
+  if (form.current === form.next) {
+    alert('현재 비밀번호와 다른 비밀번호를 입력해 주세요.')
+    return false
   }
   return true
 }
 
-async function updateNoCurrent () {
-  console.info('[PasswordPage] send → PUT /api/update-password-no-current')
-  const res = await fetch('/api/update-password-no-current', {
+async function handleChangePassword () {
+  console.info('[PasswordPage] send → PUT /api/update-password')
+  const res = await fetch('/api/update-password', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ next: form.next })
+    body: JSON.stringify({ current: form.current, next: form.next })
   })
-  const json = await res.json().catch(() => ({}))
+
+  let json: any
+  try { json = await res.json() } catch { json = {} }
+
   if (!res.ok || json?.ok === false) {
-    throw new Error(json?.message || `서버 오류(${res.status})`)
+    const errMsg = json?.message || `서버 오류(${res.status})`
+    console.warn('[PasswordPage] fail:', errMsg)
+    throw new Error(errMsg)
   }
+
+  console.info('[PasswordPage] success:', json?.message || 'OK')
   return true
 }
 
 async function onSubmit () {
   if (!validate() || isSubmitting.value) return
   isSubmitting.value = true
+
   try {
-    if (passTxId) {
-      await resetWithPass()
-    } else {
-      await updateNoCurrent()
+    if (await handleChangePassword()) {
+      // 성공 처리: 폼 리셋 + 알림 + 이전 화면으로
+      form.current = form.next = form.confirm = ''
+      alert('비밀번호가 변경되었습니다.')
+      goBack()
     }
-    form.next = form.confirm = ''
-    alert('비밀번호가 변경되었습니다.')
-    goBack()
   } catch (err: any) {
     const msg = String(err?.message || '')
     if (msg.includes('Failed to fetch') || msg.includes('ECONNREFUSED')) {
@@ -205,33 +174,44 @@ async function onSubmit () {
 </script>
 
 <style scoped>
+/* ─────────────────────────────────────────────────────────────
+   블랙+골드 토큰 (필요 시 전역 theme에 병합 가능)
+   - 가능한 한 이 컴포넌트 안에서만 재정의 (부작용 최소화)
+───────────────────────────────────────────────────────────── */
 .theme-gold-dark {
-  --gold: #d4af37;
-  --gold-weak: #c7a133;
-  --gold-press: #e0bb3f;
-  --bg-0: #0b0b0f;
-  --bg-1: #111217;
-  --bg-2: #1a1b22;
-  --line: #2a2c36;
-  --text-strong: #ffffff;
-  --text: #e7e7e7;
-  --text-weak: #b5b5b5;
-  --focus: var(--gold);
+  /* 팔레트 */
+  --gold: #d4af37;            /* 메인 골드 */
+  --gold-weak: #c7a133;       /* 흐린 골드 */
+  --gold-press: #e0bb3f;      /* 프레스 */
+  --bg-0: #0b0b0f;            /* 최상위 배경(거의 블랙) */
+  --bg-1: #111217;            /* 카드/리스트 배경 */
+  --bg-2: #1a1b22;            /* 아이템/인풋 배경 */
+  --line: #2a2c36;            /* 라인/분리선 */
+  --text-strong: #ffffff;     /* 주 텍스트 */
+  --text: #e7e7e7;            /* 일반 텍스트 */
+  --text-weak: #b5b5b5;       /* 플레이스홀더 */
+  --focus: var(--gold);       /* 포커스 컬러(골드) */
 }
 
-.password-page { color: var(--text-strong); }
+/* 페이지 루트 */
+.password-page {
+  color: var(--text-strong);
+}
 
+/* 헤더/툴바: 블랙+골드 */
 .password-page :deep(ion-header),
 .password-page :deep(ion-toolbar) {
   --background: var(--bg-0);
   --color: var(--text-strong);
   border-bottom: 1px solid var(--line);
 }
+
 .password-page :deep(ion-title) {
   color: var(--gold);
   font-weight: 800;
   letter-spacing: 0.2px;
 }
+
 .password-page :deep(ion-buttons ion-button) {
   --background: transparent;
   --color: var(--gold);
@@ -239,39 +219,13 @@ async function onSubmit () {
   font-weight: 700;
 }
 
-.password-page :deep(ion-content) { --background: var(--bg-0); color: var(--text); }
-
-/* 아이디 카드 */
-.id-card {
-  margin: 12px;
-  background: var(--bg-1);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
-}
-.id-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.id-label {
-  color: var(--gold);
-  font-weight: 800;
-  font-size: 14px;
-}
-.id-value {
-  font-weight: 800;
-  color: var(--text-strong);
-  font-size: 15px;
-}
-.id-hint {
-  margin-top: 6px;
-  color: var(--text-weak);
-  font-size: 12px;
+/* 콘텐츠 배경 */
+.password-page :deep(ion-content) {
+  --background: var(--bg-0);
+  color: var(--text);
 }
 
+/* 리스트 카드 */
 .password-page :deep(ion-list[inset]) {
   margin: 12px;
   padding: 0;
@@ -282,6 +236,7 @@ async function onSubmit () {
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
 }
 
+/* 아이템(행) */
 .password-page :deep(ion-item) {
   --background: var(--bg-1);
   --color: var(--text);
@@ -290,6 +245,8 @@ async function onSubmit () {
   --min-height: 62px;
   --inner-border-width: 0 0 1px 0;
   --inner-border-color: var(--line);
+
+  /* 기본 하이라이트 제거 */
   --highlight-color-focused: transparent;
   --highlight-color-valid: transparent;
   --highlight-color-invalid: transparent;
@@ -297,6 +254,7 @@ async function onSubmit () {
 }
 .password-page :deep(ion-item:last-of-type) { --inner-border-width: 0; }
 
+/* 라벨: 골드 포인트 */
 .password-page :deep(ion-item ion-label) {
   color: var(--gold);
   font-weight: 800;
@@ -305,6 +263,7 @@ async function onSubmit () {
   letter-spacing: 0.2px;
 }
 
+/* 입력창(native) */
 .password-page :deep(ion-input::part(native)) {
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -317,8 +276,11 @@ async function onSubmit () {
   outline: none !important;
   box-shadow: none !important;
 }
-.password-page :deep(ion-input::part(native)::placeholder) { color: var(--text-weak); }
+.password-page :deep(ion-input::part(native)::placeholder) {
+  color: var(--text-weak);
+}
 
+/* 포커스(인풋): 골드 테두리 강조 */
 .password-page :deep(ion-input:focus-within)::part(native),
 .password-page :deep(ion-input:focus)::part(native),
 .password-page :deep(ion-input:focus-visible)::part(native) {
@@ -326,9 +288,16 @@ async function onSubmit () {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 26%, transparent);
 }
 
+/* 바깥 outline 완전 제거 */
 .password-page :deep(ion-item:focus),
 .password-page :deep(ion-item:focus-within),
-.password-page :deep(ion-item:focus-visible),
+.password-page :deep(ion-item:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* 네이티브 input까지 완전 차단 */
 .password-page :deep(ion-input input),
 .password-page :deep(ion-input input:focus),
 .password-page :deep(ion-input input:focus-within),
@@ -337,11 +306,22 @@ async function onSubmit () {
   box-shadow: none !important;
 }
 
+/* 크롬 자동완성 보정 */
+.password-page :deep(ion-input::part(native)):-webkit-autofill,
+.password-page :deep(ion-input::part(native)):-webkit-autofill:hover,
+.password-page :deep(ion-input::part(native)):-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-strong) !important;
+  caret-color: var(--text-strong);
+  box-shadow: 0 0 0 1000px var(--bg-2) inset !important;
+  transition: background-color 9999s ease-out, color 9999s ease-out;
+}
+
+/* 액션 버튼: 골드 메인 */
 .btn-row { padding: 16px 12px 18px; }
 
 .password-page :deep(ion-button) {
   --background: var(--gold);
-  --color: #000;
+  --color: #000; /* 골드 버튼 위 검정 텍스트로 가독성 최대화 */
   --background-activated: var(--gold-press);
   --background-hover: var(--gold-press);
   --border-radius: 12px;
@@ -351,13 +331,19 @@ async function onSubmit () {
   letter-spacing: 0.3px;
   box-shadow: 0 8px 20px rgba(212,175,55,0.22);
 }
-.password-page :deep(ion-button[disabled]) { opacity: 0.6; box-shadow: none; }
+.password-page :deep(ion-button[disabled]) {
+  opacity: 0.6;
+  box-shadow: none;
+}
 
+/* 초소형 화면 대응 */
 @media (max-width: 360px) {
   .password-page :deep(ion-list[inset]) { margin: 10px; }
   .btn-row { padding: 12px 10px 14px; }
   .password-page :deep(ion-item) { --padding-start: 10px; --inner-padding-end: 10px; }
 }
+
+/* 모션 최소화 옵션 */
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
