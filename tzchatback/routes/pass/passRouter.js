@@ -136,11 +136,14 @@ function popupCloseHtml(payload, targetOrigin) {
 (function(){
   try {
     var data = ${jsonStr};
-    if (window.opener && typeof window.opener.postMessage === 'function') {
-      window.opener.postMessage(data, ${origin});
-    } else {
+    try {
+      if (window.opener && typeof window.opener.postMessage === 'function') {
+        window.opener.postMessage(data, ${origin});
+      }
+      // ✅ postMessage 성공/실패와 무관하게 항상 폴백도 기록
       try { localStorage.setItem('PASS_RESULT_FALLBACK', JSON.stringify(data)); } catch (e) {}
-    }
+    } catch (e) { /* noop */ }
+
   } catch(e) { /* noop */ }
   window.close();
 })();
