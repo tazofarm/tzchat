@@ -151,6 +151,37 @@ function startHeartbeat() {
   }, 400);
 }
 
+// (PassPortal.vue 중)  onMounted 위쪽 아무 곳에 추가(함수 선언부)
+function startStatusPolling(txId) {
+  if (!txId) return;
+  if (statusPoller.value) clearInterval(statusPoller.value);
+
+  statusPoller.value = setInterval(async () => {
+    try {
+      const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`), {
+        credentials: 'include'
+      });
+      const t = await res.text();
+      let j = null;
+      try { j = JSON.parse(t); } catch { return; }
+      if (!j?.ok) return;
+
+      if (j.status === 'fail') {
+        lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
+        stopPopupAndPoll();
+        mode.value = 'fail';
+        busy.value = false;
+      } else if (j.status === 'success') {
+        stopPopupAndPoll();
+        await proceedRouteByTx(txId);
+      }
+    } catch (e) {
+      console.warn('[poll] error', e);
+    }
+  }, 1500);
+}
+
+
 onMounted(async () => {
   window.addEventListener('message', handlePostMessage);
   window.addEventListener('storage', handleStorage);

@@ -2,7 +2,7 @@
 // base: /api/auth/pass
 // - POST /start: 서버 PASS 시작(다날 Ready → TID → wauth Start.php 자동전송 폼 생성)
 // - GET  /start: mode=html 지원(팝업이 직접 이 엔드포인트를 열면 HTML 즉시 응답)
-// - GET  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
+// - ALL  /callback: 공급사 콜백 수신(CPCGI) → CONFIRM 수행 → PassResult 저장 → postMessage
 // - GET  /status: 상태 조회(폴링)
 // - GET  /route : 분기(signup | templogin)
 //
@@ -121,9 +121,45 @@ router.all('/start', async (req, res) => {
 /* =========================================================
  * 2) PASS 콜백 (다날 WebAuth → 우리 서버)
  *    - CPCGI 역할: TID 수신 → UAS CONFIRM 호출 → PassResult upsert
- *    - 팝업에서 postMessage 후 창 닫기
+ *    - 어떤 경우에도 200 HTML로 응답(팝업 postMessage 후 닫힘)
  * =======================================================*/
-router.get('/callback', async (req, res) => {
+router.all('/callback', async (req, res) => {
+  const targetOrigin = resolvePostMessageTarget();
+
+  const endOk = (txId) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><body>
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
+  } else {
+    try { localStorage.setItem('PASS_RESULT_TX', ${JSON.stringify(txId)}); } catch (e) {}
+  }
+} catch (e) {}
+window.close();
+</script>
+PASS 처리 완료. 창을 닫아주세요.
+</body></html>`);
+  };
+
+  const endFail = (reason) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><body>
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({ type:'PASS_FAIL', reason: ${JSON.stringify(reason || 'UNKNOWN')} }, ${JSON.stringify(targetOrigin)});
+  } else {
+    try { localStorage.setItem('PASS_FAIL', ${JSON.stringify(String(reason || 'UNKNOWN'))}); } catch (e) {}
+  }
+} catch (e) {}
+window.close();
+</script>
+PASS 실패. 창을 닫아주세요.
+</body></html>`);
+  };
+
   try {
     const parsed = await danal.parseCallback(req);
 
@@ -175,25 +211,18 @@ router.get('/callback', async (req, res) => {
       { upsert: true, new: true }
     );
 
-    const targetOrigin = resolvePostMessageTarget();
-
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><body>
-<script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
-  }
-} catch (e) {}
-window.close();
-</script>
-PASS 처리 완료. 창을 닫아주세요.
-</body></html>`);
+    return parsed.success ? endOk(txId) : endFail(parsed.failCode || 'FAIL');
   } catch (e) {
-    console.error('[PASS/callback] error:', e);
-    return res
-      .status(500)
-      .send('<!doctype html><html><body>PASS 콜백 처리 실패</body></html>');
+    console.error('[PASS/callback] error:', e && (e.stack || e.message || e));
+    try {
+      await PassResult.create({
+        txId: `tx_${Date.now()}`,
+        status: 'fail',
+        failCode: 'CALLBACK_ERROR',
+        rawMasked: { err: String(e && e.message || e) }
+      });
+    } catch (_) {}
+    return endFail('CALLBACK_ERROR');
   }
 });
 
