@@ -228,6 +228,8 @@ router.post('/signup', async (req, res) => {
     const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
 
+    console.log('[SIGNUP][DBG] finalPhone/carrier', { finalPhone, finalCarrier, passTxId: !!passTxId });
+
     // 사용자 생성
     let user;
     try {
@@ -242,11 +244,16 @@ router.post('/signup', async (req, res) => {
         region2,
         last_login: null,
 
-        // PASS 연동 필드(스키마에 없는 필드는 Mongoose strict에 의해 무시됩니다)
-        phone: finalPhone,                 // User 훅에서 E.164 정규화 + phoneHash 자동 생성
-        carrier: finalCarrier,            // (스키마에 있으면 저장, 없으면 무시)
-        ciHash: finalCiHash,              // (참조용; 정본은 PassIdentity)
-        diHash: finalDiHash,              // (참조용)
+        // ✅ PASS 연동 필드(스키마 훅: phone 정규화 + phoneHash 자동 생성)
+        phone: finalPhone,
+        carrier: finalCarrier,
+        // 번호가 있을 때만 검증 메타 부여
+        phoneVerifiedAt: finalPhone ? new Date() : undefined,
+        phoneVerifiedBy: finalPhone ? 'PASS' : undefined,
+
+        // 참조용 해시(정본은 PassIdentity)
+        ciHash: finalCiHash,
+        diHash: finalDiHash,
 
         // 기본 지급(임시 정책)
         heart: 400,
@@ -254,10 +261,19 @@ router.post('/signup', async (req, res) => {
         ruby: 0,
       });
     } catch (e) {
+      // ✅ 전화번호 유니크 충돌 분기(명확한 코드로 반환)
       if (e && e.code === 11000) {
-        const dupField = Object.keys(e.keyValue || {})[0];
-        const which = dupField === 'nickname' ? '닉네임' : (dupField === 'username' ? '아이디' : dupField);
-        console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue: e.keyValue });
+        const keyPattern = e.keyPattern || {};
+        const keyValue = e.keyValue || {};
+        const dupField = Object.keys(keyValue)[0] || Object.keys(keyPattern)[0] || '';
+
+        if (dupField === 'phone' || (e.message && e.message.includes('phone_1'))) {
+          console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_PHONE', keyValue });
+          return res.status(409).json({ ok: false, code: 'PHONE_IN_USE', message: '이미 다른 계정에 등록된 전화번호입니다.' });
+        }
+
+        const which = dupField === 'nickname' ? '닉네임' : (dupField === 'username' ? '아이디' : dupField || '중복');
+        console.log('[AUTH][ERR]', { step: 'signup', code: 'E11000_DUP_KEY', keyValue });
         return res.status(409).json({ ok: false, message: `${which} 중복` });
       }
       if (e?.name === 'ValidationError') return res.status(400).json({ ok: false, message: '회원정보 형식이 올바르지 않습니다.' });
@@ -503,7 +519,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
-
+  
     // 2) 하트 일일 지급(등급별 daily/cap, 오전 11:00 KST 기준)
     try {
       await pointService.grantDailyIfNeeded(userDoc, { save: true });
@@ -703,4 +719,3 @@ router.get('/userinfo', async (req, res) => {
 });
 
 module.exports = router;
- 

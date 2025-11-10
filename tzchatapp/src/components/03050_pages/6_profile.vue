@@ -79,7 +79,7 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">
-                    {{ user.phone }}
+                    {{ user.phoneMasked || user.phoneFormatted || user.phone }}
                   </strong>
                   <IonButton
                     size="small"
@@ -93,7 +93,7 @@
               </td>
             </tr>
 
- 
+
             <!-- 지역 (모든 레벨 수정 가능) -->
             <tr
               :class="['editable-row', { disabled: !canEditFieldLocal('region') }]"
