@@ -67,13 +67,33 @@ const ChatRoom = require('./models/Chat/ChatRoom');
 // 0) 파서 & 정적 경로 & 기본 로깅
 // =======================================
 
-// ✅ 다날 콜백은 EUC-KR x-www-form-urlencoded 이므로, 해당 경로만 raw로 선캡처
-const expressRaw = express.raw({ type: 'application/x-www-form-urlencoded', limit: '2mb' });
-// GET/POST 모두 콜백으로 들어올 수 있어 미리 훅을 건다 (POST일 때만 rawBody 세팅)
+/*
+ * ✅ 콜백 보호막: EUC-KR x-www-form-urlencoded 본문을 위해 raw 선캡처
+ *    - 어떤 Content-Type 으로 와도 Buffer 확보
+ *    - 이후 라우터에서 필요하면 EUC-KR → UTF-8 디코딩
+ *    - 전역 파서보다 "반드시 앞"에 위치
+ */
+const expressRaw = express.raw({ type: '*/*', limit: '2mb' });
 app.all('/api/auth/pass/callback', expressRaw, (req, res, next) => {
-  if (req.method === 'POST') {
-    req.rawBody = req.body; // Buffer (iconv로 EUC-KR → UTF-8 디코딩에 사용)
+  if (req.method === 'POST' && req.body && Buffer.isBuffer(req.body)) {
+    req.rawBody = req.body; // iconv에서 사용할 원본 Buffer
   }
+  next();
+});
+
+/**
+ * 🔎 콜백 디버그 미들웨어(라이트 로그)
+ *    - 에러 재현 시 서버 로그에서 즉시 원인 단서 확보
+ */
+app.all('/api/auth/pass/callback', (req, res, next) => {
+  try {
+    const ct = req.headers['content-type'] || '(none)';
+    const clen = req.headers['content-length'] || '(none)';
+    console.log('[PASS/CB][IN]', req.method, 'CT=', ct, 'CL=', clen, 'qs=', req.query && Object.keys(req.query));
+    if (req.rawBody) {
+      console.log('[PASS/CB][RAW]', 'bytes=', req.rawBody.length);
+    }
+  } catch {}
   next();
 });
 
@@ -84,8 +104,6 @@ console.log('📦 JSON 및 URL-Encoded 파서 활성화');
 
 /**
  * ✅ /public 정적 파일 서빙
- * - public 폴더가 없으면 종료하지 않고 경고 후 건너뜁니다.
- * - 루트(/)에 직접 물지 않고 /public 경로에만 매핑해 SPA와 충돌 방지.
  */
 const publicDir = path.join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
@@ -122,7 +140,6 @@ app.use((req, res, next) => {
 // =======================================
 const cors = require('cors');
 
-// 1) 기본 허용 목록
 const baseAllowed = [
   'https://tzchat.tazocode.com',
   'http://localhost',
@@ -139,7 +156,6 @@ const baseAllowed = [
   'https://127.0.0.1',
 ];
 
-// 2) 환경변수 병합(CSV)
 const envWhitelist = (process.env.CORS_WHITELIST || '')
   .split(',')
   .map(s => s.trim())
@@ -182,7 +198,7 @@ app.options(/.*/, (req, res, next) => { console.log('[CORS-OPTIONS] Preflight fo
 });
 
 console.log('🛡️  CORS 허용(고정+ENV):', allowedOriginsList.join(', '));
-console.log('🛡️  CORS 허용(동적-사설망/에뚫레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
+console.log('🛡️  CORS 허용(동적-사설망/에뮬레이터):', dynamicOriginAllow.map((r) => r.toString()).join(', '));
 console.log('🛡️  CORS 특수: Origin:null 허용 =', ALLOW_NULL_ORIGIN);
 
 // =======================================
@@ -333,12 +349,14 @@ app.get('/api/health', (req, res) => {
 require('./routes')(app);
 
 /* ---------------------------------------
- * 🧯 전역 에러 핸들러(여기 추가)
- *  - /api/auth/pass/callback 에러도 200 HTML로 변환하여 팝업 닫히게 처리
- *  - 그 외는 JSON 500
+ * 🧯 전역 에러 핸들러(콜백은 항상 200 HTML로 변환)
+ *  - 프런트엔드엔 구체 사유 전달(UNHANDLED_<code> 형태)
  * ------------------------------------- */
 app.use((err, req, res, next) => {
-  console.error('[UNHANDLED]', req.method, req.originalUrl, '|', err && (err.stack || err.message || err));
+  const code = (err && (err.code || err.type || err.name)) || 'ERROR';
+  const msg  = (err && err.message) || '';
+  console.error('[UNHANDLED]', req.method, req.originalUrl, '|', code, msg, '\n', err && err.stack);
+
   if (req.originalUrl && req.originalUrl.startsWith('/api/auth/pass/callback')) {
     return res
       .status(200)
@@ -347,17 +365,17 @@ app.use((err, req, res, next) => {
 <script>
 try {
   if (window.opener) {
-    window.opener.postMessage({ type:'PASS_FAIL', reason:'UNHANDLED_ERROR' }, '*');
+    window.opener.postMessage({ type:'PASS_FAIL', reason:${JSON.stringify('UNHANDLED_'+code)} }, '*');
   } else {
-    try { localStorage.setItem('PASS_FAIL','UNHANDLED_ERROR'); } catch(e){}
+    try { localStorage.setItem('PASS_FAIL', ${JSON.stringify('UNHANDLED_'+code)}); } catch(e){}
   }
 } catch(e){}
 window.close();
 </script>
-콜백 처리 중 오류(프론트로 FAIL 전달). 창을 닫아주세요.
+콜백 처리 중 오류(프론트로 FAIL 전달: ${code}). 창을 닫아주세요.
 </body></html>`);
   }
-  res.status(500).json({ ok:false, code:'UNHANDLED', message: err?.message || 'Internal Error' });
+  res.status(500).json({ ok:false, code:'UNHANDLED_'+code, message: msg || 'Internal Error' });
 });
 
 // =======================================
@@ -509,7 +527,6 @@ app.set('emit', {
       };
       await notifyRoomParticipantsForList(roomId, lastPayload);
 
-      // 푸시 전송: 참여자 조회 후 보낸 사람 제외하고 일괄 전송
       try {
         const room = await ChatRoom.findById(roomId).select('participants').lean();
         const senderId = typeof message?.sender === 'object' ? message.sender?._id : message?.sender;
