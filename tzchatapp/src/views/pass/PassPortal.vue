@@ -284,24 +284,62 @@ async function proceedRouteByTx(txId) {
     });
     const txt = await res.text();
     let j = null;
-    try { j = JSON.parse(txt); } catch { throw new Error('ROUTE_NON_JSON'); }
-    if (!j?.ok || !j?.route) throw new Error(j?.code || 'ROUTE_ERROR');
+    try { j = JSON.parse(txt); } catch {
+      // 응답이 JSON이 아니면 원문을 상세로 노출
+      lastFailCode.value = 'ROUTE_NON_JSON';
+      lastFailDetail.value = { raw: txt };
+      mode.value = 'fail';
+      busy.value = false;
+      return;
+    }
 
-    if (j.route === 'signup') {
-      router.replace({ name: 'Signup', query: { passTxId: txId } });
-    } else if (j.route === 'templogin') {
-      router.replace({ name: 'Home' });
+    // 서버에서 ok:false 이면 코드/메시지 그대로 표시
+    if (!res.ok || j?.ok === false) {
+      lastFailCode.value = j?.code || 'ROUTE_ERROR';
+      lastFailDetail.value = j;
+      mode.value = 'fail';
+      busy.value = false;
+      return;
+    }
+
+    // 서버가 route 또는 next 필드 중 하나를 보낼 수 있음 → 통일
+    const nextRoute = j?.route || j?.next;
+    if (!nextRoute) {
+      lastFailCode.value = 'ROUTE_MISSING';
+      lastFailDetail.value = j;
+      mode.value = 'fail';
+      busy.value = false;
+      return;
+    }
+
+    if (nextRoute === 'signup') {
+      const target = router.hasRoute && router.hasRoute('Signup')
+        ? { name: 'Signup', query: { passTxId: txId } }
+        : { path: '/signup', query: { passTxId: txId } };
+      await router.replace(target);
+    } else if (nextRoute === 'templogin') {
+      const target = router.hasRoute && router.hasRoute('Home')
+        ? { name: 'Home' }
+        : { path: '/' };
+      await router.replace(target);
     } else {
-      throw new Error('ROUTE_UNKNOWN');
+      lastFailCode.value = 'ROUTE_UNKNOWN';
+      lastFailDetail.value = j;
+      mode.value = 'fail';
+      busy.value = false;
     }
   } catch (e) {
     console.error('[proceedRouteByTx] error', e);
     lastFailCode.value = e?.message || 'ROUTE_ERROR';
-    lastFailDetail.value = null;
+    lastFailDetail.value = {
+      message: e?.message || '',
+      stackTop: String(e?.stack || '').split('\n')[0]
+    };
     mode.value = 'fail';
     busy.value = false;
   }
 }
+
 
 async function onClickPass() {
   lastFailCode.value = '';
