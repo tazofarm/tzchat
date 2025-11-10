@@ -217,109 +217,41 @@ async function onClickPass() {
       credentials: 'include',
       body: JSON.stringify({ intent: 'unified' })
     });
-    // start는 반드시 JSON이어야 함
+
+    // 응답을 먼저 텍스트로 받고 JSON 파싱
     const startText = await resp.text();
     let startJson = null;
     try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
-    if (!resp.ok || !startJson?.ok) throw new Error(startJson?.code || 'PASS 시작 실패');
+    if (!resp.ok || !startJson?.ok || !startJson?.formHtml) {
+      throw new Error(startJson?.code || 'START_ERROR');
+    }
 
-    txIdRef.value = startJson.txId;
+    // 서버가 내려준 txId 보관
+    txIdRef.value = startJson.txId || '';
 
+    // 팝업을 열고 formHtml을 써서 다날 페이지로 POST 이동
     openedWin.value = window.open(
-      startJson.redirectUrl,
+      '',
       'PASS_AUTH',
       'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
     );
+    if (!openedWin.value) throw new Error('POPUP_BLOCKED');
 
-    startStatusPolling(txIdRef.value);
+    openedWin.value.document.open();
+    openedWin.value.document.write(String(startJson.formHtml));
+    openedWin.value.document.close();
+
+    // 상태 폴링 + 팝업 heartbeat 시작
+    if (txIdRef.value) startStatusPolling(txIdRef.value);
     startHeartbeat();
   } catch (e) {
     console.error(e);
+    lastFailCode.value = e?.message || 'START_ERROR';
     mode.value = 'fail';
     busy.value = false;
   }
 }
 
-function startStatusPolling(txId) {
-  if (statusPoller.value) clearInterval(statusPoller.value);
-
-  statusPoller.value = setInterval(async () => {
-    try {
-      const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`), {
-        credentials: 'include'
-      });
-      const t = await res.text();
-      let j = null;
-      try { j = JSON.parse(t); } catch { return; }
-      if (!j?.ok) return;
-
-      if (j.status === 'fail') {
-        lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        stopPopupAndPoll();
-        mode.value = 'fail';
-        busy.value = false;
-      } else if (j.status === 'success') {
-        stopPopupAndPoll();
-        await proceedRouteByTx(txId);
-      }
-    } catch (e) {
-      console.warn('[poll] error', e);
-    }
-  }, 1500);
-}
-
-async function proceedRouteByTx(txId) {
-  try {
-    const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), {
-      credentials: 'include'
-    });
-
-    // 방어: 우선 텍스트로 받고 JSON 파싱 시도 (HTML 응답 대비)
-    const raw = await res.text();
-    let j = null;
-    try {
-      j = JSON.parse(raw);
-    } catch {
-      console.error('Non-JSON response from /route:', raw.slice(0, 200));
-      throw new Error('ROUTE_ERROR_NON_JSON');
-    }
-
-    if (!res.ok || !j?.ok) {
-      lastFailCode.value = j?.code || j?.reason || 'ROUTE_ERROR';
-      mode.value = 'fail';
-      busy.value = false;
-      return;
-    }
-
-    const next = j?.next ?? j?.route; // 하위호환
-    if (next === 'pending') {
-      await new Promise(r => setTimeout(r, 600));
-      return proceedRouteByTx(txId);
-    }
-    if (next === 'signup') {
-      // ✅ 쿼리 키를 txId 로 맞춤 + 세션 저장
-      sessionStorage.setItem('passTxId', txId);
-      busy.value = false;
-      mode.value = 'idle';
-      router.replace({ path: '/signup', query: { txId } });
-      return;
-    }
-    if (next === 'templogin') {
-      sessionStorage.setItem('passTxId', txId);
-      router.replace({ path: '/templogin', query: { txId } });
-      return;
-    }
-
-    lastFailCode.value = 'UNKNOWN_ROUTE';
-    mode.value = 'fail';
-    busy.value = false;
-  } catch (e) {
-    console.error(e);
-    lastFailCode.value = e?.message || 'ROUTE_ERROR';
-    mode.value = 'fail';
-    busy.value = false;
-  }
-}
 
 // 🔙 뒤로가기: 모든 작업 정리 후 /login 이동
 function onBack() {

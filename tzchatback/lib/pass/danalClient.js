@@ -58,7 +58,7 @@ async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
   const body = qs.stringify(payload);
   const res = await axios.post(UAS_URL, body, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
-    // responseType: 'arraybuffer' // EUC-KR 환경이면 디코딩 처리, 기본은 UTF-8로 수신
+    timeout: 7000,
   });
 
   const text = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '');

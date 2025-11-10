@@ -61,12 +61,37 @@ function json(res, status, body) {
  *  - 기본: JSON 반환 { ok, txId, formHtml }
  *  - mode=html: text/html 직접 반환 (팝업이 이 URL을 열도록 할 때)
  * =======================================================*/
+// ✅ 즉시 확인용 핑 엔드포인트(프론트/프록시/쿠키 파이프만 점검)
+router.get('/start/ping', (req, res) => {
+  return json(res, 200, { ok: true, pong: true, now: Date.now() });
+});
+
 router.all('/start', async (req, res) => {
+  // 항상 JSON로 응답(에러 포함)
   try {
     const intent = (req.body && req.body.intent) || (req.query && req.query.intent) || 'unified';
-    const mode = (req.query && req.query.mode) || (req.body && req.body.mode) || 'json';
+    const mode   = (req.query && req.query.mode)   || (req.body && req.body.mode)   || 'json';
+    const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);   // "1"|"true" 지원
 
-    const out = await danal.buildStart({ intent, mode: mode === 'html' ? 'html' : 'json' });
+    // ✅ STUB 모드: 외부 통신 없이 파이프 확인 (임시 진단용)
+    if (String(stub).toLowerCase() === '1' || String(stub).toLowerCase() === 'true') {
+      const dummyHtml = `<!doctype html><html><body>
+<form id="f" action="about:blank" method="post">
+  <input type="hidden" name="TID" value="STUB_${Date.now()}">
+</form>
+<script>document.getElementById('f').submit();</script>
+</body></html>`;
+      return json(res, 200, { ok: true, txId: `stub_${Date.now()}`, formHtml: dummyHtml });
+    }
+
+    // ✅ 실제 시작(다날 Ready → TID → wauth 폼)
+    // 외부 통신에 타임아웃 가드(axios 기본 타임아웃 의존 대신 danalClient 내부에서 처리 권장)
+    const out = await danal.buildStart({ intent, mode: 'json' });
+
+    // 안전 가드
+    if (!out || (!out.formHtml && mode !== 'html')) {
+      return json(res, 502, { ok: false, code: 'START_NO_FORM', message: 'formHtml not generated' });
+    }
 
     if (mode === 'html') {
       res.set({
@@ -78,12 +103,12 @@ router.all('/start', async (req, res) => {
       return res.status(200).send(out.body);
     }
 
-    // JSON 모드
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
-    console.error('[PASS/start] error:', e);
-    // 프론트가 "START_NON_JSON"을 피하려면 반드시 JSON으로 내려줘야 함
-    return json(res, 500, { ok: false, code: 'START_ERROR', message: e?.message || 'PASS 시작 실패' });
+    // 어떤 경우에도 HTML 에러페이지를 리턴하지 않도록 강제
+    console.error('[PASS/start] error:', e && (e.stack || e.message || e));
+    const message = (e && e.message) ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
+    return json(res, 500, { ok: false, code: 'START_ERROR', message });
   }
 });
 
