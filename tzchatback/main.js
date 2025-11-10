@@ -358,25 +358,31 @@ app.use((err, req, res, next) => {
   console.error('[UNHANDLED]', req.method, req.originalUrl, '|', code, msg, '\n', err && err.stack);
 
   if (req.originalUrl && req.originalUrl.startsWith('/api/auth/pass/callback')) {
-    return res
-      .status(200)
-      .set('Content-Type','text/html; charset=utf-8')
-      .send(`<!doctype html><html><body>
+    const payload = {
+      type: 'PASS_RESULT',
+      ok: false,
+      code: `UNHANDLED_${code}`.toUpperCase(),
+      message: msg || 'Unhandled error',
+      stage: 'GLOBAL_HANDLER'
+    };
+    const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ type:'PASS_FAIL', reason:${JSON.stringify('UNHANDLED_'+code)} }, '*');
-  } else {
-    try { localStorage.setItem('PASS_FAIL', ${JSON.stringify('UNHANDLED_'+code)}); } catch(e){}
-  }
-} catch(e){}
-window.close();
-</script>
-콜백 처리 중 오류(프론트로 FAIL 전달: ${code}). 창을 닫아주세요.
-</body></html>`);
+(function(){
+  var data = ${JSON.stringify(payload).replace(/</g,'\\u003c')};
+  try {
+    if (window.opener && typeof window.opener.postMessage === 'function') {
+      window.opener.postMessage(data, '*');
+    }
+    try { localStorage.setItem('PASS_RESULT_FALLBACK', JSON.stringify(data)); } catch(e){}
+  } catch(e){}
+  window.close();
+})();
+</script>완료</body></html>`;
+    return res.status(200).set('Content-Type','text/html; charset=utf-8').send(html);
   }
   res.status(500).json({ ok:false, code:'UNHANDLED_'+code, message: msg || 'Internal Error' });
 });
+
 
 // =======================================
 // 3) Socket.IO 설정

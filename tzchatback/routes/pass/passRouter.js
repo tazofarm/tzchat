@@ -38,6 +38,8 @@ function normalizePhoneKR(raw = '') {
 }
 
 function resolvePostMessageTarget() {
+  // 필요 시 환경변수로 강제 오버라이드 가능
+  if (process.env.PASS_POSTMSG_ORIGIN) return process.env.PASS_POSTMSG_ORIGIN;
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProd) {
     return (
@@ -99,7 +101,7 @@ router.all('/start', async (req, res) => {
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
     const code  = e && (e.code || e.returnCode) || 'START_ERROR';
-    const stage = e && e.stage || 'UNKNOWN';
+    const stage = e && e.stage || 'START';
     const msg   = e && e.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
     console.error('[PASS/start] error:', { code, stage, msg });
     return json(res, 500, { ok: false, code, stage, message: msg });
@@ -107,7 +109,7 @@ router.all('/start', async (req, res) => {
 });
 
 /* =========================
- * 2) PASS 콜백
+ * 2) PASS 콜백 (한 종류의 응답만: PASS_RESULT)
  * =======================*/
 const raw = express.raw({ type: '*/*', limit: '1mb' });
 
@@ -165,11 +167,11 @@ router.all('/callback', raw, async (req, res) => {
         code: 'UNHANDLED_MISSING_FIELDS',
         message: '필수 콜백 필드 누락',
         stage,
-        missing,
         ctype,
         charset,
         parsedKeys,
         rawHead,
+        txId: form.TID || form.tid || form.txId || null,
       };
       res.set('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(popupCloseHtml(payload, targetOrigin));
@@ -237,7 +239,6 @@ router.all('/callback', raw, async (req, res) => {
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
             rawMasked,
-            // 디버그 보조 필드(임시)
             _dbg: { ctype, charset, parsedKeys, rawHead },
           },
         },
