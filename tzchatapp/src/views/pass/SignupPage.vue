@@ -89,6 +89,28 @@
 
           <p v-if="errorMsg" class="hint error">{{ errorMsg }}</p>
           <p v-if="successMsg" class="hint success">{{ successMsg }}</p>
+
+          <!-- ⬇️ PASS 디버그 패널(개발용): 하단에 받은 변수/값 노출 -->
+          <div class="pass-debug" v-if="txId || passStatus !== 'none'">
+            <div class="panel-head">
+              <h3>PASS 디버그(개발용)</h3>
+              <small class="muted">가입 전 확인용 · 운영 시 숨김</small>
+            </div>
+            <ul class="kv">
+              <li v-if="txId"><span class="k">txId</span><span class="v mono">{{ txId }}</span></li>
+              <li><span class="k">status</span><span class="v">{{ passStatus }}</span></li>
+              <li v-if="passError"><span class="k">error</span><span class="v">{{ passError }}</span></li>
+              <li v-if="passResult?.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult?.birthyear }}</span></li>
+              <li v-if="passResult?.gender"><span class="k">gender</span><span class="v">{{ passResult?.gender }}</span></li>
+              <li v-if="passResult?.phone"><span class="k">phone</span><span class="v">{{ passResult?.phone }}</span></li>
+              <li v-if="passResult?.carrier"><span class="k">carrier</span><span class="v">{{ passResult?.carrier }}</span></li>
+            </ul>
+            <details v-if="passResult">
+              <summary>result 전체 보기</summary>
+              <pre class="raw">{{ pretty(passResult) }}</pre>
+            </details>
+          </div>
+
         </form>
       </div>
     </ion-content>
@@ -117,6 +139,11 @@ function clearPassKeys() {
     localStorage.removeItem('PASS_FAIL')
     localStorage.removeItem('PASS_FAIL_DETAIL')
   } catch {}
+}
+
+// ✅ 전역 헬퍼: JSON pretty 출력
+function pretty(obj: any) {
+  try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
 }
 
 // ✅ PASS txId: 쿼리 'txId' 우선, 없으면 'passTxId', 없으면 세션스토리지 폴백
@@ -459,4 +486,16 @@ ion-title { font-size: 16px; font-weight: 600; color: #fcfafa; }
   padding: 6px 10px;
   border-radius: 8px;
 }
+
+/* ⬇️ PASS 디버그 패널 (하단) */
+.pass-debug { margin-top: 8px; padding: 10px; border-radius: 10px; background: rgba(0,128,255,.06); border: 1px solid rgba(0,128,255,.25); }
+.pass-debug .panel-head { display:flex; align-items: baseline; gap:8px; margin-bottom:4px; }
+.pass-debug h3 { margin:0; font-size:12px; color:#0b6aa4; }
+.pass-debug .muted { opacity:.7; font-size:10px; }
+.kv { list-style: none; padding: 0; margin: 6px 0; }
+.kv li { display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 2px 0; }
+.kv .k { font-size: 11px; color:#0b6aa4; }
+.kv .v { font-size: 11px; color:#0e2233; word-break: break-all; }
+.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.raw { margin: 8px 0 0; max-height: 220px; overflow: auto; background: rgba(255,255,255,.6); color:#0e2233; padding: 8px; border-radius: 8px; border:1px solid rgba(0,0,0,.08); }
 </style>
