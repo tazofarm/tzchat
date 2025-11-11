@@ -5,6 +5,7 @@
 // - CI/DI/전화 해시 보관, 검증 시각 업데이트
 // - PassResult는 이력/토큰(consume) 용도로 분리 운용
 // - ✅ userId는 선택(가입 전 비연결 상태 허용)
+// - ✅ 기존 userId가 "유령(삭제된) 유저"면 안전하게 재바인딩 허용
 // ------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -53,6 +54,20 @@ PassIdentitySchema.index({ userId: 1 }, { unique: true, sparse: true });
 const sha256Hex = (s = '') =>
   crypto.createHash('sha256').update(String(s)).digest('hex');
 
+// 내부 유틸: User 존재 확인(순환참조 방지를 위해 함수 내부에서 require)
+async function userExistsSafe(userId) {
+  try {
+    if (!userId) return false;
+    // 지연 로딩으로 모델 순환 의존성 회피
+    const { User } = require('@/models');
+    const ok = await User.exists({ _id: userId });
+    return !!ok;
+  } catch {
+    // models 초기화 타이밍 이슈 등일 경우, 존재한다고 간주하지 않음
+    return false;
+  }
+}
+
 // ------------------------------------------------------
 // 스태틱/인스턴스 유틸
 // ------------------------------------------------------
@@ -60,6 +75,7 @@ const sha256Hex = (s = '') =>
 /**
  * CI 기준으로 upsert 수행.
  * - 존재: (선택) userId 일치성 확인/미연결이면 연결, 최신 값 갱신, lastVerifiedAt 갱신
+ *         기존 userId가 다른데, 해당 유저가 이미 삭제/부재(유령)라면 안전하게 재바인딩 허용
  * - 부재: 신규 생성(최소 ciHash 필요; userId는 선택)
  * @param {Object} params
  * @param {String} params.ciHash - 필수(원문 CI의 SHA-256)
@@ -96,14 +112,23 @@ PassIdentitySchema.statics.upsertByCI = async function ({
   }
 
   // 기존 문서 업데이트
-  // userId 바인딩 규칙: 이미 연결된 경우 동일인만 허용
+  // userId 바인딩 규칙:
+  //  - 기존 userId가 없음 → 새 userId 바인딩
+  //  - 기존 userId와 다른 userId 요청:
+  //      · 기존 userId가 실제로 존재하면 충돌 에러
+  //      · 기존 userId가 존재하지 않으면(유령) 새 userId로 재바인딩 허용
   if (userId) {
     const newUid = new Types.ObjectId(userId);
-    if (existing.userId && String(existing.userId) !== String(newUid)) {
-      throw new Error('CI is already bound to a different user');
-    }
     if (!existing.userId) {
       existing.userId = newUid; // 최초 바인딩
+    } else if (String(existing.userId) !== String(newUid)) {
+      const alive = await userExistsSafe(existing.userId);
+      if (alive) {
+        throw new Error('CI is already bound to a different user');
+      } else {
+        // 유령 매핑 → 안전하게 재바인딩 허용
+        existing.userId = newUid;
+      }
     }
   }
 
@@ -146,6 +171,7 @@ PassIdentitySchema.statics.setPhone = async function ({ ciHash, phoneHash, carri
 /**
  * CI가 아직 미연결 상태일 때만 userId 바인딩
  * (경합 상황에서 1:1 보장; 이미 다른 유저에 묶여 있으면 예외)
+ * 단, 기존 매핑 userId가 "유령"이면 재바인딩 허용
  */
 PassIdentitySchema.statics.linkUserIfVacant = async function (ciHash, userId) {
   if (!ciHash) throw new Error('ciHash is required');
@@ -159,13 +185,21 @@ PassIdentitySchema.statics.linkUserIfVacant = async function (ciHash, userId) {
 
   if (updated) return updated;
 
-  // 이미 연결된 경우 동일인만 허용
-  const current = await this.findOne({ ciHash }).lean();
+  // 이미 연결된 경우: 유령이면 재바인딩 허용
+  const current = await this.findOne({ ciHash });
   if (!current) throw new Error('CI not found');
+
   if (current.userId && String(current.userId) !== String(userId)) {
-    throw new Error('CI is already bound to a different user');
+    const alive = await userExistsSafe(current.userId);
+    if (alive) {
+      throw new Error('CI is already bound to a different user');
+    }
+    // 유령이면 재바인딩
+    current.userId = new Types.ObjectId(userId);
+    current.lastVerifiedAt = new Date();
+    await current.save();
   }
-  return current; // 이미 동일 유저에 연결된 상태
+  return current; // 동일 유저에 연결되어 있거나, 유령→재바인딩 완료
 };
 
 /** 편의: 원문 CI를 받아 해시 계산 후 조회 */
