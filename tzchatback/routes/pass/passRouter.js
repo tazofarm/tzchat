@@ -4,7 +4,7 @@
 // - GET  /start?mode=html
 // - ALL  /callback
 // - GET  /status
-// - GET  /route              ← ★ 실제 User 존재검증 추가(CI-only)
+// - GET  /route              ← ★ 실제 User 존재검증(CI-only)
 // - GET  /result/:txId
 // ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
@@ -60,6 +60,7 @@ function extractPhoneFromParsed(parsed = {}) {
   const raw = parsed.raw || {};
   const candidates = [
     parsed.phone,
+    parsed.mobileno, parsed.mobileNo,
     raw.PHONE, raw.MOBILE_NO, raw.MOBILENO, raw.TEL_NO, raw.HP_NO,
     raw.MOBILE, raw.CELLPHONE, raw.PHONENO, raw.PHONE_NO,
     raw['PHONE_NO'], raw['MOBILENUM'], raw['MOBILE-NO'],
@@ -72,7 +73,7 @@ function extractPhoneFromParsed(parsed = {}) {
 function extractCarrierFromParsed(parsed = {}) {
   const raw = parsed.raw || {};
   const candidates = [
-    parsed.carrier,
+    parsed.carrier, parsed.telco, parsed.telecom,
     raw.TELCO, raw.TELCO_CODE, raw.CARRIER, raw.CI_TELECOM,
     raw.TELECOM, raw.CARRIER_NAME
   ];
@@ -125,7 +126,7 @@ router.all('/start', async (req, res) => {
     return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
   } catch (e) {
     const code  = e?.code || e?.returnCode || 'START_ERROR';
-    theStage = e?.stage || 'UNKNOWN';
+    const theStage = e?.stage || 'UNKNOWN';
     const msg   = e?.message ? String(e.message).slice(0, 400) : 'PASS 시작 실패';
     console.error('[PASS/start] error:', { code, stage: theStage, msg });
     return json(res, 500, { ok: false, code, stage: theStage, message: msg });
@@ -219,26 +220,7 @@ window.close();
       carrier,    // 매핑된 통신사명
     };
 
-    // 4) PassIdentity 스냅샷(추후 userId 매핑 용도)
-    let identityId = null;
-    try {
-      const ident = await PassIdentity.create({
-        ciHash: ciHash || undefined,
-        diHash: diHash || undefined,
-        name: nameMasked || undefined,
-        phone: phone || undefined,
-        carrier: carrier || undefined,
-        birthyear: birthyear ?? undefined,
-        gender: gender || undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      identityId = ident?._id || null;
-    } catch (e) {
-      console.warn('[PASS/callback][identity] warn:', e?.message || e);
-    }
-
-    // 5) 결과 upsert (★ phone/carrier를 반드시 저장)
+    // 4) 결과 upsert (★ phone/carrier를 반드시 저장)
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
@@ -255,8 +237,8 @@ window.close();
             carrier: carrier || '',              // ← 핵심: 매핑된 통신사 저장
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
-            identityId: identityId || undefined,
             rawMasked,
+            sensitiveFieldsRedacted: true,
           },
           $setOnInsert: { consumed: false, createdAt: new Date() },
         },
@@ -273,7 +255,7 @@ window.close();
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-    // 6) 최종 응답
+    // 5) 최종 응답
     return parsed.success ? endOk(txId) : endFail({
       code: parsed.failCode || 'FAIL',
       stage: 'CONFIRM',
@@ -311,7 +293,7 @@ router.get('/status', async (req, res) => {
           name: doc.name || '',
           birthyear: doc.birthyear ?? null,
           gender: doc.gender || '',
-          phone: doc.phone || '',
+          phone: doc.phone || '',   // ← 포함 보장
           carrier: doc.carrier || '',
         },
       });
@@ -374,9 +356,9 @@ router.get('/result/:txId', async (req, res) => {
 // 조건:
 //  - PassResult.status === 'success' && consumed !== true
 //  - CI가 존재하고,
-//  - 아래 순서로 "실제 User"가 존재하는지 확인:
-//    (A) PassIdentity.userId → 실제 User 존재 확인
-//    (B) User.ciHash 또는 User.pass.ciHash 로 직접 조회
+//  - 아래 순서로 "실제 User" 존재 확인:
+//    (A) PassIdentity.ciHash → userId 매핑 후 실제 User 존재 확인
+//    (B) User.ciHash(참조용)로 직접 조회(구/신 버전 호환)
 //  - 어디에도 실제 User가 없으면 route='signup', 있으면 route='templogin'
 router.get('/route', async (req, res) => {
   try {
@@ -396,13 +378,11 @@ router.get('/route', async (req, res) => {
 
     let userExists = false;
 
-    // (A) identityId → userId 매핑 검사 + 실제 User 존재 확인
-    if (pr.identityId) {
-      const ident = await PassIdentity.findOne({ _id: pr.identityId }).select('userId ciHash').lean().catch(() => null);
-      if (ident?.userId) {
-        const linked = await User.findOne({ _id: ident.userId }).select('_id').lean();
-        if (linked?._id) userExists = true; // 진짜 유저가 있을 때만 인정
-      }
+    // (A) PassIdentity에서 ciHash로 찾고 userId가 실제 User에 존재하는지 확인
+    const ident = await PassIdentity.findOne({ ciHash: pr.ciHash }).select('userId').lean().catch(() => null);
+    if (ident?.userId) {
+      const linked = await User.findOne({ _id: ident.userId }).select('_id').lean();
+      if (linked?._id) userExists = true;
     }
 
     // (B) 직접 CI로 User 조회 (구/신 버전 호환)

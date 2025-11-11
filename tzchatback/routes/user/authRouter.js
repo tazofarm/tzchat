@@ -33,6 +33,7 @@ function s(v) { return (v || '').toString().trim(); }
 //  - 전화번호는 User 훅에서 정규화 + phoneHash 자동 생성
 //  - PassResult.consumeByTxId 로 1회성 소모
 //  - PassResult.markRoute 로 분기 기록(옵션)
+//  - 미성년자(올해 기준 만 19세 미만) 백엔드 차단
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -42,7 +43,7 @@ router.post('/signup', async (req, res) => {
     consents = [],
     passTxId,
   } = req.body || {};
-
+ 
   try {
     username = s(username);
     nickname = s(nickname);
@@ -88,14 +89,6 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
-    // ✅ 중복 검사(아이디/닉네임)
-    const [userExists, nicknameExists] = await Promise.all([
-      User.findOne({ username }).select('_id').lean(),
-      User.findOne({ nickname }).select('_id').lean(),
-    ]);
-    if (userExists)   return res.status(409).json({ ok: false, message: '아이디 중복' });
-    if (nicknameExists) return res.status(409).json({ ok: false, message: '닉네임 중복' });
-
     // ✅ 최종 저장값 확정 (PASS 우선)
     const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
     const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
@@ -103,6 +96,20 @@ router.post('/signup', async (req, res) => {
     const finalCiHash    = prOverride?.ciHash    || undefined;
     const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
+
+    // ✅ 미성년자 차단(올해 기준 만 19세 미만)
+    const CURRENT_YEAR = new Date().getFullYear();
+    if (finalBirthyear && CURRENT_YEAR - finalBirthyear < 19) {
+      return res.status(400).json({ ok: false, message: '미성년자는 회원가입이 불가합니다.' });
+    }
+
+    // ✅ 중복 검사(아이디/닉네임)
+    const [userExists, nicknameExists] = await Promise.all([
+      User.findOne({ username }).select('_id').lean(),
+      User.findOne({ nickname }).select('_id').lean(),
+    ]);
+    if (userExists)   return res.status(409).json({ ok: false, message: '아이디 중복' });
+    if (nicknameExists) return res.status(409).json({ ok: false, message: '닉네임 중복' });
 
     // ✅ CI 기반 기존 가입자 차단(정석: PassIdentity)
     if (finalCiHash) {
