@@ -61,6 +61,11 @@
             <div class="ro-box">{{ readonlyBirthGender }}</div>
           </div>
 
+          <!-- 미성년자 안내 -->
+          <div class="form-row" v-if="showMinorNotice">
+            <p class="hint error">미성년자는 회원가입이 불가합니다.</p>
+          </div>
+
           <div class="form-row">
             <label>지역</label>
             <div class="region-row">
@@ -100,10 +105,25 @@
               <li v-if="txId"><span class="k">txId</span><span class="v mono">{{ txId }}</span></li>
               <li><span class="k">status</span><span class="v">{{ passStatus }}</span></li>
               <li v-if="passError"><span class="k">error</span><span class="v">{{ passError }}</span></li>
+
+              <!-- PASS에서 받은 정보들을 추가로 표시 -->
+              <li v-if="passResult?.name"><span class="k">name(masked)</span><span class="v">{{ passResult?.name }}</span></li>
               <li v-if="passResult?.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult?.birthyear }}</span></li>
               <li v-if="passResult?.gender"><span class="k">gender</span><span class="v">{{ passResult?.gender }}</span></li>
               <li v-if="passResult?.phone"><span class="k">phone</span><span class="v">{{ passResult?.phone }}</span></li>
               <li v-if="passResult?.carrier"><span class="k">carrier</span><span class="v">{{ passResult?.carrier }}</span></li>
+              <li v-if="passResult?.ciHash || passResult?.ciHashPreview">
+                <span class="k">ciHash</span>
+                <span class="v mono">{{ passResult?.ciHashPreview || preview(passResult?.ciHash) }}</span>
+              </li>
+              <li v-if="passResult?.diHash || passResult?.diHashPreview">
+                <span class="k">diHash</span>
+                <span class="v mono">{{ passResult?.diHashPreview || preview(passResult?.diHash) }}</span>
+              </li>
+              <li v-if="isMinor !== null">
+                <span class="k">adultCheck</span>
+                <span class="v">{{ isMinor === true ? 'minor (blocked)' : (isMinor === false ? 'adult' : 'unknown') }}</span>
+              </li>
             </ul>
             <details v-if="passResult">
               <summary>result 전체 보기</summary>
@@ -145,6 +165,11 @@ function clearPassKeys() {
 function pretty(obj: any) {
   try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
 }
+function preview(hash?: string | null) {
+  if (!hash) return ''
+  const s = String(hash)
+  return s.length > 8 ? (s.slice(0, 8) + '…') : s
+}
 
 // ✅ PASS txId: 쿼리 'txId' 우선, 없으면 'passTxId', 없으면 세션스토리지 폴백
 function readInitialTxId(): string {
@@ -173,7 +198,19 @@ const txId = ref(readInitialTxId())
 const loadingPass = ref(false)
 const passStatus = ref<'none'|'pending'|'success'|'fail'>(txId.value ? 'pending' : 'none')
 const passError = ref('')
-const passResult = ref<{ birthyear?: number; gender?: 'man'|'woman'|''; phone?: string; carrier?: string } | null>(null)
+type PassResultT = {
+  birthyear?: number|null
+  gender?: 'man'|'woman'|''
+  phone?: string
+  carrier?: string
+  name?: string
+  // 디버그/선택: 서버가 제공하면 표시
+  ciHash?: string
+  diHash?: string
+  ciHashPreview?: string
+  diHashPreview?: string
+} | null
+const passResult = ref<PassResultT>(null)
 
 const passSuccess = computed(() => passStatus.value === 'success')
 const passStatusLabel = computed(() => {
@@ -229,6 +266,17 @@ const region2Options = computed<string[]>(() => {
 })
 watch(() => form.value.region1, () => { form.value.region2 = '' })
 
+// 미성년자 판정 (매년 "올해" 기준)
+const CURRENT_YEAR = new Date().getFullYear()
+const ADULT_AGE = 19 // 만 19세 미만 가입 불가
+const isMinor = computed<boolean|null>(() => {
+  const y = passResult.value?.birthyear
+  if (!y || typeof y !== 'number') return null
+  const age = CURRENT_YEAR - y
+  return age < ADULT_AGE
+})
+const showMinorNotice = computed(() => isMinor.value === true)
+
 // 유효성
 const passwordMismatch = computed(
   () => form.value.password !== '' && form.value.password2 !== '' && form.value.password !== form.value.password2
@@ -237,6 +285,7 @@ const isValid = computed(
   () =>
     !!txId.value &&
     passSuccess.value &&
+    isMinor.value !== true &&        // ⬅️ 미성년자면 비활성화
     !!form.value.username &&
     !!form.value.password &&
     !!form.value.password2 &&
@@ -276,11 +325,17 @@ async function fetchPassStatus() {
 
     if (j.status === 'success') {
       passStatus.value = 'success'
+      // 서버가 제공하는 필드는 최대한 반영(미제공이면 undefined 처리)
       passResult.value = {
         birthyear: j?.result?.birthyear ?? null,
         gender: j?.result?.gender ?? '',
         phone: j?.result?.phone ?? '',
-        carrier: j?.result?.carrier ?? ''
+        carrier: j?.result?.carrier ?? '',
+        name: j?.result?.name ?? '',
+        ciHash: j?.result?.ciHash ?? undefined,
+        diHash: j?.result?.diHash ?? undefined,
+        ciHashPreview: j?.result?.ciHashPreview ?? undefined,
+        diHashPreview: j?.result?.diHashPreview ?? undefined,
       }
       // 필요 시 txId 보존
       try { sessionStorage.setItem('passTxId', txId.value) } catch {}
@@ -345,7 +400,12 @@ watch(() => route.query, () => {
 
 // 제출
 async function onSubmit() {
-  if (!isValid.value) return
+  if (!isValid.value) {
+    if (isMinor.value === true) {
+      errorMsg.value = '미성년자는 회원가입이 불가합니다.'
+    }
+    return
+  }
   submitting.value = true
   errorMsg.value = ''
   successMsg.value = ''
@@ -395,7 +455,7 @@ async function onSubmit() {
       // 5) 약관 미동의 분기
       try {
         const status = await api.get('/api/terms/agreements/status')
-        const pending = status?.data?.data?.pending || []
+        const pending = status?.data?.pending || status?.data?.data?.pending || []
         if (Array.isArray(pending) && pending.length > 0) {
           // 이동 전에도 한 번 더 정리(안전)
           clearPassKeys()

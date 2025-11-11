@@ -63,8 +63,6 @@ function sha256Hex(text = '') {
 }
 
 // ────────────────────────────────────────────────────────────
-// 스키마
-// ────────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema(
   {
     // [0] 권한/상태
@@ -72,9 +70,9 @@ const userSchema = new mongoose.Schema(
     suspended: { type: Boolean, default: false },
 
     // [1] 기본 정보
-    username: { type: String, required: true },               // 인덱스는 하단에서 일괄
-    password: { type: String, required: true, select: false },// 기본 응답 제외
-    nickname: { type: String, required: true },               // 인덱스는 하단에서 일괄
+    username: { type: String, required: true },                // 인덱스는 하단에서 일괄
+    password: { type: String, required: true, select: false }, // 기본 응답 제외
+    nickname: { type: String, required: true },                // 인덱스는 하단에서 일괄
     birthyear: Number,
     gender: String,
 
@@ -246,7 +244,8 @@ userSchema.index(
   }
 );
 
-// phoneHash: 값 있을 때만 유니크
+// phoneHash: 값 있을 때만 유니크(sparse)
+//  - 연락처 제외/매칭을 위한 고속 비교용
 userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
 
 // PASS 해시: 조회 최적화용 일반 인덱스(고유성은 PassIdentity가 보장)

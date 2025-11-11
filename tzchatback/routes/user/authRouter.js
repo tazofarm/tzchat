@@ -1,4 +1,4 @@
-// routes/user/authRouter.js
+// backend/routes/user/authRouter.js
 // base: /api
 // ------------------------------------------------------
 // 회원가입 + 공개 유저 목록
@@ -29,6 +29,10 @@ function s(v) { return (v || '').toString().trim(); }
 
 // ======================================================
 // 회원가입 (PASS 연동 강화: PassIdentity upsert + PassResult 소비)
+//  - ciHash가 기존 PassIdentity.userId에 매핑되어 있으면 가입 차단(templogin 유도)
+//  - 전화번호는 User 훅에서 정규화 + phoneHash 자동 생성
+//  - PassResult.consumeByTxId 로 1회성 소모
+//  - PassResult.markRoute 로 분기 기록(옵션)
 // ======================================================
 router.post('/signup', async (req, res) => {
   console.log('[API][REQ] /signup', { body: maskPassword(req.body || {}) });
@@ -84,12 +88,12 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ ok: false, message: '필수 항목 누락' });
     }
 
-    // ✅ 중복 검사
+    // ✅ 중복 검사(아이디/닉네임)
     const [userExists, nicknameExists] = await Promise.all([
       User.findOne({ username }).select('_id').lean(),
       User.findOne({ nickname }).select('_id').lean(),
     ]);
-    if (userExists) return res.status(409).json({ ok: false, message: '아이디 중복' });
+    if (userExists)   return res.status(409).json({ ok: false, message: '아이디 중복' });
     if (nicknameExists) return res.status(409).json({ ok: false, message: '닉네임 중복' });
 
     // ✅ 최종 저장값 확정 (PASS 우선)
@@ -100,9 +104,26 @@ router.post('/signup', async (req, res) => {
     const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
 
+    // ✅ CI 기반 기존 가입자 차단(정석: PassIdentity)
+    if (finalCiHash) {
+      const pid = await PassIdentity.findOne({ ciHash: finalCiHash }).select('userId').lean();
+      if (pid?.userId) {
+        // 이미 동일인이 가입 완료 → 가입 차단 + templogin 유도
+        if (typeof PassResult?.markRoute === 'function' && passTxId) {
+          await PassResult.markRoute(passTxId, 'templogin', pid.userId);
+        }
+        return res.status(409).json({
+          ok: false,
+          code: 'CI_ALREADY_REGISTERED',
+          message: '이미 가입된 사용자입니다. 임시로그인 경로를 이용해 주세요.',
+        });
+      }
+      // (없거나 userId 미연결이면 가입 진행)
+    }
+
     console.log('[SIGNUP][DBG] finalPhone/carrier', { finalPhone, finalCarrier, passTxId: !!passTxId });
 
-    // 사용자 생성
+    // ✅ 사용자 생성
     let user;
     try {
       const hashed = await bcrypt.hash(String(password), 10);
@@ -169,6 +190,13 @@ router.post('/signup', async (req, res) => {
             phoneHash,
             carrier: finalCarrier,
           });
+        } else {
+          // 구버전 안전망: userId가 비어있을 때만 연결
+          await PassIdentity.updateOne(
+            { ciHash: finalCiHash, $or: [{ userId: null }, { userId: { $exists: false } }] },
+            { $set: { userId: user._id, diHash: finalDiHash, phoneHash, carrier: finalCarrier, lastVerifiedAt: new Date() } },
+            { upsert: true }
+          );
         }
       }
     } catch (e) {
@@ -176,8 +204,15 @@ router.post('/signup', async (req, res) => {
       console.log('[AUTH][WARN] PassIdentity.upsertByCI failed:', e?.message);
     }
 
-    // ✅ PassResult 1회성 소비(있을 때만)
+    // ✅ PassResult 1회성 소비 + 분기 기록(있을 때만)
     if (passTxId && prOverride) {
+      try {
+        if (typeof PassResult.markRoute === 'function') {
+          await PassResult.markRoute(passTxId, 'signup', user._id);
+        }
+      } catch (e) {
+        console.log('[AUTH][WARN] PassResult.markRoute failed:', e?.message);
+      }
       try {
         if (typeof PassResult.consumeByTxId === 'function') {
           await PassResult.consumeByTxId(passTxId, user._id);

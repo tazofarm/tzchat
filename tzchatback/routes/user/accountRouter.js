@@ -1,8 +1,8 @@
-// routes/user/accountRouter.js
+// backend/routes/user/accountRouter.js
 // base: /api
 // ------------------------------------------------------
 // 내 계정 중심 라우터
-// - GET /me           (일일 하트 지급 + Emergency 남은시간 포함)
+// - GET /me           (일일 하트 지급 + Emergency 남은시간 포함 + 디버그 옵션)
 // - GET /my-friends   (친구 ID 목록)
 // - PUT /update-password
 // ------------------------------------------------------
@@ -10,8 +10,9 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-const { User } = require('@/models');
+const { User, PassIdentity } = require('@/models');
 const { EMERGENCY_DURATION_SECONDS, computeRemaining } = require('@/config/emergency');
 const pointService = require('@/services/pointService');
 
@@ -42,6 +43,7 @@ function resolveIsAdmin(u) {
   if (u.username === 'master') return true;
   return false;
 }
+const sha256Hex = (s = '') => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 // ===== 유틸: JWT 추출 & 인증 미들웨어 =====
 function extractToken(req) {
@@ -97,13 +99,14 @@ async function authFromJwtOrSession(req, res, next) {
     return res.status(401).json({ ok: false, message: '인증 실패' });
   }
 }
-
+ 
 // ======================================================
-// /me (일일 하트 지급 + Emergency 남은시간 포함)
+// /me (일일 하트 지급 + Emergency 남은시간 포함 + 디버그 옵션)
 // ======================================================
 router.get('/me', authFromJwtOrSession, async (req, res) => {
   console.time('[API][TIMING] GET /api/me');
   const userId = req.auth.userId;
+  const passDebug = (process.env.PASS_DEBUG === '1') || (req.get('X-Debug') === 'pass');
 
   try {
     const userDoc = await User.findById(userId)
@@ -134,7 +137,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       return res.status(404).json({ ok: false, message: '유저 없음' });
     }
 
-    // 일일 하트 지급
+    // 일일 하트 지급 (에러는 무시하고 진행)
     try {
       await pointService.grantDailyIfNeeded(userDoc, { save: true });
     } catch (e) {
@@ -166,8 +169,15 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       const s = String(p || '');
       if (!s.startsWith('+82')) return s;
       const tail = s.replace('+82', '');
-      const m = tail.match(/^10(\d{4})(\d{4})$/) || tail.match(/^(\d{2})(\d{4})(\d{4})$/);
-      if (m) return `+82 ${m[1].length === 2 ? m[1] : '10'}-${m[2]}-${m[3]}`;
+      // 010-XXXX-XXXX 또는 지역번호-패턴
+      const m =
+        tail.match(/^10(\d{4})(\d{4})$/) || // 010
+        tail.match(/^(\d{2})(\d{4})(\d{4})$/); // 11~19, 2자리 지역
+      if (m) {
+        // 첫 패턴이면 '10', 아니면 m[1] 그대로
+        const first = (m[0].length === 9 || m[1].length === 2) ? m[1] : '10';
+        return `+82 ${first}-${m[2]}-${m[3]}`;
+      }
       return s;
     }
     function maskPhone(p = '') {
@@ -176,6 +186,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       const last4 = s.slice(-4);
       return `****-****-${last4}`;
     }
+    const preview = (hash) => (hash ? String(hash).slice(0, 8) + '…' : null);
 
     const user = {
       ...raw,
@@ -206,6 +217,23 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       marriage: raw.marriage ?? '미혼',
       search_marriage: raw.search_marriage ?? '전체',
     };
+
+    // 개발/점검 편의를 위한 조건부 디버그 블록
+    if (passDebug) {
+      // phoneHashPreview: 서버와 클라이언트 정규화/해시 일치 여부 빠른 확인용
+      user._debug = user._debug || {};
+      user._debug.phoneHashPreview = raw.phone ? preview(sha256Hex(raw.phone)) : null;
+
+      // PassIdentity에서 ciHash/diHash 프리뷰
+      const pid = await PassIdentity.findOne({ userId }).select('ciHash diHash updatedAt').lean();
+      user._debug.pass = pid
+        ? {
+            ciHashPreview: preview(pid.ciHash),
+            diHashPreview: preview(pid.diHash),
+            updatedAt: pid.updatedAt,
+          }
+        : null;
+    }
 
     console.timeEnd('[API][TIMING] GET /api/me');
     res.setHeader('Cache-Control', 'no-store');
