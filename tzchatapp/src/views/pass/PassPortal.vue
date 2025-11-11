@@ -158,6 +158,8 @@ const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostna
 
 // ─────────────────────────────
 // Browser API (동적 import; 웹빌드에서 @capacitor/browser 의존성 제거)
+// - startUrl: GET/redirect 방식
+// - formHtml: POST(auto-submit) 방식도 지원
 // ─────────────────────────────
 async function openExternal(url) {
   if (isNative) {
@@ -166,11 +168,24 @@ async function openExternal(url) {
       await Browser.open({ url });
       return;
     } catch {
-      // 네이티브에서 플러그인 없을 때도 폴백
+      // 네이티브에서 플러그인 없을 때 폴백
     }
   }
-  window.open(url, '_blank', 'noopener');
+  const win = window.open(url, '_blank', 'noopener');
+  if (!win) location.href = url; // 팝업 차단 시 현재 탭으로 이동
 }
+
+async function openExternalFormHtml(html) {
+  if (isNative) {
+    // 네이티브에서는 formHtml 처리 곤란 → 서버에서 URL을 주도록 재시도 유도
+    throw new Error('NATIVE_NEEDS_URL');
+  }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank', 'noopener');
+  if (!win) location.href = url; // 팝업 차단 시 현재 탭 전환
+}
+
 async function closeExternal() {
   if (isNative) {
     try {
@@ -353,7 +368,7 @@ async function onClickPass() {
       return;
     }
 
-    // 서버에서 PASS 세션 생성: preferUrl=true → { ok, txId, startUrl }
+    // 서버에서 PASS 세션 생성: { ok, txId, startUrl? , formHtml? }
     const resp = await fetch(api('/api/auth/pass/start'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -362,16 +377,20 @@ async function onClickPass() {
     });
     const startText = await resp.text();
     let startJson = null; try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
+
     if (!resp.ok || !startJson?.ok || !(startJson?.startUrl || startJson?.formHtml)) {
       throw new Error(startJson?.code || 'START_ERROR');
     }
 
     txIdRef.value = startJson.txId || '';
 
-    // 외부 브라우저에서 PASS 시작
-    const url = startJson.startUrl || '';
-    if (!url) throw new Error('NO_START_URL');
-    await openExternal(url);
+    if (startJson.startUrl) {
+      await openExternal(startJson.startUrl);      // GET/redirect 방식
+    } else if (startJson.formHtml) {
+      await openExternalFormHtml(startJson.formHtml); // POST(auto-submit) 방식(웹)
+    } else {
+      throw new Error('NO_START_ENTRY');
+    }
 
     // 상태 폴링 시작
     if (txIdRef.value) startStatusPolling(txIdRef.value);
@@ -385,6 +404,12 @@ async function onClickPass() {
 // 뒤로가기
 function onBack() {
   stopPolling();
+  try {
+    sessionStorage.removeItem('passTxId');
+    localStorage.removeItem('PASS_RESULT_TX');
+    // 개발 중 캐시 정리(선택)
+    // localStorage.removeItem('PASS_LAST_RESULT');
+  } catch {}
   router.replace('/login');
 }
 

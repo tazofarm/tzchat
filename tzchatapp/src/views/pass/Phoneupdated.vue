@@ -15,73 +15,73 @@
             <ion-card-subtitle>동일 CI 검증 · 로그인 상태 전용</ion-card-subtitle>
           </ion-card-header>
 
-        <ion-card-content>
-          <div class="current">
-            <div class="row">
-              <span class="label">현재 번호</span>
-              <span class="value">{{ maskedPhone || '미등록' }}</span>
-            </div>
-            <div class="row">
-              <span class="label">통신사</span>
-              <span class="value">{{ me?.carrier || '—' }}</span>
-            </div>
-          </div>
-
-          <p class="desc">
-            이 화면은 로그인된 계정의 <b>전화번호 변경</b>에 사용됩니다.<br />
-            PASS 인증 완료 후 동일 CI 여부를 확인하여, 제공된 <b>최신 전화번호/통신사</b>를 계정에 즉시 반영합니다.<br />
-            <small>※ 보안상, PASS 결과의 CI가 현재 계정의 CI와 다르면 반영되지 않습니다.</small>
-          </p>
-
-          <div class="status">
-            <div v-if="busy" class="row">
-              <ion-spinner name="dots" class="mr-2" />
-              <span>처리중…</span>
+          <ion-card-content>
+            <div class="current">
+              <div class="row">
+                <span class="label">현재 번호</span>
+                <span class="value">{{ maskedPhone || '미등록' }}</span>
+              </div>
+              <div class="row">
+                <span class="label">통신사</span>
+                <span class="value">{{ me?.carrier || '—' }}</span>
+              </div>
             </div>
 
-            <div v-else-if="error" class="row error">
-              <span>{{ error }}</span>
+            <p class="desc">
+              이 화면은 로그인된 계정의 <b>전화번호 변경</b>에 사용됩니다.<br />
+              PASS 인증 완료 후 동일 CI 여부를 확인하여, 제공된 <b>최신 전화번호/통신사</b>를 계정에 즉시 반영합니다.<br />
+              <small>※ 보안상, PASS 결과의 CI가 현재 계정의 CI와 다르면 반영되지 않습니다.</small>
+            </p>
+
+            <div class="status">
+              <div v-if="busy" class="row">
+                <ion-spinner name="dots" class="mr-2" />
+                <span>처리중…</span>
+              </div>
+
+              <div v-else-if="error" class="row error">
+                <span>{{ error }}</span>
+              </div>
+
+              <div v-else-if="success" class="row success">
+                <span>업데이트 완료! 이동합니다…</span>
+              </div>
+
+              <div v-else-if="certified && txId" class="row pending">
+                <span>인증완료 · txId=<code>{{ txId }}</code></span>
+              </div>
             </div>
 
-            <div v-else-if="success" class="row success">
-              <span>업데이트 완료! 이동합니다…</span>
+            <div class="actions">
+              <ion-button
+                expand="block"
+                :disabled="busy || certified"
+                @click="onStartPass"
+              >
+                <ion-spinner v-if="busy && phase==='start'" name="dots" class="mr-2" />
+                <span>{{ startBtnText }}</span>
+              </ion-button>
+
+              <ion-button
+                expand="block"
+                fill="outline"
+                :disabled="busy || (!txId && errorCode!=='CI_MISMATCH')"
+                @click="onSecondaryAction"
+              >
+                <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
+                <span>{{ secondaryBtnText }}</span>
+              </ion-button>
+
+              <ion-button
+                expand="block"
+                fill="clear"
+                :disabled="busy"
+                @click="reloadMe"
+              >
+                내 정보 새로고침
+              </ion-button>
             </div>
-
-            <div v-else-if="certified && txId" class="row pending">
-              <span>인증완료 · txId=<code>{{ txId }}</code></span>
-            </div>
-          </div>
-
-          <div class="actions">
-            <ion-button
-              expand="block"
-              :disabled="busy || certified"
-              @click="onStartPass"
-            >
-              <ion-spinner v-if="busy && phase==='start'" name="dots" class="mr-2" />
-              <span>{{ startBtnText }}</span>
-            </ion-button>
-
-            <ion-button
-              expand="block"
-              fill="outline"
-              :disabled="busy || (!txId && errorCode!=='CI_MISMATCH')"
-              @click="onSecondaryAction"
-            >
-              <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
-              <span>{{ secondaryBtnText }}</span>
-            </ion-button>
-
-            <ion-button
-              expand="block"
-              fill="clear"
-              :disabled="busy"
-              @click="reloadMe"
-            >
-              내 정보 새로고침
-            </ion-button>
-          </div>
-        </ion-card-content>
+          </ion-card-content>
         </ion-card>
       </div>
     </ion-content>
@@ -102,6 +102,9 @@ import { startPass } from '@/lib/pass'
 const router = useRouter()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
+
+const isNative = Capacitor.isNativePlatform()
+const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
 
 // 🔐 Authorization 헤더
 function buildAuthHeaders() {
@@ -126,6 +129,38 @@ function clearPassStorage() {
     localStorage.removeItem('PASS_STATE')
   } catch {}
 }
+
+// ─────────────────────────────
+// 외부 브라우저 열기 (네이티브: Capacitor Browser, 웹: window.open)
+// - startUrl: GET/redirect 방식
+// - formHtml: POST(auto-submit) 방식 지원(웹 전용)
+// ─────────────────────────────
+async function openExternal(url) {
+  if (isNative) {
+    try {
+      const { Browser } = await import('@capacitor/browser')
+      await Browser.open({ url })
+      return
+    } catch {
+      // 네이티브에서 플러그인 문제 시 폴백
+    }
+  }
+  const win = window.open(url, '_blank', 'noopener')
+  if (!win) location.href = url // 팝업 차단 시 현재 탭 이동
+}
+
+async function openExternalFormHtml(html) {
+  if (isNative) {
+    // 네이티브에선 formHtml 직접 처리 곤란 → 서버에서 URL 제공(retry) 필요
+    throw new Error('NATIVE_NEEDS_URL')
+  }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, '_blank', 'noopener')
+  if (!win) location.href = url // 팝업 차단 시 현재 탭
+}
+
+// ─────────────────────────────
 
 const me = ref(null)
 const busy = ref(false)
@@ -233,7 +268,7 @@ function startStatusPolling(currentTxId) {
         errorCode.value = 'CONSUMED'
         stopStatusPolling()
       }
-      // pending은 그대로 유지
+      // pending은 유지
     } catch {}
   }, 1500)
 }
@@ -282,9 +317,6 @@ async function onStartPass() {
   busy.value = true
 
   try {
-    const isNative = Capacitor.isNativePlatform()
-    const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
-
     if (isLocal) {
       const url = router.resolve({ name: 'PassManual' }).href
       openedWin.value = window.open(`${location.origin}${url}`, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
@@ -292,7 +324,7 @@ async function onStartPass() {
       return
     }
 
-    // 권장 경로: 서버에서 { txId, startUrl } 수신 후 외부 브라우저로 열기 + 상태 폴링
+    // 권장 경로: 서버에서 { ok, txId, startUrl?, formHtml? } 수신
     const result = await startPass('phone_update', { preferUrl: true })
     if (!result.ok) throw new Error(result.message || '시작 실패')
 
@@ -309,10 +341,11 @@ async function onStartPass() {
     }
 
     if (result.startUrl) {
-      // 외부 브라우저/새창
-      openedWin.value = window.open(result.startUrl, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
+      await openExternal(result.startUrl)
+    } else if (result.formHtml) {
+      await openExternalFormHtml(result.formHtml)
     } else {
-      throw new Error('유효한 PASS 시작 URL이 없습니다.')
+      throw new Error('유효한 PASS 시작 엔트리가 없습니다.')
     }
   } catch (e) {
     console.error('[PhoneUpdate][start] error', e)
