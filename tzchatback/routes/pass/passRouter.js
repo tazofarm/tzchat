@@ -4,9 +4,8 @@
 // - GET  /start?mode=html
 // - ALL  /callback
 // - GET  /status
-// - GET  /route              ← ★ 실제 User 존재검증(CI-only)
+// - GET  /route
 // - GET  /result/:txId
-// ⚠️ 수동 입력 관련 엔드포인트는 passManualRouter.js로 분리되어 있습니다.
 
 const express = require('express');
 const router = express.Router();
@@ -54,37 +53,29 @@ function json(res, status, body) {
 }
 
 /* ──────────────── 공급사 필드 추출 유틸 ──────────────── */
-// 키 후보 + 딥스캔으로 보강
 function toStr(v){ return (v==null ? '' : String(v)); }
 function digits(s){ return toStr(s).replace(/[^\d+]/g,''); }
 function plausibleKRPhone(s) {
   const d = digits(s);
-  // 10~12자리 숫자면 후보, '010'/'11x' 시작 케이스 우선
   if (!/^\+?\d{9,14}$/.test(d)) return '';
-  // 국내형(010, 01x, 1xx 등) 또는 이미 +82
   if (d.startsWith('+82') || d.startsWith('010') || d.startsWith('011') || d.startsWith('016') || d.startsWith('017') || d.startsWith('018') || d.startsWith('019')) {
     return normalizePhoneKR(d);
   }
-  // 기타 숫자열은 일단 E.164로 시도
   return normalizePhoneKR(d);
 }
-
 function deepScanForPhone(obj, maxDepth=3, path='') {
   try {
     if (!obj || typeof obj !== 'object' || maxDepth < 0) return { phone: '', via: '' };
     for (const [k, v] of Object.entries(obj)) {
       const key = String(k).toLowerCase();
-      // 키 이름 힌트
       if (/(phone|mobile|hp|cell|tel|msisdn)/.test(key)) {
         const cand = plausibleKRPhone(v);
         if (cand) return { phone: cand, via: `deep:${path}${k}` };
       }
-      // 값이 문자열인데 패턴으로 찾기
       if (typeof v === 'string') {
         const cand = plausibleKRPhone(v);
         if (cand) return { phone: cand, via: `deep:${path}${k}(str)` };
       }
-      // 객체/배열이면 재귀
       if (v && typeof v === 'object') {
         const sub = deepScanForPhone(v, maxDepth-1, `${path}${k}.`);
         if (sub.phone) return sub;
@@ -93,38 +84,51 @@ function deepScanForPhone(obj, maxDepth=3, path='') {
   } catch {}
   return { phone: '', via: '' };
 }
-
-function extractPhoneFromParsed(parsed = {}) {
-  const raw = parsed.raw || {};
-  const flatCandidates = [
-    parsed.phone, parsed.phoneNo, parsed.phoneno,
-    parsed.mobileno, parsed.mobileNo, parsed.mobile, parsed.cellphone, parsed.hp, parsed.hpNo,
-    raw.PHONE, raw.PHONE_NO, raw.PHONENO, raw.TEL_NO, raw.TELNO,
-    raw.MOBILE, raw.MOBILE_NO, raw.MOBILENO, raw.MOBILENUM, raw['MOBILE-NO'],
-    raw.HP, raw.HP_NO, raw.CELLPHONE, raw.MSISDN,
-    raw.USER_PHONE, raw.USER_MOBILE, raw.CI_PHONENO, raw.CI_PHONE,
+// 단일 객체에서(플랫 후보 + 딥스캔)
+function extractPhoneOne(source, label) {
+  if (!source) return { phone: '', via: '' };
+  const flat = [
+    source.phone, source.phoneNo, source.phoneno,
+    source.mobileno, source.mobileNo, source.mobile, source.cellphone, source.hp, source.hpNo,
+    source.PHONE, source.PHONE_NO, source.PHONENO, source.TEL_NO, source.TELNO,
+    source.MOBILE, source.MOBILE_NO, source.MOBILENO, source.MOBILENUM, source['MOBILE-NO'],
+    source.HP, source.HP_NO, source.CELLPHONE, source.MSISDN,
+    source.USER_PHONE, source.USER_MOBILE, source.CI_PHONENO, source.CI_PHONE,
   ];
-  for (const v of flatCandidates) {
+  for (const v of flat) {
     const cand = plausibleKRPhone(v);
-    if (cand) return { phone: cand, via: 'flat' };
+    if (cand) return { phone: cand, via: `flat:${label}` };
   }
-  // 못 찾으면 딥스캔
-  return deepScanForPhone({ parsed, raw });
+  const deep = deepScanForPhone(source, 3, `${label}.`);
+  if (deep.phone) return deep;
+  return { phone: '', via: '' };
 }
-
-function extractCarrierFromParsed(parsed = {}) {
-  const raw = parsed.raw || {};
+// parsed/raw/body/query 전체를 묶어서 탐색
+function extractPhoneFromSources(parsed, raw, body, query) {
+  const tryList = [
+    { obj: parsed, label: 'parsed' },
+    { obj: raw,    label: 'raw' },
+    { obj: body,   label: 'body' },
+    { obj: query,  label: 'query' },
+  ];
+  for (const {obj, label} of tryList) {
+    const r = extractPhoneOne(obj || {}, label);
+    if (r.phone) return r;
+  }
+  return { phone: '', via: '' };
+}
+function extractCarrierFromParsed(parsed = {}, raw = {}, body = {}, query = {}) {
   const candidates = [
     parsed.carrier, parsed.telco, parsed.telecom,
-    raw.TELCO, raw.TELCO_CODE, raw.CARRIER, raw.CI_TELECOM,
-    raw.TELECOM, raw.CARRIER_NAME, raw.TELCOM, raw.OPERATOR
+    raw.TELCO, raw.TELCO_CODE, raw.CARRIER, raw.CI_TELECOM, raw.TELECOM, raw.CARRIER_NAME, raw.TELCOM, raw.OPERATOR,
+    body.TELCO, body.TELCO_CODE, body.CARRIER, body.TELECOM, body.CARRIER_NAME,
+    query.TELCO, query.TELCO_CODE, query.CARRIER, query.TELECOM, query.CARRIER_NAME,
   ];
   for (const v of candidates) {
     if (v && String(v).trim()) return String(v).trim();
   }
   return '';
 }
-
 function mapCarrier(code) {
   if (!code) return '';
   const up = String(code).toUpperCase();
@@ -219,6 +223,7 @@ window.close();
       console.log('[PASS/callback][hit]', { method: req.method, ctype, hasRaw, rawLen, q: Object.keys(req.query||{}), b: Object.keys(req.body||{}) });
     } catch {}
 
+    // x-www-form-urlencoded 원문 재파싱(다날 EUC-KR 대응)
     if (req.method === 'POST') {
       const ctype = (req.headers['content-type'] || '').toLowerCase();
       if (ctype.includes('application/x-www-form-urlencoded')) {
@@ -236,16 +241,17 @@ window.close();
     const parsed = await danal.parseCallback(req);
     const txId = parsed.txId || `tx_${Date.now()}`;
 
-    // 2) 핵심 필드 가공 (누락 대비 다중 후보 추출)
+    // 2) 핵심 필드 가공
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
     const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
-    const { phone: extractedPhone, via: phoneVia } = extractPhoneFromParsed(parsed);
+    // ✔ parsed/raw/body/query 전부 스캔
+    const { phone: extractedPhone, via: phoneVia } = extractPhoneFromSources(parsed, parsed.raw || {}, req.body || {}, req.query || {});
     const phone  = extractedPhone ? normalizePhoneKR(extractedPhone) : '';
 
-    const rawCarrierCandidate = extractCarrierFromParsed(parsed);
+    const rawCarrierCandidate = extractCarrierFromParsed(parsed, parsed.raw || {}, req.body || {}, req.query || {});
     const carrier = mapCarrier(rawCarrierCandidate);
 
     const ciHash = parsed.ci ? sha256Hex(parsed.ci) : '';
@@ -260,12 +266,18 @@ window.close();
       ci: undefined,
       di: undefined,
       name: nameMasked,
-      phone,      // 정규화된 값으로 기록(표시/디버깅 용도)
-      carrier,    // 매핑된 통신사명
-      __debug_phone_via: phoneVia || null,  // ← 어디서 추출됐는지
+      phone,      // 정규화된 값
+      carrier,    // 맵핑된 통신사명
+      __debug_phone_via: phoneVia || null,
+      __debug_keys: {
+        body: Object.keys(req.body || {}),
+        query: Object.keys(req.query || {}),
+        parsed: Object.keys(parsed || {}),
+        raw: Object.keys(parsed?.raw || {})
+      }
     };
 
-    // 4) 결과 upsert (★ phone/carrier를 반드시 저장)
+    // 4) 결과 upsert
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
@@ -278,8 +290,8 @@ window.close();
             name: nameMasked,
             birthyear,
             gender,
-            phone: phone || '',                  // ← 핵심: 비어있더라도 키는 유지
-            carrier: carrier || '',              // ← 핵심: 매핑된 통신사 저장
+            phone: phone || '',
+            carrier: carrier || '',
             ciHash: ciHash || undefined,
             diHash: diHash || undefined,
             rawMasked,
@@ -339,10 +351,10 @@ router.get('/status', async (req, res) => {
           name: doc.name || '',
           birthyear: doc.birthyear ?? null,
           gender: doc.gender || '',
-          phone: doc.phone || '',   // ← 포함 보장
+          phone: doc.phone || '',
           carrier: doc.carrier || '',
-          // 디버그 힌트(운영 숨김 권장)
           debugPhoneVia: doc.rawMasked?.__debug_phone_via || null,
+          debugKeys: doc.rawMasked?.__debug_keys || null,
         },
       });
     }
@@ -412,27 +424,22 @@ router.get('/route', async (req, res) => {
     if (pr.status === 'fail') return json(res, 200, { ok: false, code: pr.failCode || 'FAIL', message: pr.failMessage || 'pass failed' });
     if (pr.status !== 'success') return json(res, 200, { ok: false, code: 'PASS_NOT_SUCCESS', status: pr.status });
 
-    // CI 없으면 → 가입
     if (!pr.ciHash) {
       return json(res, 200, { ok: true, route: 'signup', txId, userExists: false });
     }
 
     let userExists = false;
 
-    // (A) PassIdentity에서 ciHash로 찾고 userId가 실제 User에 존재하는지 확인
     const ident = await PassIdentity.findOne({ ciHash: pr.ciHash }).select('userId').lean().catch(() => null);
     if (ident?.userId) {
       const linked = await User.findOne({ _id: ident.userId }).select('_id').lean();
       if (linked?._id) userExists = true;
     }
 
-    // (B) 직접 CI로 User 조회 (구/신 버전 호환)
     if (!userExists) {
       const found = await User.findOne({
         $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
-      })
-        .select('_id')
-        .lean();
+      }).select('_id').lean();
       if (found?._id) userExists = true;
     }
 
