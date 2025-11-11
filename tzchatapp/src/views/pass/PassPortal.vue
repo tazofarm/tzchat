@@ -114,7 +114,6 @@ import {
 import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Capacitor } from '@capacitor/core';
-import { Browser } from '@capacitor/browser';
 
 const route = useRoute();
 const router = useRouter();
@@ -125,7 +124,7 @@ const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`;
 
 const busy = ref(false);
 const lastFailCode = ref('');
-const lastFailDetail = ref(null); // { code, stage, message, returnMsg, stackTop, raw }
+const lastFailDetail = ref(null);
 const statusPoller = ref(null);
 const txIdRef = ref('');
 
@@ -157,16 +156,31 @@ const fmt = (d) => {
 const isNative = Capacitor.isNativePlatform();
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
-function clearPassKeys() {
-  try {
-    sessionStorage.removeItem('passTxId');
-    localStorage.removeItem('PASS_RESULT_TX');
-    localStorage.removeItem('PASS_FAIL');
-    localStorage.removeItem('PASS_FAIL_DETAIL');
-    localStorage.removeItem('PASS_LAST_RESULT');
-  } catch {}
+// ─────────────────────────────
+// Browser API (동적 import; 웹빌드에서 @capacitor/browser 의존성 제거)
+// ─────────────────────────────
+async function openExternal(url) {
+  if (isNative) {
+    try {
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url });
+      return;
+    } catch {
+      // 네이티브에서 플러그인 없을 때도 폴백
+    }
+  }
+  window.open(url, '_blank', 'noopener');
+}
+async function closeExternal() {
+  if (isNative) {
+    try {
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.close();
+    } catch { /* noop */ }
+  }
 }
 
+// 상태 폴링
 function startStatusPolling(txId) {
   if (!txId) return;
   if (statusPoller.value) clearInterval(statusPoller.value);
@@ -180,12 +194,11 @@ function startStatusPolling(txId) {
 
       if (j.status === 'consumed') {
         stopPolling();
-        clearPassKeys();
         lastFailCode.value = 'CONSUMED';
         lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
         mode.value = 'fail'; busy.value = false;
       } else if (j.status === 'fail') {
-        stopPolling(); clearPassKeys();
+        stopPolling();
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
         lastFailDetail.value = { code: j?.result?.failCode || 'UNKNOWN', message: j?.result?.failMessage || '' };
         mode.value = 'fail'; busy.value = false;
@@ -193,12 +206,11 @@ function startStatusPolling(txId) {
         stopPolling();
         await proceedRouteByTx(txId);
       }
-    } catch (e) {
-      // 네트워크 순간 오류는 무시
+    } catch {
+      // 일시 오류 무시
     }
   }, 1500);
 }
-
 function stopPolling() {
   if (statusPoller.value) {
     clearInterval(statusPoller.value);
@@ -207,8 +219,6 @@ function stopPolling() {
 }
 
 onMounted(async () => {
-  clearPassKeys();
-
   // URL의 txId로 재진입한 경우
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
@@ -218,20 +228,6 @@ onMounted(async () => {
     await proceedRouteByTx(qTx);
     return;
   }
-
-  // 로컬 개발 환경에서 이전 팝업 잔재 회수
-  try {
-    const s = sessionStorage.getItem('passTxId') || '';
-    const l = localStorage.getItem('PASS_RESULT_TX') || '';
-    const tx = s || l;
-    if (tx) {
-      txIdRef.value = tx;
-      mode.value = 'running';
-      busy.value = true;
-      await proceedRouteByTx(tx);
-      return;
-    }
-  } catch {}
 
   // 실패 쿼리 표시
   const qFail = route.query.fail ? String(route.query.fail) : '';
@@ -275,7 +271,6 @@ async function proceedRouteByTx(txId) {
     }
 
     if (res.status === 410 || j?.code === 'CONSUMED') {
-      clearPassKeys();
       lastFailCode.value = 'CONSUMED';
       lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
       mode.value = 'fail'; busy.value = false;
@@ -300,7 +295,6 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
-    // 네비게이션
     try {
       sessionStorage.setItem('passTxId', txId);
       localStorage.setItem('PASS_RESULT_TX', txId);
@@ -313,7 +307,7 @@ async function proceedRouteByTx(txId) {
       } catch {
         await router.replace({ path: `/signup${qs}` });
       }
-      clearPassKeys();
+      try { await closeExternal(); } catch {}
     } else if (nextRoute === 'templogin') {
       try {
         const resp = await fetch(api(`/api/auth/pass/temp-login`), {
@@ -332,7 +326,7 @@ async function proceedRouteByTx(txId) {
         return;
       }
       await router.replace({ name: 'Home' });
-      clearPassKeys();
+      try { await closeExternal(); } catch {}
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
@@ -350,7 +344,6 @@ async function onClickPass() {
   lastFailDetail.value = null;
   if (busy.value) return;
   busy.value = true; mode.value = 'running';
-  clearPassKeys();
 
   try {
     // 로컬 개발(웹)은 수동 입력 페이지로 유도
@@ -360,7 +353,7 @@ async function onClickPass() {
       return;
     }
 
-    // 서버에서 PASS 세션 생성: { ok, txId, startUrl } 필요
+    // 서버에서 PASS 세션 생성: preferUrl=true → { ok, txId, startUrl }
     const resp = await fetch(api('/api/auth/pass/start'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -368,18 +361,20 @@ async function onClickPass() {
       body: JSON.stringify({ intent: 'unified', preferUrl: true })
     });
     const startText = await resp.text();
-    const startJson = JSON.parse(startText);
-    if (!resp.ok || !startJson?.ok || !startJson?.txId || !startJson?.startUrl) {
+    let startJson = null; try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
+    if (!resp.ok || !startJson?.ok || !(startJson?.startUrl || startJson?.formHtml)) {
       throw new Error(startJson?.code || 'START_ERROR');
     }
 
-    txIdRef.value = startJson.txId;
+    txIdRef.value = startJson.txId || '';
 
     // 외부 브라우저에서 PASS 시작
-    await Browser.open({ url: startJson.startUrl });
+    const url = startJson.startUrl || '';
+    if (!url) throw new Error('NO_START_URL');
+    await openExternal(url);
 
     // 상태 폴링 시작
-    startStatusPolling(txIdRef.value);
+    if (txIdRef.value) startStatusPolling(txIdRef.value);
   } catch (e) {
     lastFailCode.value = e?.message || 'START_ERROR';
     lastFailDetail.value = null;
@@ -390,7 +385,6 @@ async function onClickPass() {
 // 뒤로가기
 function onBack() {
   stopPolling();
-  clearPassKeys();
   router.replace('/login');
 }
 
@@ -419,7 +413,7 @@ h2 { margin: 0 0 8px; }
 .kv li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 4px 0; }
 .kv .k { opacity: 0.7; }
 .kv .v { word-break: break-all; }
-.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 .raw { margin: 8px 0 0; max-height: 240px; overflow: auto; background: rgba(255,255,255,0.06); padding: 8px; border-radius: 8px; }
 
 .tips { margin-top: 16px; font-size: 0.95rem; opacity: 0.9; }

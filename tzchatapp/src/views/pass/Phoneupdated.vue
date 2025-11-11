@@ -15,73 +15,73 @@
             <ion-card-subtitle>동일 CI 검증 · 로그인 상태 전용</ion-card-subtitle>
           </ion-card-header>
 
-          <ion-card-content>
-            <div class="current">
-              <div class="row">
-                <span class="label">현재 번호</span>
-                <span class="value">{{ maskedPhone || '미등록' }}</span>
-              </div>
-              <div class="row">
-                <span class="label">통신사</span>
-                <span class="value">{{ me?.carrier || '—' }}</span>
-              </div>
+        <ion-card-content>
+          <div class="current">
+            <div class="row">
+              <span class="label">현재 번호</span>
+              <span class="value">{{ maskedPhone || '미등록' }}</span>
+            </div>
+            <div class="row">
+              <span class="label">통신사</span>
+              <span class="value">{{ me?.carrier || '—' }}</span>
+            </div>
+          </div>
+
+          <p class="desc">
+            이 화면은 로그인된 계정의 <b>전화번호 변경</b>에 사용됩니다.<br />
+            PASS 인증 완료 후 동일 CI 여부를 확인하여, 제공된 <b>최신 전화번호/통신사</b>를 계정에 즉시 반영합니다.<br />
+            <small>※ 보안상, PASS 결과의 CI가 현재 계정의 CI와 다르면 반영되지 않습니다.</small>
+          </p>
+
+          <div class="status">
+            <div v-if="busy" class="row">
+              <ion-spinner name="dots" class="mr-2" />
+              <span>처리중…</span>
             </div>
 
-            <p class="desc">
-              이 화면은 로그인된 계정의 <b>전화번호 변경</b>에 사용됩니다.<br />
-              PASS 인증 완료 후 동일 CI 여부를 확인하여, 제공된 <b>최신 전화번호/통신사</b>를 계정에 즉시 반영합니다.<br />
-              <small>※ 보안상, PASS 결과의 CI가 현재 계정의 CI와 다르면 반영되지 않습니다.</small>
-            </p>
-
-            <div class="status">
-              <div v-if="busy" class="row">
-                <ion-spinner name="dots" class="mr-2" />
-                <span>처리중…</span>
-              </div>
-
-              <div v-else-if="error" class="row error">
-                <span>{{ error }}</span>
-              </div>
-
-              <div v-else-if="success" class="row success">
-                <span>업데이트 완료! 이동합니다…</span>
-              </div>
-
-              <div v-else-if="certified && txId" class="row pending">
-                <span>인증완료 · txId=<code>{{ txId }}</code></span>
-              </div>
+            <div v-else-if="error" class="row error">
+              <span>{{ error }}</span>
             </div>
 
-            <div class="actions">
-              <ion-button
-                expand="block"
-                :disabled="busy || certified"
-                @click="onStartPass"
-              >
-                <ion-spinner v-if="busy && phase==='start'" name="dots" class="mr-2" />
-                <span>{{ startBtnText }}</span>
-              </ion-button>
-
-              <ion-button
-                expand="block"
-                fill="outline"
-                :disabled="busy || (!txId && errorCode!=='CI_MISMATCH')"
-                @click="onSecondaryAction"
-              >
-                <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
-                <span>{{ secondaryBtnText }}</span>
-              </ion-button>
-
-              <ion-button
-                expand="block"
-                fill="clear"
-                :disabled="busy"
-                @click="reloadMe"
-              >
-                내 정보 새로고침
-              </ion-button>
+            <div v-else-if="success" class="row success">
+              <span>업데이트 완료! 이동합니다…</span>
             </div>
-          </ion-card-content>
+
+            <div v-else-if="certified && txId" class="row pending">
+              <span>인증완료 · txId=<code>{{ txId }}</code></span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <ion-button
+              expand="block"
+              :disabled="busy || certified"
+              @click="onStartPass"
+            >
+              <ion-spinner v-if="busy && phase==='start'" name="dots" class="mr-2" />
+              <span>{{ startBtnText }}</span>
+            </ion-button>
+
+            <ion-button
+              expand="block"
+              fill="outline"
+              :disabled="busy || (!txId && errorCode!=='CI_MISMATCH')"
+              @click="onSecondaryAction"
+            >
+              <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
+              <span>{{ secondaryBtnText }}</span>
+            </ion-button>
+
+            <ion-button
+              expand="block"
+              fill="clear"
+              :disabled="busy"
+              @click="reloadMe"
+            >
+              내 정보 새로고침
+            </ion-button>
+          </div>
+        </ion-card-content>
         </ion-card>
       </div>
     </ion-content>
@@ -103,7 +103,7 @@ const router = useRouter()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 
-// 🔐 로컬/웹 공통 Authorization 헤더 구성
+// 🔐 Authorization 헤더
 function buildAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' }
   try {
@@ -134,11 +134,17 @@ const errorCode = ref('')
 const success = ref(false)
 const updatedFields = ref([])
 const phase = ref('idle')
+
+// 인증/트랜잭션 상태
 const certified = ref(false)
 const txId = ref('')
 
+// 레거시 팝업 폴백용
 const openedWin = ref(null)
 const heartbeat = ref(null)
+
+// 상태 폴링
+const statusPoller = ref(null)
 
 const endpointCommit = '/api/user/pass-phone/commit'
 
@@ -196,6 +202,42 @@ function startHeartbeat() {
   }, 400)
 }
 
+// ✅ 앱 방법 A 대응: 서버 상태 폴링
+function stopStatusPolling() {
+  if (statusPoller.value) {
+    clearInterval(statusPoller.value)
+    statusPoller.value = null
+  }
+}
+function startStatusPolling(currentTxId) {
+  stopStatusPolling()
+  if (!currentTxId) return
+  statusPoller.value = setInterval(async () => {
+    try {
+      const res = await fetch(apiUrl(`/api/auth/pass/status?txId=${encodeURIComponent(currentTxId)}`), {
+        credentials: 'include'
+      })
+      const txt = await res.text()
+      let j = null; try { j = JSON.parse(txt) } catch { return }
+      if (!j?.ok) return
+
+      if (j.status === 'success') {
+        certified.value = true
+        stopStatusPolling()
+      } else if (j.status === 'fail') {
+        error.value = j?.result?.failMessage || '인증 실패'
+        errorCode.value = j?.result?.failCode || 'FAIL'
+        stopStatusPolling()
+      } else if (j.status === 'consumed') {
+        error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
+        errorCode.value = 'CONSUMED'
+        stopStatusPolling()
+      }
+      // pending은 그대로 유지
+    } catch {}
+  }, 1500)
+}
+
 function handlePostMessage(ev) {
   try {
     const data = ev?.data || {}
@@ -217,6 +259,7 @@ function resetPassState() {
   error.value = ''
   errorCode.value = ''
   updatedFields.value = []
+  stopStatusPolling()
 }
 
 async function reloadMe() {
@@ -249,7 +292,7 @@ async function onStartPass() {
       return
     }
 
-    // ✅ 개선: lib/pass.ts 의 startPass() 사용
+    // 권장 경로: 서버에서 { txId, startUrl } 수신 후 외부 브라우저로 열기 + 상태 폴링
     const result = await startPass('phone_update', { preferUrl: true })
     if (!result.ok) throw new Error(result.message || '시작 실패')
 
@@ -260,13 +303,17 @@ async function onStartPass() {
       return
     }
 
-    if (result.startUrl) {
-      openedWin.value = window.open(result.startUrl, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
-      startHeartbeat()
-      return
+    if (result.txId) {
+      txId.value = String(result.txId)
+      startStatusPolling(txId.value)
     }
 
-    throw new Error('유효한 PASS 시작 URL이 없습니다.')
+    if (result.startUrl) {
+      // 외부 브라우저/새창
+      openedWin.value = window.open(result.startUrl, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
+    } else {
+      throw new Error('유효한 PASS 시작 URL이 없습니다.')
+    }
   } catch (e) {
     console.error('[PhoneUpdate][start] error', e)
     error.value = e?.message || '시작 실패'
@@ -347,6 +394,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('message', handlePostMessage)
   stopHeartbeat()
+  stopStatusPolling()
 })
 </script>
 
