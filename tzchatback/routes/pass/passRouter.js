@@ -54,40 +54,84 @@ function json(res, status, body) {
 }
 
 /* ──────────────── 공급사 필드 추출 유틸 ──────────────── */
-// 일부 환경에서 danal.parseCallback이 phone/carrier를 최상단에 넣지 않는 경우가 있어
-// raw 안의 다양한 키 후보를 스캔하여 보강한다.
+// 키 후보 + 딥스캔으로 보강
+function toStr(v){ return (v==null ? '' : String(v)); }
+function digits(s){ return toStr(s).replace(/[^\d+]/g,''); }
+function plausibleKRPhone(s) {
+  const d = digits(s);
+  // 10~12자리 숫자면 후보, '010'/'11x' 시작 케이스 우선
+  if (!/^\+?\d{9,14}$/.test(d)) return '';
+  // 국내형(010, 01x, 1xx 등) 또는 이미 +82
+  if (d.startsWith('+82') || d.startsWith('010') || d.startsWith('011') || d.startsWith('016') || d.startsWith('017') || d.startsWith('018') || d.startsWith('019')) {
+    return normalizePhoneKR(d);
+  }
+  // 기타 숫자열은 일단 E.164로 시도
+  return normalizePhoneKR(d);
+}
+
+function deepScanForPhone(obj, maxDepth=3, path='') {
+  try {
+    if (!obj || typeof obj !== 'object' || maxDepth < 0) return { phone: '', via: '' };
+    for (const [k, v] of Object.entries(obj)) {
+      const key = String(k).toLowerCase();
+      // 키 이름 힌트
+      if (/(phone|mobile|hp|cell|tel|msisdn)/.test(key)) {
+        const cand = plausibleKRPhone(v);
+        if (cand) return { phone: cand, via: `deep:${path}${k}` };
+      }
+      // 값이 문자열인데 패턴으로 찾기
+      if (typeof v === 'string') {
+        const cand = plausibleKRPhone(v);
+        if (cand) return { phone: cand, via: `deep:${path}${k}(str)` };
+      }
+      // 객체/배열이면 재귀
+      if (v && typeof v === 'object') {
+        const sub = deepScanForPhone(v, maxDepth-1, `${path}${k}.`);
+        if (sub.phone) return sub;
+      }
+    }
+  } catch {}
+  return { phone: '', via: '' };
+}
+
 function extractPhoneFromParsed(parsed = {}) {
   const raw = parsed.raw || {};
-  const candidates = [
-    parsed.phone,
-    parsed.mobileno, parsed.mobileNo,
-    raw.PHONE, raw.MOBILE_NO, raw.MOBILENO, raw.TEL_NO, raw.HP_NO,
-    raw.MOBILE, raw.CELLPHONE, raw.PHONENO, raw.PHONE_NO,
-    raw['PHONE_NO'], raw['MOBILENUM'], raw['MOBILE-NO'],
+  const flatCandidates = [
+    parsed.phone, parsed.phoneNo, parsed.phoneno,
+    parsed.mobileno, parsed.mobileNo, parsed.mobile, parsed.cellphone, parsed.hp, parsed.hpNo,
+    raw.PHONE, raw.PHONE_NO, raw.PHONENO, raw.TEL_NO, raw.TELNO,
+    raw.MOBILE, raw.MOBILE_NO, raw.MOBILENO, raw.MOBILENUM, raw['MOBILE-NO'],
+    raw.HP, raw.HP_NO, raw.CELLPHONE, raw.MSISDN,
+    raw.USER_PHONE, raw.USER_MOBILE, raw.CI_PHONENO, raw.CI_PHONE,
   ];
-  for (const v of candidates) {
-    if (v && String(v).trim()) return String(v).trim();
+  for (const v of flatCandidates) {
+    const cand = plausibleKRPhone(v);
+    if (cand) return { phone: cand, via: 'flat' };
   }
-  return '';
+  // 못 찾으면 딥스캔
+  return deepScanForPhone({ parsed, raw });
 }
+
 function extractCarrierFromParsed(parsed = {}) {
   const raw = parsed.raw || {};
   const candidates = [
     parsed.carrier, parsed.telco, parsed.telecom,
     raw.TELCO, raw.TELCO_CODE, raw.CARRIER, raw.CI_TELECOM,
-    raw.TELECOM, raw.CARRIER_NAME
+    raw.TELECOM, raw.CARRIER_NAME, raw.TELCOM, raw.OPERATOR
   ];
   for (const v of candidates) {
     if (v && String(v).trim()) return String(v).trim();
   }
   return '';
 }
+
 function mapCarrier(code) {
   if (!code) return '';
   const up = String(code).toUpperCase();
   if (up.includes('SKT')) return up.includes('MVNO') ? 'SKT(MVNO)' : 'SKT';
   if (up === 'KT' || up.includes('KT')) return up.includes('MVNO') ? 'KT(MVNO)' : 'KT';
   if (up.includes('LG')) return up.includes('MVNO') ? 'LGU+(MVNO)' : 'LGU+';
+  if (up.includes('MVNO')) return 'MVNO';
   return up;
 }
 
@@ -198,8 +242,8 @@ window.close();
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
-    const rawPhoneCandidate = extractPhoneFromParsed(parsed);
-    const phone  = rawPhoneCandidate ? normalizePhoneKR(rawPhoneCandidate) : '';
+    const { phone: extractedPhone, via: phoneVia } = extractPhoneFromParsed(parsed);
+    const phone  = extractedPhone ? normalizePhoneKR(extractedPhone) : '';
 
     const rawCarrierCandidate = extractCarrierFromParsed(parsed);
     const carrier = mapCarrier(rawCarrierCandidate);
@@ -208,7 +252,7 @@ window.close();
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
     const nameMasked = maskName(parsed.name || '');
 
-    // 3) rawMasked (민감정보 제거)
+    // 3) rawMasked (민감정보 제거) + 디버그 힌트 저장
     const rawMasked = {
       ...parsed.raw,
       birthdate: birthdate || undefined,
@@ -218,6 +262,7 @@ window.close();
       name: nameMasked,
       phone,      // 정규화된 값으로 기록(표시/디버깅 용도)
       carrier,    // 매핑된 통신사명
+      __debug_phone_via: phoneVia || null,  // ← 어디서 추출됐는지
     };
 
     // 4) 결과 upsert (★ phone/carrier를 반드시 저장)
@@ -247,7 +292,8 @@ window.close();
       console.log('[PASS/callback][upsert]', {
         txId: saved?.txId || txId,
         status: saved?.status || (parsed.success ? 'success' : 'fail'),
-        hasPhone: !!(phone),
+        hasPhone: !!phone,
+        phoneVia: phoneVia || '(none)',
         phoneSample: phone ? (phone.slice(0, 4) + '...' + phone.slice(-2)) : '(empty)',
         carrier
       });
@@ -295,6 +341,8 @@ router.get('/status', async (req, res) => {
           gender: doc.gender || '',
           phone: doc.phone || '',   // ← 포함 보장
           carrier: doc.carrier || '',
+          // 디버그 힌트(운영 숨김 권장)
+          debugPhoneVia: doc.rawMasked?.__debug_phone_via || null,
         },
       });
     }
@@ -353,13 +401,6 @@ router.get('/result/:txId', async (req, res) => {
 });
 
 /* ===================== 5) ROUTE (CI-only & real user check) ====================== */
-// 조건:
-//  - PassResult.status === 'success' && consumed !== true
-//  - CI가 존재하고,
-//  - 아래 순서로 "실제 User" 존재 확인:
-//    (A) PassIdentity.ciHash → userId 매핑 후 실제 User 존재 확인
-//    (B) User.ciHash(참조용)로 직접 조회(구/신 버전 호환)
-//  - 어디에도 실제 User가 없으면 route='signup', 있으면 route='templogin'
 router.get('/route', async (req, res) => {
   try {
     const { txId } = req.query;
