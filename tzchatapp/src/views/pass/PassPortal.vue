@@ -48,6 +48,50 @@
             </details>
           </div>
 
+          <!-- ⬇️ PASS 결과(서버 저장 PassResult) 디버그 패널 -->
+          <div v-if="hasPassResult" class="result-panel">
+            <div class="panel-head">
+              <h3>PASS 결과 (PassResult)</h3>
+              <small class="muted">txId: {{ passTxShort }}</small>
+            </div>
+
+            <ul class="kv">
+              <li><span class="k">status</span><span class="v">{{ pr.status }}</span></li>
+              <li v-if="pr.failCode"><span class="k">failCode</span><span class="v">{{ pr.failCode }}</span></li>
+              <li v-if="pr.intent"><span class="k">intent</span><span class="v">{{ pr.intent }}</span></li>
+              <li v-if="pr.provider"><span class="k">provider</span><span class="v">{{ pr.provider }}</span></li>
+              <li v-if="pr.name"><span class="k">name</span><span class="v">{{ pr.name }}</span></li>
+              <li v-if="pr.birthyear"><span class="k">birthyear</span><span class="v">{{ pr.birthyear }}</span></li>
+              <li v-if="pr.gender !== undefined"><span class="k">gender</span><span class="v">{{ pr.gender }}</span></li>
+              <li v-if="pr.phone"><span class="k">phone</span><span class="v">{{ pr.phone }}</span></li>
+              <li v-if="pr.carrier"><span class="k">carrier</span><span class="v">{{ pr.carrier }}</span></li>
+              <li v-if="pr.ciHash"><span class="k">ciHash</span><span class="v mono">{{ pr.ciHash }}</span></li>
+              <li v-if="pr.diHash"><span class="k">diHash</span><span class="v mono">{{ pr.diHash }}</span></li>
+              <li><span class="k">consumed</span><span class="v">{{ String(pr.consumed || false) }}</span></li>
+              <li v-if="pr.usedAt"><span class="k">usedAt</span><span class="v">{{ fmt(pr.usedAt) }}</span></li>
+              <li v-if="pr.createdAt"><span class="k">createdAt</span><span class="v">{{ fmt(pr.createdAt) }}</span></li>
+              <li v-if="pr.updatedAt"><span class="k">updatedAt</span><span class="v">{{ fmt(pr.updatedAt) }}</span></li>
+            </ul>
+
+            <details v-if="pr.rawMasked">
+              <summary>rawMasked 보기</summary>
+              <pre class="raw">{{ pretty(pr.rawMasked) }}</pre>
+            </details>
+
+            <details v-if="passResultRaw">
+              <summary>전체 JSON 보기</summary>
+              <pre class="raw">{{ pretty(passResultRaw) }}</pre>
+            </details>
+
+            <div class="result-actions">
+              <ion-button size="small" @click="goSignup" :disabled="busy">회원가입으로 이동</ion-button>
+              <ion-button size="small" @click="goHome" :disabled="busy">홈으로 이동</ion-button>
+            </div>
+            <p class="hint">
+              * 이 패널은 개발용으로 PassResult 전체를 노출합니다. 운영 시 제거/주석 처리하세요.
+            </p>
+          </div>
+
           <div class="tips">
             <p>인증이 완료되면 자동으로 분기됩니다:</p>
             <ul>
@@ -88,6 +132,17 @@ const openedWin = ref(null);
 const heartbeat = ref(null);
 const txIdRef = ref('');
 
+// ⬇️ PassResult 디버그 노출용 상태
+const passResult = ref(null);        // 서버가 내려준 최종 객체(포장 포함 가능)
+const passResultRaw = ref(null);     // 응답 원문(JSON 파싱된 전체)
+const hasPassResult = computed(() => !!passResult.value);
+const pr = computed(() => {
+  const raw = passResult.value || {};
+  // { ok, result } 구조 또는 바로 문서로 오는 경우 대응
+  return raw.result || raw;
+});
+const passTxShort = computed(() => (pr.value?.txId || txIdRef.value || '').slice(0, 18) + '…');
+
 // 버튼 렌더링 상태
 const mode = ref('idle'); // idle | running | fail
 const buttonText = computed(() => {
@@ -102,6 +157,14 @@ const detail = computed(() => lastFailDetail.value || {});
 const hasDetail = computed(() => !!lastFailDetail.value);
 const pretty = (obj) => {
   try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+};
+const fmt = (d) => {
+  try {
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d);
+    const z = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${z(dt.getMonth()+1)}-${z(dt.getDate())} ${z(dt.getHours())}:${z(dt.getMinutes())}:${z(dt.getSeconds())}`;
+  } catch { return String(d); }
 };
 
 // ✅ 앱(네이티브) 여부 우선 판단 → 앱이면 항상 서버 PASS
@@ -121,6 +184,7 @@ function clearPassKeys() {
     localStorage.removeItem('PASS_RESULT_TX');
     localStorage.removeItem('PASS_FAIL');
     localStorage.removeItem('PASS_FAIL_DETAIL');
+    localStorage.removeItem('PASS_LAST_RESULT');
   } catch {}
 }
 
@@ -131,11 +195,9 @@ function handlePostMessage(ev) {
 
     if (data?.type === 'PASS_FAIL') {
       lastFailCode.value = String(data?.reason || 'USER_CANCEL');
-      // 상세 객체 포함 시 저장
       if (data?.detail && typeof data.detail === 'object') {
         lastFailDetail.value = data.detail;
       } else {
-        // 폴백: localStorage PASS_FAIL_DETAIL 확인
         try {
           const s = localStorage.getItem('PASS_FAIL_DETAIL');
           if (s) lastFailDetail.value = JSON.parse(s);
@@ -165,7 +227,6 @@ function handleStorage(ev) {
       const reason = ev.newValue ? String(ev.newValue) : 'USER_CANCEL';
       localStorage.removeItem('PASS_FAIL');
       lastFailCode.value = reason || 'USER_CANCEL';
-      // 함께 저장된 상세가 있으면 읽기
       try {
         const s = localStorage.getItem('PASS_FAIL_DETAIL');
         if (s) lastFailDetail.value = JSON.parse(s);
@@ -204,7 +265,6 @@ function startHeartbeat() {
         } else if (fail) {
           localStorage.removeItem('PASS_FAIL');
           lastFailCode.value = String(fail);
-          // 닫힐 때 남긴 상세도 함께 수거
           try {
             const s = localStorage.getItem('PASS_FAIL_DETAIL');
             if (s) lastFailDetail.value = JSON.parse(s);
@@ -235,7 +295,6 @@ function startStatusPolling(txId) {
       if (!j?.ok) return;
 
       if (j.status === 'consumed') {
-        // 서버에서 이미 소모됨 → 재시작 유도
         stopPopupAndPoll();
         clearPassKeys();
         lastFailCode.value = 'CONSUMED';
@@ -244,7 +303,6 @@ function startStatusPolling(txId) {
         busy.value = false;
       } else if (j.status === 'fail') {
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        // ⬇️ 백엔드가 동봉한 상세 사유(예: returnMsg) 반영
         lastFailDetail.value = {
           code: j?.result?.failCode || 'UNKNOWN',
           message: j?.result?.failMessage || '',
@@ -286,7 +344,6 @@ onMounted(async () => {
     const l = localStorage.getItem('PASS_RESULT_TX') || '';
     const tx = s || l;
     if (tx) {
-      // 회수 후 즉시 분기
       txIdRef.value = tx;
       mode.value = 'running';
       busy.value = true;
@@ -303,7 +360,6 @@ onMounted(async () => {
     busy.value = false;
   }
 });
-
 
 onBeforeUnmount(() => {
   window.removeEventListener('message', handlePostMessage);
@@ -326,8 +382,30 @@ function stopPopupAndPoll() {
   openedWin.value = null;
 }
 
+// ⬇️ PassResult 로드 & 보관
+async function loadPassResult(txId) {
+  if (!txId) return;
+  try {
+    const res = await fetch(api(`/api/auth/pass/result/${encodeURIComponent(txId)}`), {
+      credentials: 'include'
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { json = { ok: false, raw: text }; }
+    passResultRaw.value = json;
+    passResult.value = json;
+    try { localStorage.setItem('PASS_LAST_RESULT', JSON.stringify(json)); } catch {}
+  } catch (e) {
+    passResult.value = { ok: false, error: String(e) };
+    passResultRaw.value = { ok: false, error: String(e) };
+  }
+}
+
 async function proceedRouteByTx(txId) {
   try {
+    // ✅ 먼저 PassResult를 읽어와서 디버그 패널에 노출
+    await loadPassResult(txId);
+
     const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), {
       credentials: 'include'
     });
@@ -358,6 +436,14 @@ async function proceedRouteByTx(txId) {
       mode.value = 'fail';
       busy.value = false;
       return;
+    }
+
+    // ⬇️ stay=1 쿼리 시 자동 분기 중지(디버그용)
+    const stay = String(route.query.stay || '') === '1';
+    if (stay) {
+      mode.value = 'idle';
+      busy.value = false;
+      return; // 화면에 PassResult 패널만 보여줌
     }
 
     const nextRoute = j?.route || j?.next;
@@ -409,7 +495,6 @@ async function proceedRouteByTx(txId) {
         `/signup${qs}`
       );
       if (!ok) return;
-      // 성공 이동 시에도 찌꺼기 제거 (서버는 소모형으로 방어)
       clearPassKeys();
     } else if (nextRoute === 'templogin') {
       // ⬇️ 임시로그인 먼저 수행하여 JWT/세션을 확립한 후 이동
@@ -527,6 +612,16 @@ function onBack() {
   clearPassKeys();
   router.replace('/login');
 }
+
+// ⬇️ 디버그 패널 버튼
+function goSignup() {
+  const txId = txIdRef.value || pr.value?.txId || '';
+  if (!txId) return;
+  router.replace({ name: 'Signup', query: { passTxId: txId } });
+}
+function goHome() {
+  router.replace('/');
+}
 </script>
 
 <style scoped>
@@ -537,16 +632,23 @@ h2 { margin: 0 0 8px; }
 .mr-2 { margin-right: 8px; }
 .fail-code { margin-top: 12px; color: var(--ion-color-danger); }
 
-/* ⬇️ 상세 패널 스타일 */
 .fail-detail { margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 0, 0, 0.06); border: 1px solid rgba(255, 0, 0, 0.2); }
 .fail-detail h3 { margin: 0 0 8px; font-size: 1rem; }
 .kv { list-style: none; padding: 0; margin: 0 0 8px; }
-.kv li { display: grid; grid-template-columns: 96px 1fr; gap: 8px; padding: 4px 0; }
+.kv li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 4px 0; }
 .kv .k { opacity: 0.7; }
 .kv .v { word-break: break-all; }
+.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .raw { margin: 8px 0 0; max-height: 240px; overflow: auto; background: rgba(255,255,255,0.06); padding: 8px; border-radius: 8px; }
 
 .tips { margin-top: 16px; font-size: 0.95rem; opacity: 0.9; }
 .tips ul { margin: 6px 0 0 18px; }
+
+/* ⬇️ PassResult 패널 */
+.result-panel { margin-top: 16px; padding: 12px; border-radius: 12px; background: rgba(0, 128, 255, 0.06); border: 1px solid rgba(0, 128, 255, 0.2); }
+.result-panel .panel-head { display: flex; align-items: baseline; gap: 8px; }
+.result-panel .panel-head h3 { margin: 0; font-size: 1rem; }
+.result-panel .panel-head .muted { opacity: 0.7; }
+.result-actions { display: flex; gap: 8px; margin-top: 8px; }
+.hint { margin-top: 6px; opacity: 0.7; font-size: 0.85rem; }
 </style>
- 

@@ -32,25 +32,40 @@ module.exports = (app) => {
   app.use('/api/admin', require('./admin/adminRouter'));         // 관리자 전용 – 시스템/유저/채팅/공지/통계/환경
   app.use('/api/admin', require('./admin/migrationRouter'));     // 관리자 전용 – migration
 
+
+
   // ----------------------------------------------------------
   // User / Auth / Profile 등 일반 /api 라우터 (인증 요구 가능)
   // ----------------------------------------------------------
-  app.use('/api', require('./user/authRouter'));                 // 로그인/로그아웃/토큰 발급 등 인증 전담
-  app.use('/api', require('./user/profileImageRouter'));         // 프로필 이미지 업로드·리사이즈·목록·대표 지정·삭제
+
+  app.use('/api', require('./user/authRouter'));                    // 회원가입 + 공개 유저 목록
+  app.use('/api', require('./user/accountRouter'));                 // 내 계정 중심 라우터
+  app.use('/api', require('./user/sessionRouter'));                 // 세션/토큰 / 로그인 / 로그아웃
   app.use('/api', require('./user/userRouter'));                 // 내 정보 수정(닉네임/지역/자기소개/특징)
-  app.use('/api', require('./user/gradeRouter'));                // 유저 등급 수동 작업 라우터 (임시)
+  
+
+  //public
+  app.use('/api', require('./public/imageWriteRouter'));         // 프로필 이미지 업로드·리사이즈·목록·대표 지정·삭제
+  app.use('/api', require('./public/imageReadRouter'));         // 프로필 이미지 조회, 대표지정
+  app.use('/api', require('./public/gradeRouter'));                // 유저 등급 수동 작업 라우터 (임시)
+
 
   // ----------------------------------------------------------
   // Chat / Social
   // ----------------------------------------------------------
-  app.use('/api', require('./chat/chatRouter'));                 // 채팅방/메시지
-  app.use('/api', require('./chat/friendRouter'));               // 친구 신청/수락/거절/차단/해제 및 목록
+  app.use('/api', require('./chat/chatRoomRouter'));                 // 채팅방/메시지
+  app.use('/api', require('./chat/chatMessageRouter'));                 // 채팅방/메시지
 
+  app.use('/api', require('./chat/friendRelationRouter'));               // 친구 목록 /삭제/ 차단/해제/ 유저상세
+  app.use('/api', require('./chat/friendRequestmanageRouter'));               // 친구 "신청 처리/목록" 전용 라우터
+  app.use('/api', require('./chat/friendRequestSendRouter'));               // 친구 신청 발송 / 취소
   // ----------------------------------------------------------
   // Search
   // ----------------------------------------------------------
-  app.use('/api', require('./search/targetRouter'));             // 검색 조건 업데이트 + 다중 지역 기반 사용자 검색
+  app.use('/api', require('./search/searchingRouter'));             // 검색 설정 전용 라우터 (로그인 가드 / 등급 가드 제거: 값 그대로 저장)
+  app.use('/api', require('./search/targetRouter'));             // 검색/추천 질의 전용 라우터 (로그인 가드)
   app.use('/api', require('./search/emergencyRouter'));          // 긴급모드 on/off, 잔여시간 계산 등
+
 
   // ----------------------------------------------------------
   // System

@@ -1,14 +1,11 @@
-// routes/user/profileImageRouter.js
+// routes/public/imageWriteRouter.js
 // base: /api
 // -------------------------------------------------------------
-// 📷 프로필 이미지 라우터
-// - 업로드: 다중 파일 → 중앙 크롭(avatar=1:1, gallery=4:5) + 3종 리사이즈(thumb/medium/full)
-// - 저장 경로: /uploads/profile/<userId>/<imageId>_{thumb|medium|full}.jpg
-// - 목록 조회: 내/상대방
-// - 대표 지정: profileMain = <imageId>
-// - 삭제: 배열/디스크 정리 + 대표 삭제 시 후속 처리
-// - ✅ 응답 시 이미지 URL 절대경로로 정규화(과거 localhost 절대URL도 강제 교정)
-// - ✅ Mongoose 전체 검증 회피: updateOne + runValidators:false
+// 📷 프로필 이미지 업로드·삭제 전용 라우터 (파일 IO/Sharp 의존)
+// - POST   /api/profile/images         : 업로드(avatar|gallery) → 중앙 크롭 + 3종 리사이즈
+// - DELETE /api/profile/images/:id     : 삭제(파일·DB·대표 후속)
+// - ✅ DB에는 상대(/uploads/...) 저장, 응답은 절대 URL로 정규화
+// - ✅ updateOne + runValidators:false 로 원자적 반영
 // - ✅ 업로드 루트: 프로젝트 루트(기본), ENV로 오버라이드
 // -------------------------------------------------------------
 
@@ -18,32 +15,22 @@ const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 const sharp = require('sharp');
+
 const requireLogin = require('@/middlewares/authMiddleware');
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
 
-// models/index.js 가 모든 모델을 export 한다는 가정
-const {
-  ChatRoom, Message,
-  Entitlement, PaymentTransaction, RefundRequest, Subscription,
-  FriendRequest, Report,
-  AdminLog, AppConfig, Notice,
-  DeletionRequest, DeviceToken, User,
-  Terms, UserAgreement,
-} = require('@/models');
+const { User } = require('@/models');
 
 const router = express.Router();
-router.use(requireLogin, blockIfPendingDeletion); // 전역 차단
+router.use(requireLogin, blockIfPendingDeletion);
 
 // ===== 공용 로그 헬퍼 =====
-const log = (...args) => console.log('[profileImage]', ...args);
+const log = (...args) => console.log('[profileImage:write]', ...args);
 
-// ===== 경로 유틸 =====
-// ⚠ 기존: path.join(__dirname, '..', 'uploads') → routes/uploads 로 생김
-// ✅ 수정: 프로젝트 루트의 /uploads 이용(기본), 필요 시 ENV로 오버라이드
+// ===== 경로/ID 유틸 =====
 const UPLOAD_ROOT =
   process.env.UPLOAD_ROOT
   || path.resolve(__dirname, '../../uploads'); // routes/user/ → ../../ → 프로젝트 루트
-
 const PROFILE_ROOT = path.join(UPLOAD_ROOT, 'profile');
 
 function ensureDirSync(dir) {
@@ -61,18 +48,16 @@ function getUserProfileDir(userId) {
   ensureDirSync(dir);
   return dir;
 }
-
 function genId() {
   return crypto.randomBytes(16).toString('hex'); // 32 hex
 }
 
-// ===== URL 정규화 =====
+// ===== URL 정규화 & 변환 =====
 function stripTrailingSlashes(u) { return (u || '').replace(/\/+$/, ''); }
 function firstHeaderVal(h) {
   return (h || '').split(',')[0].trim();
 }
 function parseForwarded(forwarded) {
-  // RFC 7239: Forwarded: proto=https;host=example.com:443;for="1.2.3.4"
   const out = {};
   if (!forwarded) return out;
   const first = firstHeaderVal(forwarded);
@@ -84,18 +69,6 @@ function parseForwarded(forwarded) {
   }
   return out;
 }
-
-/**
- * 퍼블릭 베이스 URL 계산 (프록시/HTTPS 안전)
- * 우선순위:
- *  1) ENV: PUBLIC_BASE_URL/FILE_BASE_URL/API_BASE_URL
- *  2) RFC7239 Forwarded 헤더(proto/host)
- *  3) X-Forwarded-Proto / X-Forwarded-Host / X-Forwarded-Port
- *  4) req.protocol + req.get('host')
- * 추가 규칙:
- *  - 호스트가 존재하고 프로토콜이 모호하면 https 우선
- *  - tzchat.tazocode.com 도메인은 무조건 https로 고정
- */
 function getPublicBaseUrl(req) {
   const envBase =
     process.env.PUBLIC_BASE_URL ||
@@ -116,35 +89,25 @@ function getPublicBaseUrl(req) {
     req.get('host') ||
     '';
 
-  // x-forwarded-port가 있는데 host에 포트가 없으면 붙여준다.
   const xfPort = firstHeaderVal(req.headers['x-forwarded-port']);
   if (xfPort && host && !/:\d+$/.test(host)) host = `${host}:${xfPort}`;
 
-  // tzchat.tazocode.com은 무조건 HTTPS 고정 (혼합콘텐츠 방지)
-  const bareHost = host.replace(/:\d+$/, '');
+  const bareHost = (host || '').replace(/:\d+$/, '');
   if (/^tzchat\.tazocode\.com$/i.test(bareHost)) {
     proto = 'https';
   } else {
-    // 프록시 환경에서 보통 https가 맞음 (명시 안 되면 https로 가정)
     if (!/^https?$/i.test(proto)) proto = 'https';
   }
 
   if (!host) {
-    // 최악의 경우라도 혼합콘텐츠 피하려고 도메인이 없으면 로컬호스트 대신 빈 호스트를 쓰지 않고 throw
-    // 다만 운영 중 장애를 막기 위해 안전한 기본값(https://tzchat.tazocode.com) 제공 가능
     host = 'tzchat.tazocode.com';
     proto = 'https';
   }
-
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
-/**
- * 서버 내부 저장용 절대경로 → 퍼블릭 상대경로 (/uploads/...) 로 변환
- */
+/** 내부 절대경로 → 퍼블릭 상대경로(/uploads/...) */
 function toPublicUrl(absPath) {
-  // absPath: <UPLOAD_ROOT>/profile/<userId>/<id>_thumb.jpg
-  // => /uploads/profile/<userId>/<file>
   const normalized = (absPath || '').replace(/\\/g, '/');
   const base = UPLOAD_ROOT.replace(/\\/g, '/');
   const rel = normalized.startsWith(base) ? normalized.slice(base.length) : null;
@@ -152,60 +115,47 @@ function toPublicUrl(absPath) {
   return `/uploads${rel}`;
 }
 
-/**
- * 퍼블릭 URL(/uploads/...) → 서버 파일 시스템 절대경로
- */
+/** 퍼블릭 URL(/uploads/...) → 서버 절대경로 */
 function publicUrlToAbs(publicUrl) {
   if (!publicUrl) return null;
   const p = publicUrl.replace(/\\/g, '/');
   const i = p.indexOf('/uploads/');
   if (i === -1) return null;
-  const rel = p.slice(i + '/uploads/'.length).replace(/\.\./g, ''); // 보안: 상위 경로 제거
+  const rel = p.slice(i + '/uploads/'.length).replace(/\.\./g, '');
   return path.join(UPLOAD_ROOT, rel);
 }
 
-/**
- * ✅ 핵심: 응답 시 절대 URL로 정규화하되,
- * 과거에 http://localhost:2000/uploads/... 처럼 "잘못 저장된 절대URL"도
- * 현재 요청 도메인/프로토콜 기준으로 강제 교체한다.
- *
- * 규칙:
- *  - 입력이 http(s) 절대 URL인데 path가 /uploads/로 시작하면, origin을 현재 요청 기준으로 교체.
- *  - 입력이 상대(/uploads/...)면 현재 기준으로 절대화.
- *  - 그 외 외부 URL은 그대로 둠.
- *  - 최종 프로토콜은 가능하면 https.
- */
+/** 응답 절대 URL 정규화 */
 function toAbsoluteUploadUrl(u, req) {
   if (!u) return u;
   const base = getPublicBaseUrl(req);
 
-  // 절대 URL?
   if (/^https?:\/\//i.test(u)) {
     try {
       const url = new URL(u);
       if (url.pathname.startsWith('/uploads/')) {
         const absBase = new URL(base);
-        url.protocol = absBase.protocol;  // 보통 https
+        url.protocol = absBase.protocol;
         url.host     = absBase.host;
         return url.toString();
       }
-      // 업로드 경로가 아니면 외부 리소스일 수 있으므로 그대로 둔다.
       return u;
-    } catch {
-      // 파싱 실패 시 아래 상대 로직으로 폴백
-    }
+    } catch { /* ignore */ }
   }
 
-  // 상대 경로
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;
+}
+
+function getMyId(req) {
+  return req?.user?._id || req?.session?.user?._id || null;
 }
 
 // ===== Multer (임시 저장: 사용자 폴더 내 tmp) =====
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
-      const userId = req?.user?._id || req?.session?.user?._id;
+      const userId = getMyId(req);
       if (!userId) return cb(new Error('인증 필요'), null);
       const userDir = getUserProfileDir(userId);
       const tmpDir = path.join(userDir, 'tmp');
@@ -215,13 +165,13 @@ const storage = multer.diskStorage({
       cb(e);
     }
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || '').toLowerCase();
     const uid = genId();
     cb(null, `${uid}${ext || ''}`);
   }
 });
-const fileFilter = (req, file, cb) => {
+const fileFilter = (_req, file, cb) => {
   if (!file.mimetype || !file.mimetype.startsWith('image/')) {
     return cb(new Error('이미지 파일만 업로드할 수 있습니다.'), false);
   }
@@ -266,94 +216,15 @@ async function createVariantsAndSave(srcPath, outBasePathNoExt, aspect) {
 
     results[s.name] = outPath;
   }
-  return results; // { thumb, medium, full } absolute paths
-}
-
-// ===== 권한 & 유틸 =====
-function getMyId(req) {
-  return req?.user?._id || req?.session?.user?._id || null;
-}
-
-function assertOwner(userDoc, userId) {
-  if (!userDoc || String(userDoc._id) !== String(userId)) {
-    const err = new Error('권한 없음');
-    err.status = 403;
-    throw err;
-  }
+  return results; // { thumb, medium, full }
 }
 
 // ======================================================
-// [1] 내 프로필 이미지 목록 조회
-// GET /api/profile/images
-// ======================================================
-router.get('/profile/images', requireLogin, async (req, res) => {
-  try {
-    const myId = getMyId(req);
-    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
-
-    const me = await User.findById(myId, { profileImages: 1, profileMain: 1 }).lean();
-    if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
-
-    const images = (me.profileImages || []).map(img => ({
-      ...img,
-      urls: {
-        thumb:  toAbsoluteUploadUrl(img?.urls?.thumb  || '', req),
-        medium: toAbsoluteUploadUrl(img?.urls?.medium || '', req),
-        full:   toAbsoluteUploadUrl(img?.urls?.full   || '', req),
-      }
-    }));
-
-    return res.json({
-      profileMain: me.profileMain || '',
-      profileImages: images
-    });
-  } catch (err) {
-    console.error('[GET]/profile/images ERR', err?.message);
-    const code = err?.status || 500;
-    return res.status(code).json({ message: '이미지 목록 조회 실패' });
-  }
-});
-
-// ======================================================
-// [2] 상대방 프로필 이미지 목록 조회
-// GET /api/users/:id/profile/images
-// ======================================================
-router.get('/users/:id/profile/images', requireLogin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findById(id, { profileImages: 1, profileMain: 1 }).lean();
-    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
-
-    const images = (user.profileImages || []).map(img => ({
-      ...img,
-      urls: {
-        thumb:  toAbsoluteUploadUrl(img?.urls?.thumb  || '', req),
-        medium: toAbsoluteUploadUrl(img?.urls?.medium || '', req),
-        full:   toAbsoluteUploadUrl(img?.urls?.full   || '', req),
-      }
-    }));
-
-    return res.json({
-      profileMain: user.profileMain || '',
-      profileImages: images
-    });
-  } catch (err) {
-    console.error('[GET]/users/:id/profile/images ERR', err?.message);
-    const code = err?.status || 500;
-    return res.status(code).json({ message: '이미지 목록 조회 실패' });
-  }
-});
-
-// ======================================================
-// [3] 이미지 업로드 (다중)
+// [1] 이미지 업로드 (다중)
 // POST /api/profile/images
 // body: kind = 'avatar' | 'gallery' (default: 'gallery')
-// ✅ 변경점:
-//   - DB에는 상대경로(/uploads/...) 저장 유지
-//   - 응답에는 현재 도메인 기준 절대 URL 제공(과거 localhost 절대URL 방지)
-//   - updateOne($push) + runValidators:false 로 원자적 반영
 // ======================================================
-router.post('/profile/images', requireLogin, upload.array('images', 10), async (req, res) => {
+router.post('/profile/images', upload.array('images', 10), async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
@@ -428,53 +299,17 @@ router.post('/profile/images', requireLogin, upload.array('images', 10), async (
       ...(shouldSetMain ? { profileMain: toInsert[0].id } : {})
     });
   } catch (err) {
-    console.error('[POST]/profile/images ERR', err?.message);
+    log('POST /profile/images ERR', err?.message);
     const code = err?.status || 500;
     return res.status(code).json({ message: '이미지 업로드 실패' });
   }
 });
 
 // ======================================================
-// [4] 대표 사진 지정
-// PUT /api/profile/main
-// ✅ 변경점: updateOne + runValidators:false
-// ======================================================
-router.put('/profile/main', requireLogin, async (req, res) => {
-  try {
-    const myId = getMyId(req);
-    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
-
-    const { imageId } = req.body || {};
-    if (!imageId) return res.status(400).json({ message: 'imageId가 필요합니다.' });
-
-    const me = await User.findById(myId, { profileImages: 1 }).lean();
-    if (!me) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
-
-    const exists = (me.profileImages || []).some(img => String(img.id) === String(imageId));
-    if (!exists) return res.status(404).json({ message: '해당 이미지가 존재하지 않습니다.' });
-
-    await User.updateOne(
-      { _id: myId },
-      { $set: { profileMain: imageId } },
-      { runValidators: false }
-    );
-
-    return res.json({ success: true, profileMain: imageId });
-  } catch (err) {
-    console.error('[PUT]/profile/main ERR', err?.message);
-    const code = err?.status || 500;
-    return res.status(code).json({ message: '대표 사진 지정 실패' });
-  }
-});
-
-// ======================================================
-// [5] 이미지 삭제
+// [2] 이미지 삭제
 // DELETE /api/profile/images/:id
-// ✅ 변경점:
-//   - 파일 경로 계산을 UPLOAD_ROOT 기준으로 안전하게 변경
-//   - 배열 갱신은 updateOne($pull, $set) + runValidators:false
 // ======================================================
-router.delete('/profile/images/:id', requireLogin, async (req, res) => {
+router.delete('/profile/images/:id', async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
@@ -516,7 +351,7 @@ router.delete('/profile/images/:id', requireLogin, async (req, res) => {
 
     return res.json({ success: true, removedId: imageId, profileMain: nextMain });
   } catch (err) {
-    console.error('[DELETE]/profile/images/:id ERR', err?.message);
+    log('DELETE /profile/images/:id ERR', err?.message);
     const code = err?.status || 500;
     return res.status(code).json({ message: '이미지 삭제 실패' });
   }
