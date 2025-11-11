@@ -5,6 +5,7 @@
 // - 공통 컨텍스트: req._uid, req.auth.userId
 // - ✅ 공개(무인증) 경로 화이트리스트 추가: PASS/수동PASS/로그인/회원가입/헬스체크 등
 // - ✅ CORS 사전요청(OPTIONS) 통과
+// - ✅ PASS-phone 등 인증 필요 경로 분리 보장
 // ------------------------------------------------------------
 const jwt = require('jsonwebtoken');
 
@@ -15,15 +16,19 @@ const JWT_COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
 //    - pass: 정상 PASS (start/callback/status/route 등)
 //    - passmanual: 로컬 수동 PASS (manual/fail)
 //    - login/signup: 로그인/회원가입
-//    - health: 헬스체크 (구/신 엔드포인트 모두)
+//    - health: 헬스체크
+//    - debug/passEnv 등 테스트 목적
 const OPEN_PATHS = [
-  /^\/api\/auth\/pass(?:\/|$)/,        // 예) /api/auth/pass/start, /callback, /status, /route
-  /^\/api\/auth\/passmanual(?:\/|$)/,  // 예) /api/auth/passmanual/manual, /fail
+  /^\/api\/auth\/pass(?:\/|$)/,        // /api/auth/pass/start, /callback, /status, /route
+  /^\/api\/auth\/passmanual(?:\/|$)/,  // /api/auth/passmanual/manual, /fail
+  /^\/api\/auth\/passenv(?:\/|$)/,     // 환경 점검용 (있다면)
   /^\/api\/login(?:\/|$)/,
   /^\/api\/signup(?:\/|$)/,
   /^\/api\/health(?:\/|$)/,
   /^\/healthz(?:\/|$)/,
 ];
+
+// ⚠️ pass-phone은 인증이 필요하므로 화이트리스트에 포함하지 않음
 
 let User;
 (() => {
@@ -76,7 +81,7 @@ module.exports = async function authMiddleware(req, res, next) {
     // ✅ 공개 경로는 인증 없이 통과
     if (OPEN_PATHS.some(rx => rx.test(url))) return next();
 
-    // 1) 세션 → userId
+    // 1) 세션 기반 우선
     let userId = req.session?.user?._id ? String(req.session.user._id) : '';
 
     // 2) JWT (세션 없을 때)
@@ -111,8 +116,8 @@ module.exports = async function authMiddleware(req, res, next) {
 
     // 3) 사용자 로드
     const me = await (User.findById(userId).lean
-      ? User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email').lean()
-      : User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email'));
+      ? User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email ciHash').lean()
+      : User.findById(userId).select('_id username nickname role roles permissions isAdmin isMaster email ciHash'));
     if (!me) {
       return res.status(404).json({ ok: false, error: '사용자를 찾을 수 없습니다.' });
     }
@@ -123,7 +128,12 @@ module.exports = async function authMiddleware(req, res, next) {
 
     return next();
   } catch (err) {
-    console.error('[AUTH][ERR]', { step: 'authMiddleware.catch', name: err?.name, message: err?.message, path: req.originalUrl });
+    console.error('[AUTH][ERR]', {
+      step: 'authMiddleware.catch',
+      name: err?.name,
+      message: err?.message,
+      path: req.originalUrl,
+    });
     return res.status(500).json({ ok: false, error: '서버 오류' });
   }
 };

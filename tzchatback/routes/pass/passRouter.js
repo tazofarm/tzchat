@@ -1,7 +1,7 @@
 // backend/routes/pass/passRouter.js
 // base: /api/auth/pass
 // - POST /start
-// - GET  /start?mode=html
+// - GET  /start/html/:txId      ← 외부 브라우저용 캐시된 HTML 서빙(신규)
 // - ALL  /callback
 // - GET  /status
 // - GET  /route
@@ -52,6 +52,16 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
+// 퍼블릭 오리진(외부 브라우저에서 접근 가능해야 함)
+function getPublicOrigin(req) {
+  const env = (process.env.API_ORIGIN || process.env.PUBLIC_API_ORIGIN || '').replace(/\/+$/, '');
+  if (env) return env;
+  // env 미설정 시 요청 Host 기반(프록시 환경 주의)
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  return `${proto}://${host}`;
+}
+
 /* ──────────────── 공급사 필드 추출 유틸 ──────────────── */
 function toStr(v){ return (v==null ? '' : String(v)); }
 function digits(s){ return toStr(s).replace(/[^\d+]/g,''); }
@@ -84,7 +94,6 @@ function deepScanForPhone(obj, maxDepth=3, path='') {
   } catch {}
   return { phone: '', via: '' };
 }
-// 단일 객체에서(플랫 후보 + 딥스캔)
 function extractPhoneOne(source, label) {
   if (!source) return { phone: '', via: '' };
   const flat = [
@@ -103,7 +112,6 @@ function extractPhoneOne(source, label) {
   if (deep.phone) return deep;
   return { phone: '', via: '' };
 }
-// parsed/raw/body/query 전체를 묶어서 탐색
 function extractPhoneFromSources(parsed, raw, body, query) {
   const tryList = [
     { obj: parsed, label: 'parsed' },
@@ -139,39 +147,60 @@ function mapCarrier(code) {
   return up;
 }
 
+/* ===================== 메모리 HTML 캐시 ===================== */
+const htmlCache = new Map(); // txId -> { html, expireAt }
+const HTML_TTL_MS = 5 * 60 * 1000;
+function saveHtml(txId, html) {
+  htmlCache.set(txId, { html, expireAt: Date.now() + HTML_TTL_MS });
+  setTimeout(() => { const v = htmlCache.get(txId); if (v && v.expireAt <= Date.now()) htmlCache.delete(txId); }, HTML_TTL_MS + 5000);
+}
+function loadHtml(txId) {
+  const v = htmlCache.get(txId);
+  if (!v) return null;
+  if (v.expireAt <= Date.now()) { htmlCache.delete(txId); return null; }
+  return v.html;
+}
+
 /* ===================== 1) START ======================= */
 router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
 
+// APP 방식(방법 A): { ok, txId, startUrl } 반환 (외부 브라우저 열기)
 router.all('/start', async (req, res) => {
   try {
     const intent = (req.body && req.body.intent) || (req.query && req.query.intent) || 'unified';
-    const mode   = (req.query && req.query.mode)   || (req.body && req.body.mode)   || 'json';
+    const preferUrl = String((req.body && req.body.preferUrl) || (req.query && req.query.preferUrl) || '') === 'true'
+                   || String((req.body && req.body.preferUrl) || (req.query && req.query.preferUrl) || '') === '1';
     const stub   = (req.query && req.query.stub)   || (req.body && req.body.stub);
 
+    // 간이 STUB
     if (String(stub).toLowerCase() === '1' || String(stub).toLowerCase() === 'true') {
-      const dummyHtml = `<!doctype html><html><body>
-<form id="f" action="about:blank" method="post"><input type="hidden" name="TID" value="STUB_${Date.now()}"></form>
+      const tx = `stub_${Date.now()}`;
+      const html = `<!doctype html><html><body>
+<form id="f" action="about:blank" method="post"><input type="hidden" name="TID" value="${tx}"></form>
 <script>document.getElementById('f').submit();</script>
 </body></html>`;
-      return json(res, 200, { ok: true, txId: `stub_${Date.now()}`, formHtml: dummyHtml });
+      saveHtml(tx, html);
+      const startUrl = `${getPublicOrigin(req)}/api/auth/pass/start/html/${encodeURIComponent(tx)}`;
+      return json(res, 200, { ok: true, txId: tx, startUrl });
     }
 
+    // 실제 시작
     const out = await danal.buildStart({ intent, mode: 'json' });
-    if (!out || (!out.formHtml && mode !== 'html')) {
+    if (!out || (!out.body && !out.formHtml)) {
       return json(res, 502, { ok: false, code: 'START_NO_FORM', message: 'formHtml not generated' });
     }
+    const txId = out.tid || `tid_${Date.now()}`;
+    const html = out.body || out.formHtml;
 
-    if (mode === 'html') {
-      res.set({
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        Pragma: 'no-cache',
-        Expires: '0',
-      });
-      return res.status(200).send(out.body);
+    if (preferUrl) {
+      // 캐시에 저장하고 URL만 돌려준다 (앱은 이 URL을 외부브라우저로 open)
+      saveHtml(txId, html);
+      const startUrl = `${getPublicOrigin(req)}/api/auth/pass/start/html/${encodeURIComponent(txId)}`;
+      return json(res, 200, { ok: true, txId, startUrl });
     }
 
-    return json(res, 200, { ok: true, txId: out.tid || null, formHtml: out.formHtml || null });
+    // 과거(웹 팝업) 호환: formHtml 직접 반환
+    return json(res, 200, { ok: true, txId, formHtml: html });
   } catch (e) {
     const code  = e?.code || e?.returnCode || 'START_ERROR';
     const theStage = e?.stage || 'UNKNOWN';
@@ -179,6 +208,23 @@ router.all('/start', async (req, res) => {
     console.error('[PASS/start] error:', { code, stage: theStage, msg });
     return json(res, 500, { ok: false, code, stage: theStage, message: msg });
   }
+});
+
+// 캐시에 저장된 HTML을 그대로 반환(외부 브라우저에서 열림)
+router.get('/start/html/:txId', (req, res) => {
+  const { txId } = req.params || {};
+  const html = txId && loadHtml(txId);
+  if (!html) {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.status(404).send('<!doctype html><html><body>Invalid or expired PASS session.</body></html>');
+  }
+  res.set({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+  return res.status(200).send(html);
 });
 
 /* ===================== 2) CALLBACK ==================== */
@@ -192,27 +238,16 @@ router.all('/callback', async (req, res) => {
 try {
   if (window.opener) {
     window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
-  } else { try { localStorage.setItem('PASS_RESULT_TX', ${JSON.stringify(txId)}); } catch (e) {} }
+  } 
 } catch (e) {}
-window.close();
+// 외부 브라우저(커스텀탭)에서는 postMessage 대상이 없으므로
+// 서버에 상태가 저장되었다는 안내만 남긴다.
 </script>OK</body></html>`);
   };
   const endFail = (reason) => {
     const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
     res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><body>
-<script>
-try {
-  const payload = { type: 'PASS_FAIL', reason: ${JSON.stringify(detail.code || 'UNKNOWN')}, detail: ${JSON.stringify(detail)} };
-  if (window.opener) {
-    window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
-  } else {
-    try { localStorage.setItem('PASS_FAIL', String(payload.reason)); } catch(e){}
-    try { localStorage.setItem('PASS_FAIL_DETAIL', JSON.stringify(payload.detail)); } catch(e){}
-  }
-} catch (e) {}
-window.close();
-</script>FAIL</body></html>`);
+    return res.end(`<!doctype html><html><body>FAIL</body></html>`);
   };
 
   try {
@@ -247,7 +282,6 @@ window.close();
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
-    // ✔ parsed/raw/body/query 전부 스캔
     const { phone: extractedPhone, via: phoneVia } = extractPhoneFromSources(parsed, parsed.raw || {}, req.body || {}, req.query || {});
     const phone  = extractedPhone ? normalizePhoneKR(extractedPhone) : '';
 
@@ -258,7 +292,6 @@ window.close();
     const diHash = parsed.di ? sha256Hex(parsed.di) : '';
     const nameMasked = maskName(parsed.name || '');
 
-    // 3) rawMasked (민감정보 제거) + 디버그 힌트 저장
     const rawMasked = {
       ...parsed.raw,
       birthdate: birthdate || undefined,
@@ -266,8 +299,8 @@ window.close();
       ci: undefined,
       di: undefined,
       name: nameMasked,
-      phone,      // 정규화된 값
-      carrier,    // 맵핑된 통신사명
+      phone,
+      carrier,
       __debug_phone_via: phoneVia || null,
       __debug_keys: {
         body: Object.keys(req.body || {}),

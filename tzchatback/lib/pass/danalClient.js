@@ -4,6 +4,13 @@
 // - buildWauthFormHtml: wauth.teledit.com Start.php 로 TID/ByPass POST 자동 제출 폼 생성
 // - confirmByTid: uas.teledit.com 에 CONFIRM 전송(CI/DI/DOB/SEX/NAME 수신)
 // - parseCallback: 다날 WebAuth가 TARGETURL(CPCGI)로 TID를 POST하면 CONFIRM까지 수행
+//
+// 개선 사항(앱 방법 A 연동에 맞춤):
+// - PUBLIC/API ORIGIN 기반 콜백 URL 안전 생성
+// - UA 기반 모바일/웹 Start.php 선택 (override 가능)
+// - start/buildStart 에서 에러 코드/스테이지 부여(라운드트립 디버그 향상)
+// - form HTML 외부브라우저 캐시 사용 전제에 맞게 body/formHtml 모두 지원
+// - EUC-KR 대응은 router에서 수행(여긴 네트워크 송수신 위주)
 
 const axios = require('axios');
 const qs = require('querystring');
@@ -78,11 +85,11 @@ async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
     throw err;
   }
 
-  const map = new Map();
-  for (const kv of text.split('&')) {
+  const map = text.split('&').reduce((m, kv) => {
     const [k, v = ''] = kv.split('=');
-    if (k) map.set(k.trim(), v);
-  }
+    if (k) m.set(k.trim(), v);
+    return m;
+  }, new Map());
 
   const code = (map.get('RETURNCODE') || '').trim();
   const msg  = (map.get('RETURNMSG')  || '').trim();
@@ -104,7 +111,6 @@ async function startReady({ orderId = '', userId = '', cpTitle = '' } = {}) {
 
   return { tid, raw: Object.fromEntries(map) };
 }
-
 
 // 다날 WebAuth로 보낼 자동 submit 폼(웹/모바일 공용)
 // ByPassValue는 CPCGI로 그대로 POST됨
@@ -173,11 +179,11 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
   }
 
   const text = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '');
-  const map = new Map();
-  for (const kv of text.split('&')) {
+  const map = text.split('&').reduce((m, kv) => {
     const [k, v = ''] = kv.split('=');
-    if (k) map.set(k, v);
-  }
+    if (k) m.set(k, v);
+    return m;
+  }, new Map());
 
   const code = map.get('RETURNCODE') || '';
   const ok = code === '0000';
@@ -194,7 +200,7 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
     name: map.get('NAME') || '',
     birthdate: dob,
     gender,
-    phone: '',
+    phone: '',      // 공급사에 따라 별도 제공될 수도 있으나 표준 CONFIRM에선 비어있음
     carrier: '',
     ci: map.get('CI') || '',
     di: map.get('DI') || '',
@@ -202,32 +208,46 @@ async function confirmByTid(tid, { idenOption = 1, confirmOption = 0, orderId = 
   };
 }
 
-
 // ─────────────────────────────────────────────────────────────
-// Public API (passRouter에서 사용)
+// Public API (passRouter, pass-phone router에서 사용)
 // ─────────────────────────────────────────────────────────────
 module.exports = {
   /**
-   * /api/auth/pass/start 에서 호출
+   * /api/auth/pass/start, /api/user/pass-phone/start 에서 호출
    * 1) UAS Ready(ITEMSEND) → TID
    * 2) wauth Start.php 로 auto-submit 되는 HTML 반환
-   * 프런트가 XHR로 요청한다면 { formHtml } JSON으로 싸서 반환하고,
-   * 팝업/새창에 바로 띄우려면 text/html 그대로 응답하면 됩니다.
+   *    - mode === 'html'  → { contentType: 'text/html', body }
+   *    - mode === 'json'  → { formHtml, tid }  (레거시 호환)
+   * 옵션:
+   *  - userAgent: UA 힌트로 모바일 Start.php 선택
+   *  - useMobile: 강제 모바일(우선순위: useMobile > userAgent)
+   *  - orderId / userId / intent: 바이라인/식별/ByPassValue
    */
-  async buildStart({ orderId, userId, intent, mode = 'json' }) {
+  async buildStart({ orderId, userId, intent, mode = 'json', userAgent = '', useMobile = undefined /* boolean */ }) {
     const { tid } = await startReady({ orderId, userId, cpTitle: 'tzchat.tazocode.com' });
 
+    // 모바일 여부 판단(override 가능)
+    let mobile = false;
+    if (typeof useMobile === 'boolean') {
+      mobile = useMobile;
+    } else if (userAgent) {
+      const ua = String(userAgent).toLowerCase();
+      mobile = /android|iphone|ipad|ipod|mobile|wv/.test(ua);
+    }
+
     const backUrl = `${resolveCallbackBase()}/api/auth/pass/back`; // 선택(없어도 됨)
-    const formHtml = buildWauthFormHtml({
+    const html = buildWauthFormHtml({
       tid,
       backUrl,
       bgColor: '00',
       charSet: 'EUC-KR',
-      useMobile: false,       // 필요 시 UA보고 분기
+      useMobile: mobile,
       extraBypass: { ByPassValue: intent || 'unified' },
     });
 
-    return (mode === 'html') ? { contentType: 'text/html', body: formHtml } : { formHtml, tid };
+    return (mode === 'html')
+      ? { contentType: 'text/html', body: html, tid }
+      : { formHtml: html, tid };
   },
 
   /**
@@ -248,4 +268,3 @@ module.exports = {
     return result; // { success, name, birthdate, gender, ci, di, ... }
   },
 };
- 

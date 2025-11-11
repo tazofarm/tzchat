@@ -81,15 +81,6 @@
                 내 정보 새로고침
               </ion-button>
             </div>
-
-            <!-- ▼ 디버그/가이드는 화면 노이즈 방지를 위해 유지 주석 ▼
-            <div class="meta">
-              <div>txId: <code>{{ txId || '(없음)' }}</code></div>
-              <div v-if="endpointStart">start: <code>{{ endpointStart }}</code></div>
-              <div v-if="endpointCommit">commit: <code>{{ endpointCommit }}</code></div>
-              <div v-if="updatedFields.length">갱신: <code>{{ updatedFields.join(', ') }}</code></div>
-            </div>
-            -->
           </ion-card-content>
         </ion-card>
       </div>
@@ -106,9 +97,9 @@ import { Capacitor } from '@capacitor/core'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
+import { startPass } from '@/lib/pass'
 
 const router = useRouter()
-
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 
@@ -116,17 +107,16 @@ const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 function buildAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' }
   try {
-    // 다양한 키를 지원해 토큰을 최대한 찾기
-    const candidates = [
-      localStorage.getItem('TZCHAT_AUTH_TOKEN'),
-      localStorage.getItem('authToken'),
-    ].filter(Boolean)
-    if (candidates.length) headers['Authorization'] = `Bearer ${candidates[0]}`
+    const token =
+      localStorage.getItem('TZCHAT_AUTH_TOKEN') ||
+      localStorage.getItem('authToken') ||
+      ''
+    if (token) headers['Authorization'] = `Bearer ${token}`
   } catch {}
   return headers
 }
 
-// ✅ PASS 관련 로컬 저장소 키 정리(콜백 복귀 후 잔여 키 제거)
+// ✅ PASS 관련 로컬 저장소 키 정리
 function clearPassStorage() {
   try {
     localStorage.removeItem('PASS_RESULT_TX')
@@ -145,15 +135,13 @@ const success = ref(false)
 const updatedFields = ref([])
 const phase = ref('idle')
 const certified = ref(false)
-
 const txId = ref('')
+
 const openedWin = ref(null)
 const heartbeat = ref(null)
 
-const endpointStart = '/api/user/pass-phone/start'
 const endpointCommit = '/api/user/pass-phone/commit'
 
-// 서버가 내려주는 표시용 필드를 우선 사용
 const maskedPhone = computed(() => {
   const m = me.value?.phoneMasked || ''
   const f = me.value?.phoneFormatted || ''
@@ -163,7 +151,6 @@ const maskedPhone = computed(() => {
   if (!p) return ''
   return p.replace(/(\+\d{1,3})?(\d+)(\d{4})$/, (_, c = '', mid, last) => `${c}${'*'.repeat((mid||'').length)}${last}`)
 })
-const updatedFieldsLabel = computed(() => updatedFields.value.length ? updatedFields.value.join(', ') : '변경 없음')
 
 const startBtnText = computed(() => (certified.value ? '인증완료' : '휴대전화 인증 시작'))
 const secondaryBtnText = computed(() => (errorCode.value === 'CI_MISMATCH' ? '인증 실패 · 다시 인증' : '변경 반영하기'))
@@ -250,55 +237,40 @@ async function onStartPass() {
   txId.value = ''
   phase.value = 'start'
   busy.value = true
+
   try {
-    // ✅ 네이티브(앱) 우선: 앱이면 항상 서버 PASS 사용
     const isNative = Capacitor.isNativePlatform()
     const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
 
     if (isLocal) {
       const url = router.resolve({ name: 'PassManual' }).href
-      openedWin.value = window.open(
-        `${location.origin}${url}`,
-        'PASS_PHONE',
-        'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
-      )
+      openedWin.value = window.open(`${location.origin}${url}`, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
       startHeartbeat()
       return
     }
 
-    // 서버가 formHtml을 내려주는 방식으로 통일
-    const res = await fetch(apiUrl(endpointStart), {
-      method: 'POST',
-      headers: buildAuthHeaders(),
-      credentials: 'include'
-    })
-    const text = await res.text()
-    let json = null
-    try { json = JSON.parse(text) } catch { throw new Error('START_NON_JSON') }
-    if (!res.ok || !json?.ok || !json?.formHtml) {
-      if (res.status === 401) throw new Error('로그인이 필요합니다.')
-      throw new Error(json?.message || '시작 실패')
+    // ✅ 개선: lib/pass.ts 의 startPass() 사용
+    const result = await startPass('phone_update', { preferUrl: true })
+    if (!result.ok) throw new Error(result.message || '시작 실패')
+
+    if (result.manual) {
+      const url = router.resolve({ name: 'PassManual' }).href
+      openedWin.value = window.open(`${location.origin}${url}`, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
+      startHeartbeat()
+      return
     }
 
-    // 팝업 열고 formHtml 주입 (passRouter와 동일 플로우)
-    openedWin.value = window.open(
-      '',
-      'PASS_PHONE',
-      'width=460,height=680,menubar=no,toolbar=no,location=no,status=no'
-    )
-    if (!openedWin.value) throw new Error('POPUP_BLOCKED')
+    if (result.startUrl) {
+      openedWin.value = window.open(result.startUrl, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
+      startHeartbeat()
+      return
+    }
 
-    openedWin.value.document.open()
-    openedWin.value.document.write(String(json.formHtml))
-    openedWin.value.document.close()
-
-    startHeartbeat()
+    throw new Error('유효한 PASS 시작 URL이 없습니다.')
   } catch (e) {
     console.error('[PhoneUpdate][start] error', e)
     error.value = e?.message || '시작 실패'
-    if (e?.message?.includes('로그인이 필요')) {
-      setTimeout(() => router.replace('/login'), 600)
-    }
+    if (e?.message?.includes('로그인이 필요')) setTimeout(() => router.replace('/login'), 600)
   } finally {
     busy.value = false
     phase.value = 'idle'
@@ -335,7 +307,6 @@ async function commitUpdate() {
         setTimeout(() => router.replace('/login'), 650)
         return
       }
-      // 🔁 410 consumed 대응: 재사용 불가 → 재인증 유도
       if (res.status === 410 || json?.code === 'CONSUMED') {
         error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
         errorCode.value = 'CONSUMED'
@@ -353,15 +324,10 @@ async function commitUpdate() {
       return
     }
 
-    // 성공 처리
-    updatedFields.value = Array.isArray(json.updatedFields) ? json.updatedFields : (json?.profileUpdate?.updatedFields || [])
+    updatedFields.value = Array.isArray(json.updatedFields) ? json.updatedFields : []
     success.value = true
-
-    // 세션/스토리지 정리
     clearPassStorage()
     await reloadMe()
-
-    // 완료 후 이동
     setTimeout(() => { router.replace('/home/6page') }, 650)
   } catch (e) {
     console.error('[PhoneUpdate][commit] error', e)
@@ -374,7 +340,6 @@ async function commitUpdate() {
 }
 
 onMounted(async () => {
-  // 콜백 복귀 시 잔여 스토리지 정리 → 중복 커밋/재사용 방지
   clearPassStorage()
   window.addEventListener('message', handlePostMessage)
   await reloadMe()
@@ -399,6 +364,5 @@ onBeforeUnmount(() => {
 .row.pending { color: #ffd26a; }
 .mr-2 { margin-right: 8px; }
 .actions { display: grid; gap: 8px; margin: 8px 0 10px; }
-/* .meta 섹션은 템플릿에서 주석 처리됨 */
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 </style>
