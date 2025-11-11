@@ -57,7 +57,7 @@ module.exports = (app) => {
   app.use('/api', require('./chat/chatMessageRouter'));                 // 채팅방/메시지
 
   app.use('/api', require('./chat/friendRelationRouter'));               // 친구 목록 /삭제/ 차단/해제/ 유저상세
-  app.use('/api', require('./chat/friendRequestmanageRouter'));               // 친구 "신청 처리/목록" 전용 라우터
+  app.use('/api', require('./chat/friendRequestManageRouter'));               // 친구 "신청 처리/목록" 전용 라우터
   app.use('/api', require('./chat/friendRequestSendRouter'));               // 친구 신청 발송 / 취소
   // ----------------------------------------------------------
   // Search
