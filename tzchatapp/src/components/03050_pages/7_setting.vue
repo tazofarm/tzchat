@@ -1,3 +1,4 @@
+<!-- src/components/SettingsSections.vue -->
 <template>
   <!-- 🔹 상단바 (반갑습니다 / 관리자 / 로그아웃) -->
   <div class="top-bar">
@@ -25,44 +26,29 @@
   <section class="page-wrap" role="region" aria-label="설정 목록">
     <div class="list-wrap">
       <ul class="list">
-        <!-- 번호 리스트 -->
-        <!-- <li class="list-item" @click="goPage('/home/membership/buy')">구독신청하기</li> -->
         <li class="list-item" @click="goPage('/home/setting/0002')">구독신청하기</li>
         <li class="list-item" @click="goPage('/home/setting/0001')">공지사항</li>
 
-        <!-- ✅ 변경: 클릭 시 페이지 이동 대신 즉시 메일 열기 -->
+        <!-- ✅ 메일 열기 -->
         <li class="list-item" @click="openSupportMail">문의/건의 하기 (E-mail)</li>
 
         <li class="list-item" @click="goPage('/home/legals/v2')">약관 및 법적조치</li>
-
         <li class="list-item" @click="goPage('/home/setting/0019')">비밀번호변경</li>
 
         <!-- 로그아웃 버튼 -->
         <li class="withdraw-button" @click="logout">
-        <!--  
-          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-        -->  
           <span>로그아웃</span>
         </li>
 
         <!-- 회원탈퇴 버튼 -->
         <li class="withdraw-button" @click="goPage('/home/setting/0020')">
-        <!--  
-          <ion-icon :icon="icons.trashOutline" class="icon-left" aria-hidden="true" />
-        -->  
           <span>회원탈퇴</span>
         </li>
 
-        <!-- ✅ 권한 관련: 알림/위치 요청 -->
+        <!-- ✅ 권한 요청 (알림/위치) -->
         <li class="list-item" @click="askPerms">
           <ion-icon :icon="icons.notificationsOutline" class="icon-left" aria-hidden="true" />
           <span>권한 요청 (알림/위치)</span>
-        </li>
-
-        <!-- ✅ 권한 관련: 테스트 알림 보내기 -->
-        <li class="list-item" @click="sendTestNoti">
-          <ion-icon :icon="icons.locateOutline" class="icon-left" aria-hidden="true" />
-          <span>테스트 알림 보내기</span>
         </li>
       </ul>
     </div>
@@ -77,32 +63,23 @@ import { App } from '@capacitor/app'
 import {
   happyOutline,
   settingsOutline,
-  logOutOutline,
-  trashOutline,
   notificationsOutline,
-  locateOutline,
 } from 'ionicons/icons'
 import { api, AuthAPI } from '@/lib/api'
 import { Capacitor } from '@capacitor/core'
-import {
-  requestBasicPermissions,
-  testLocalNotification,
-} from '@/lib/permissions'
+import { requestBasicPermissions } from '@/lib/permissions'
 
 const router = useRouter()
 const icons = {
   happyOutline,
   settingsOutline,
-  logOutOutline,
-  trashOutline,
   notificationsOutline,
-  locateOutline,
 }
 
-const nickname = ref<string>('')
-const meRole = ref<string>('')
+const nickname = ref('')
+const meRole = ref('')
 
-/** 로그인 사용자 정보 가져오기 */
+/** 로그인 사용자 정보 */
 onMounted(async () => {
   try {
     const meRes = await api.get('/api/me')
@@ -115,30 +92,22 @@ onMounted(async () => {
 })
 
 /** 페이지 이동 */
-const goPage = (path: string) => {
-  console.log('[SettingsSections] goPage:', path)
-  router.push(path)
-}
+const goPage = (path: string) => router.push(path)
 
 /** 관리자 이동 */
-const goAdmin = () => {
-  console.log('[SettingsSections] goAdmin → /home/admin')
-  router.push('/home/admin')
-}
+const goAdmin = () => router.push('/home/admin')
 
 /** 로그아웃 */
 const logout = async () => {
   try {
     await AuthAPI.logout()
-    console.info('[SettingsSections] 로그아웃 성공 → /login')
     router.push('/login')
   } catch (err) {
     console.error('❌ 로그아웃 실패:', err)
   }
 }
 
-/* -------------------- 메일 바로 열기 유틸 -------------------- */
-// 스토어 없이 localStorage 폴백
+/* -------------------- 메일 바로 열기 -------------------- */
 function getUserId() {
   return (
     localStorage.getItem('userId') ||
@@ -163,7 +132,6 @@ function detectOS() {
 }
 async function getAppVersion() {
   try {
-    // ❌ mod.App.getInfo() → ✅ App.getInfo()
     const info = await App.getInfo()
     return info.version || String((info as any).build) || 'unknown'
   } catch {
@@ -171,10 +139,10 @@ async function getAppVersion() {
   }
 }
 
-/** ✅ 상위 메뉴에서 바로 실행되는 메일 열기 */
+/** 문의/건의 메일 열기 */
 async function openSupportMail() {
-  const email = 'tazocode@gmail.com'         // 수신자
-  const subject = '네네챗 문의드립니다'       // 제목
+  const email = 'tazocode@gmail.com'
+  const subject = '네네챗 문의드립니다'
 
   const [appVersion, os, uid, nick] = await Promise.all([
     getAppVersion(),
@@ -201,7 +169,7 @@ async function openSupportMail() {
   window.location.href = href
 }
 
-/** ✅ 권한 요청(알림/위치) */
+/** ✅ 권한 요청 (앱 시작 시 진동 방지 포함) */
 const askPerms = async () => {
   try {
     if (Capacitor.getPlatform() !== 'android') {
@@ -210,32 +178,14 @@ const askPerms = async () => {
     }
     const res = await requestBasicPermissions()
     console.log('[SettingsSections] 권한 요청 결과:', res)
-    if (res.notification) {
-      console.log('🔔 알림 권한 승인됨 → 테스트 알림 예약')
-      await testLocalNotification()
-    }
+    // 앱 시작 시 불필요한 진동 방지 (테스트 알림 제거)
   } catch (e: any) {
     console.warn('⚠️ 권한 요청 중 오류:', e?.message)
-  }
-}
-
-/** ✅ 테스트 알림 (알림 권한 승인 시 표시) */
-const sendTestNoti = async () => {
-  try {
-    if (Capacitor.getPlatform() !== 'android') {
-      console.log('↪️ non-Android platform: 테스트 알림은 Android에서만 수행됩니다.')
-      return
-    }
-    await testLocalNotification()
-    console.log('✅ 테스트 알림 스케줄 완료')
-  } catch (e: any) {
-    console.warn('⚠️ 테스트 알림 오류:', e?.message)
   }
 }
 </script>
 
 <style scoped>
-/* (스타일 동일, 생략 없이 기존 그대로 유지) */
 .top-bar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -265,15 +215,14 @@ const sendTestNoti = async () => {
 .list { list-style: none; margin: 0; padding: 0; }
 .list-item {
   display: flex;
-  justify-content: center;     /* 🔹 가로 중앙 */
-  align-items: center;         /* 🔹 세로 중앙 */
-  height: 40px; /* 🔹 원하는 높이 지정 (예: 40~56px) */
+  justify-content: center;
+  align-items: center;
+  height: 40px;
   border-radius: 12px;
   gap: 8px;
   width: 100%;
   padding: 12px 16px;
   margin: 10px 0;
-  border-radius: 12px;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1.5px solid var(--panel-border);
   color: var(--text);
@@ -292,12 +241,12 @@ const sendTestNoti = async () => {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 40px;        /* 버튼 높이 */
-  padding: 0 18px;     /* 좌우 여백만 */
+  height: 40px;
+  padding: 0 18px;
   border-radius: 12px;
   margin: 14px 0 6px;
   background: linear-gradient(180deg, #dc3545 0%, #b02a37 100%);
-  border: 1.5px solid #656364;      /* border: 1.5px solid #b02a37; */
+  border: 1.5px solid #656364;
   color: #fff;
   font-size: 14px;
   font-weight: 800;

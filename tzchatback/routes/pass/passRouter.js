@@ -1,11 +1,12 @@
 // backend/routes/pass/passRouter.js
 // base: /api/auth/pass
 // - POST /start
-// - GET  /start/html/:txId      ← 외부 브라우저용 캐시된 HTML 서빙(신규)
-// - ALL  /callback
+// - GET  /start/html/:txId      ← 외부 브라우저용 캐시된 HTML 서빙
+// - ALL  /callback               ← 결과 저장 후 /relay 로 302 리다이렉트
 // - GET  /status
 // - GET  /route
 // - GET  /result/:txId
+// - GET  /relay                  ← NEW: 웹/앱 통합 릴레이 페이지
 
 const express = require('express');
 const router = express.Router();
@@ -37,7 +38,7 @@ function normalizePhoneKR(raw = '') {
 function resolvePostMessageTarget() {
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   if (isProd) {
-    return process.env.API_ORIGIN || process.env.PASS_CALLBACK_PROD || 'https://tzchat.tazocode.com';
+    return process.env.APP_WEB_ORIGIN || process.env.API_ORIGIN || 'https://tzchat.tazocode.com';
   }
   return '*';
 }
@@ -54,9 +55,8 @@ function json(res, status, body) {
 
 // 퍼블릭 오리진(외부 브라우저에서 접근 가능해야 함)
 function getPublicOrigin(req) {
-  const env = (process.env.API_ORIGIN || process.env.PUBLIC_API_ORIGIN || '').replace(/\/+$/, '');
+  const env = (process.env.APP_WEB_ORIGIN || process.env.API_ORIGIN || process.env.PUBLIC_API_ORIGIN || '').replace(/\/+$/, '');
   if (env) return env;
-  // env 미설정 시 요청 Host 기반(프록시 환경 주의)
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   return `${proto}://${host}`;
@@ -161,6 +161,68 @@ function loadHtml(txId) {
   return v.html;
 }
 
+/* ===================== 릴레이 HTML 생성 ===================== */
+// 환경변수로 앱 링크/스킴 설정 가능
+const APP_PACKAGE = process.env.ANDROID_APP_PACKAGE || process.env.APP_PACKAGE || 'com.example.tzchat';
+const APP_LINK_BASE = (process.env.APP_LINK_BASE || 'https://tzchat.tazocode.com').replace(/\/+$/, '');
+const CUSTOM_SCHEME = process.env.APP_CUSTOM_SCHEME || 'tzchat';
+const USE_INTENT = String(process.env.PASS_USE_INTENT || '0') === '1'; // 커스텀스킴+intent 병행할지
+
+function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
+  const appLinks = `${appLinkBase}/app/pass-result?txId=${encodeURIComponent(txId)}`;
+  const customScheme = `${CUSTOM_SCHEME}://pass-result?txId=${encodeURIComponent(txId)}`;
+  const intentUrl =
+    `intent://pass-result?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks)};end`;
+
+  return `<!doctype html>
+<meta charset="utf-8">
+<title>PASS 처리중…</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
+  .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center}
+  .small{opacity:.7;font-size:12px}
+</style>
+<div class="wrap">
+  <div>인증 결과를 전달하는 중…</div>
+  <div class="small">잠시만 기다려주세요.</div>
+</div>
+<script>
+(function(){
+  var txId = ${JSON.stringify(txId)};
+  // 1) 같은 브라우저 컨텍스트(웹 팝업/동일 탭) 전달
+  try {
+    if (txId) localStorage.setItem('PASS_RESULT_TX', txId);
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: 'PASS_RESULT', txId: txId }, ${JSON.stringify(targetOrigin)});
+    }
+  } catch(e){}
+
+  // 2) 앱(커스텀탭) 신호
+  var appLinks = ${JSON.stringify(appLinks)};
+  var customScheme = ${JSON.stringify(customScheme)};
+  var intentUrl = ${JSON.stringify(intentUrl)};
+
+  // 기본: App Links로 앱 깨우기
+  setTimeout(function(){ location.href = appLinks; }, 150);
+
+  ${USE_INTENT ? `
+  // 선택: 커스텀 스킴 + 인텐트 보강
+  setTimeout(function(){ location.href = customScheme; }, 350);
+  setTimeout(function(){ location.href = intentUrl; }, 650);
+  ` : ''}
+
+  // 3) 웹 팝업이면 닫기 시도
+  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1000);
+
+  // 디버그 마커
+  setTimeout(function(){
+    document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;bottom:8px;left:8px;font-size:11px;opacity:.4">OK</div>');
+  }, 1200);
+})();
+</script>`;
+}
+
 /* ===================== 1) START ======================= */
 router.get('/start/ping', (req, res) => json(res, 200, { ok: true, pong: true, now: Date.now() }));
 
@@ -229,27 +291,6 @@ router.get('/start/html/:txId', (req, res) => {
 
 /* ===================== 2) CALLBACK ==================== */
 router.all('/callback', async (req, res) => {
-  const targetOrigin = resolvePostMessageTarget();
-
-  const endOk = (txId) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><body>
-<script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ type:'PASS_RESULT', txId: ${JSON.stringify(txId)} }, ${JSON.stringify(targetOrigin)});
-  } 
-} catch (e) {}
-// 외부 브라우저(커스텀탭)에서는 postMessage 대상이 없으므로
-// 서버에 상태가 저장되었다는 안내만 남긴다.
-</script>OK</body></html>`);
-  };
-  const endFail = (reason) => {
-    const detail = (typeof reason === 'object' && reason) ? reason : { code: String(reason || 'UNKNOWN') };
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><body>FAIL</body></html>`);
-  };
-
   try {
     try {
       const ctype = (req.headers['content-type'] || '').toLowerCase();
@@ -310,7 +351,7 @@ try {
       }
     };
 
-    // 4) 결과 upsert
+    // 3) 결과 upsert
     try {
       const saved = await PassResult.findOneAndUpdate(
         { txId },
@@ -346,19 +387,30 @@ try {
       console.warn('[PASS/callback][db] upsert warn:', dbErr?.message || dbErr);
     }
 
-    // 5) 최종 응답
-    return parsed.success ? endOk(txId) : endFail({
-      code: parsed.failCode || 'FAIL',
-      stage: 'CONFIRM',
-      message: parsed.returnMsg || '',
-      returnMsg: parsed.returnMsg || '',
-      raw: parsed.raw || {}
-    });
+    // 4) 결과 페이지는 통합 릴레이로 이동(웹/앱 모두 동일 경로)
+    const redirectUrl = `${getPublicOrigin(req)}/api/auth/pass/relay?txId=${encodeURIComponent(txId)}`;
+    return res.redirect(302, redirectUrl);
 
   } catch (e) {
     console.error('[PASS/callback] hard error:', e?.stack || e?.message || e);
-    return endFail('CALLBACK_ERROR');
+    // 실패 시에도 릴레이로 넘겨 postMessage/localStorage 처리(웹 팝업 닫기) 가능하게 함
+    const redirectUrl = `${getPublicOrigin(req)}/api/auth/pass/relay?txId=${encodeURIComponent('')}`;
+    try { return res.redirect(302, redirectUrl); } catch { return res.status(500).send('CALLBACK_ERROR'); }
   }
+});
+
+/* ===================== 2.5) RELAY (웹/앱 브리지) ==================== */
+router.get('/relay', (req, res) => {
+  const txId = String(req.query.txId || '');
+  const targetOrigin = resolvePostMessageTarget();
+  const html = buildRelayHtml({ txId, targetOrigin, appLinkBase: APP_LINK_BASE });
+  res.set({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+  return res.status(200).send(html);
 });
 
 /* ===================== 3) STATUS ====================== */
@@ -482,6 +534,6 @@ router.get('/route', async (req, res) => {
     console.error('[PASS/route] error:', e);
     return json(res, 500, { ok: false, code: 'ROUTE_UNHANDLED', message: e?.message || '분기 결정 실패' });
   }
-}); 
+});
 
 module.exports = router;

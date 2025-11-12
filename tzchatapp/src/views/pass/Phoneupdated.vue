@@ -96,7 +96,7 @@ import {
 import { Capacitor } from '@capacitor/core'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@/lib/api'
+import api from '@/lib/api'
 import { startPass } from '@/lib/pass'
 
 const router = useRouter()
@@ -132,6 +132,7 @@ function clearPassStorage() {
 
 // ─────────────────────────────
 // 팝업 유틸 (PassPortal과 동일 정책)
+// - 현재 탭 이동 금지
 // - noopener/noreferrer 금지(opener 필요)
 // - 동일 이름 재사용해 중복 생성 방지
 // ─────────────────────────────
@@ -150,50 +151,83 @@ function openPopup(features = '') {
     'scrollbars=yes',
   ].join(',')
   const final = features ? `${baseFeatures},${features}` : baseFeatures
+
   const w = window.open('', 'passPopup', final)
   if (!w) return null
-  try { w.focus() } catch {}
+
+  // 로딩 안내 화면 즉시 렌더
+  try {
+    w.document.open('text/html', 'replace')
+    w.document.write(`
+      <!doctype html>
+      <meta charset="utf-8">
+      <title>PASS 인증 준비중…</title>
+      <style>
+        html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
+        .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+        .small{opacity:.7;font-size:12px}
+      </style>
+      <div class="wrap">
+        <div>PASS 인증 창을 여는 중…</div>
+        <div class="small">인증이 끝나면 이 창은 자동으로 닫힙니다.</div>
+      </div>
+    `)
+    w.document.close()
+    try { w.focus() } catch {}
+  } catch {}
+
   popupWin.value = w
   return w
 }
 
+function popupBlockedFail() {
+  error.value = '팝업이 차단되었습니다. 브라우저에서 팝업을 허용하고 다시 시도하세요.'
+  errorCode.value = 'POPUP_BLOCKED'
+  busy.value = false
+  phase.value = 'idle'
+}
+
+// 외부 URL을 팝업에서만 열기(현재 탭 이동 금지)
 async function openExternal(url) {
   if (isNative) {
     try {
       const { Browser } = await import('@capacitor/browser')
       await Browser.open({ url })
       return
-    } catch { /* noop */ }
+    } catch {
+      error.value = '네이티브 브라우저를 열 수 없습니다.'
+      errorCode.value = 'NATIVE_BROWSER_OPEN_FAIL'
+      busy.value = false
+      phase.value = 'idle'
+      return
+    }
   }
-  const w = openPopup()
-  if (!w) {
-    // 팝업 차단 시 현재 탭으로 이동
-    location.href = url
-    return
-  }
-  try { w.location.href = url } catch { location.href = url }
+  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup()
+  if (!w) { popupBlockedFail(); return }
+  try { w.location.replace(url) } catch { /* 현재 탭 이동 금지: 아무것도 하지 않음 */ }
 }
 
+// formHtml을 팝업 문서로만 주입
 async function openExternalFormHtml(html) {
   if (isNative) {
-    // 네이티브에선 formHtml 직접 구동 곤란
-    throw new Error('NATIVE_NEEDS_URL')
-  }
-  const w = openPopup()
-  if (!w) {
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    location.href = url
+    error.value = '네이티브에선 URL 방식이 필요합니다.'
+    errorCode.value = 'NATIVE_NEEDS_URL'
+    busy.value = false
+    phase.value = 'idle'
     return
   }
+  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup()
+  if (!w) { popupBlockedFail(); return }
+
   try {
     w.document.open('text/html', 'replace')
-    w.document.write(html)
+    w.document.write(html) // auto-submit form 가정
     w.document.close()
-  } catch {
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    w.location.href = url
+  } catch (e) {
+    error.value = '팝업 문서 주입에 실패했습니다.'
+    errorCode.value = 'POPUP_WRITE_FAIL'
+    busy.value = false
+    phase.value = 'idle'
   }
 }
 
@@ -346,10 +380,13 @@ async function onStartPass() {
 
   try {
     if (isLocal) {
-      const url = router.resolve({ name: 'PassManual' }).href
       // 팝업 선오픈(차단 회피 & opener 확보)
-      if (!popupWin.value || popupWin.value.closed) openPopup()
+      if (!popupWin.value || popupWin.value.closed) {
+        const w = openPopup()
+        if (!w) { popupBlockedFail(); return }
+      }
       // 수동 입력 화면을 팝업에서 열기
+      const url = router.resolve({ name: 'PassManual' }).href
       await openExternal(`${location.origin}${url}`)
       return
     }
@@ -359,7 +396,10 @@ async function onStartPass() {
     if (!result.ok) throw new Error(result.message || '시작 실패')
 
     if (result.manual) {
-      if (!popupWin.value || popupWin.value.closed) openPopup()
+      if (!popupWin.value || popupWin.value.closed) {
+        const w = openPopup()
+        if (!w) { popupBlockedFail(); return }
+      }
       const url = router.resolve({ name: 'PassManual' }).href
       await openExternal(`${location.origin}${url}`)
       return
@@ -431,7 +471,7 @@ async function commitUpdate() {
         errorCode.value = 'CI_MISMATCH'
       } else {
         error.value = json?.message || `반영 실패 (HTTP ${res.status})`
-        errorCode.value = json?.code || 'COMMIT_ERROR'
+        errorCode.value = 'COMMIT_ERROR'
       }
       return
     }

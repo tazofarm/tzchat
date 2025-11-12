@@ -23,6 +23,7 @@ import { useUserStore } from '@/store/user'
 import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app' // ✅ 딥링크 수신
+import { Browser } from '@capacitor/browser'    // ✅ 커스텀탭 닫기용
 
 /* Ionicons */
 import { addIcons } from 'ionicons'
@@ -296,20 +297,69 @@ router.isReady()
       console.warn('⚠️ 권한 요청 중 오류:', e?.message)
     }
 
-    // ✅ tzchat:// 딥링크 처리
+    // ✅ 딥링크 처리 (tzchat:// & https 앱링크 모두)
     CapApp.addListener('appUrlOpen', async ({ url }) => {
       try {
-        if (!url || !url.startsWith('tzchat://')) return
-        const path = url.replace('tzchat://', '').replace(/^\/+/, '')
-        if (path.startsWith('chat/')) {
-          await router.push(`/home/chat/${path.split('/')[1]}`)
-        } else if (path === 'friends/received') {
-          await router.push('/home/3page')
-          window.dispatchEvent(new CustomEvent('friends:openTab', { detail: { tab: 'received' } }))
-        } else {
-          await router.push('/' + path)
+        if (!url) return
+
+        // 가능한 즉시 커스텀탭 닫기 (PASS 커스텀탭용)
+        try { await Browser.close() } catch {}
+
+        // 1) PASS 결과 딥링크 (예: tzchat://pass-result?txId=... 또는 https://.../app/pass-result?txId=...)
+        const isCustom = url.startsWith('tzchat://')
+        const isHttps  = url.startsWith('http://') || url.startsWith('https://')
+
+        // URL 파싱
+        let txId = ''
+        if (isCustom) {
+          // tzchat://pass-result?txId=...
+          const raw = url.replace('tzchat://', '')
+          const [path, qs = ''] = raw.split('?')
+          if (path === 'pass-result') {
+            const p = new URLSearchParams(qs)
+            txId = p.get('txId') || ''
+          }
+        } else if (isHttps) {
+          // https://tzchat.tazocode.com/app/pass-result?txId=...
+          try {
+            const u = new URL(url)
+            if (u.pathname.replace(/^\/+/, '') === 'app/pass-result') {
+              txId = u.searchParams.get('txId') || ''
+            }
+          } catch {}
         }
-        console.log('[DEEPLINK] handled:', url, '→', path)
+
+        if (txId) {
+          // PASS 결과를 앱으로 전달 (우리 화면들은 storage 이벤트를 듣고 있음)
+          try { localStorage.setItem('PASS_RESULT_TX', txId) } catch {}
+          window.dispatchEvent(new StorageEvent('storage', { key: 'PASS_RESULT_TX', newValue: txId } as any))
+
+          // 현재 경로가 /pass 계열이 아니면 PassPortal로 안내
+          const onPassPage = location.pathname.includes('/pass')
+          if (!onPassPage) {
+            try {
+              await router.replace({ name: 'PassPortal', query: { txId } })
+            } catch {
+              await router.replace(`/pass?txId=${encodeURIComponent(txId)}`)
+            }
+          }
+          console.log('[DEEPLINK][PASS] txId=', txId)
+          return
+        }
+
+        // 2) 일반 내부 딥링크 (기존 로직 유지)
+        if (url.startsWith('tzchat://')) {
+          const path = url.replace('tzchat://', '').replace(/^\/+/, '')
+          if (path.startsWith('chat/')) {
+            await router.push(`/home/chat/${path.split('/')[1]}`)
+          } else if (path === 'friends/received') {
+            await router.push('/home/3page')
+            window.dispatchEvent(new CustomEvent('friends:openTab', { detail: { tab: 'received' } }))
+          } else {
+            await router.push('/' + path)
+          }
+          console.log('[DEEPLINK] handled:', url, '→', path)
+        }
       } catch (e: any) {
         console.warn('[DEEPLINK] handle error:', e?.message)
       }

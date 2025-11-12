@@ -95,7 +95,10 @@
           <p v-if="errorMsg" class="hint error">{{ errorMsg }}</p>
           <p v-if="successMsg" class="hint success">{{ successMsg }}</p>
 
-          <!-- ⬇️ PASS 디버그 패널(개발용): 하단에 받은 변수/값 노출 -->
+
+
+
+          <!-- ⬇️ PASS 디버그 패널(개발용): 하단에 받은 변수/값 노출 
           <div class="pass-debug" v-if="txId || passStatus !== 'none'">
             <div class="panel-head">
               <h3>PASS 디버그(개발용)</h3>
@@ -106,7 +109,10 @@
               <li><span class="k">status</span><span class="v">{{ passStatus }}</span></li>
               <li v-if="passError"><span class="k">error</span><span class="v">{{ passError }}</span></li>
 
-              <!-- PASS에서 받은 정보들을 추가로 표시 -->
+              -->
+              
+
+              <!-- PASS에서 받은 정보들을 추가로 표시 
               <li v-if="passResult?.name"><span class="k">name(masked)</span><span class="v">{{ passResult?.name }}</span></li>
               <li v-if="passResult?.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult?.birthyear }}</span></li>
               <li v-if="passResult?.gender"><span class="k">gender</span><span class="v">{{ passResult?.gender }}</span></li>
@@ -131,6 +137,9 @@
             </details>
           </div>
 
+          -->
+
+          
         </form>
       </div>
     </ion-content>

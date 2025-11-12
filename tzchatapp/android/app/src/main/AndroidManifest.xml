@@ -85,10 +85,11 @@
             android:windowLayoutInDisplayCutoutMode="shortEdges"
             tools:replace="android:windowSoftInputMode">
 
-            <!-- 일반 런처 -->
+            <!-- 🧭 일반 런처 (HOME 카테고리 사용 금지) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
             <!-- ✅ tzchat:// 딥링크 처리 -->
