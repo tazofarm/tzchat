@@ -171,14 +171,17 @@ const USE_INTENT = String(process.env.PASS_USE_INTENT || '0') === '1'; // 커스
 // ★ 중요: AndroidManifest의 intent-filter와 일치하도록 host='pass' 사용
 //   tzchat://pass?txId=...   (Capacitor App.appUrlOpen 에서 수신)
 function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
-  const appLinks = `${appLinkBase}/app/pass?txId=${encodeURIComponent(txId)}`;
-  const customScheme = `${CUSTOM_SCHEME}://pass?txId=${encodeURIComponent(txId)}`;
-  const intentUrl =
-    `intent://pass?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks)};end`;
+  // 복귀 경로 2종(구/신) + 보강 시나리오
+  const appLinks1 = `${appLinkBase}/app/pass?txId=${encodeURIComponent(txId)}`;
+  const appLinks2 = `${appLinkBase}/app/pass-result?txId=${encodeURIComponent(txId)}`;
+  const customScheme1 = `${CUSTOM_SCHEME}://pass?txId=${encodeURIComponent(txId)}`;
+  const customScheme2 = `${CUSTOM_SCHEME}://pass-result?txId=${encodeURIComponent(txId)}`;
+  const intent1 = `intent://pass?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks1)};end`;
+  const intent2 = `intent://pass-result?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks2)};end`;
 
   return `<!doctype html>
 <meta charset="utf-8">
-<title>PASS 처리중…</title>
+<title>PASS 인증 완료</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
@@ -186,41 +189,35 @@ function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
   .small{opacity:.7;font-size:12px}
 </style>
 <div class="wrap">
-  <div>인증 결과를 전달하는 중…</div>
+  <div>인증 결과를 전달중입니다…</div>
   <div class="small">잠시만 기다려주세요.</div>
 </div>
 <script>
 (function(){
-  var txId = ${JSON.stringify(txId)};
-  // 1) 같은 브라우저 컨텍스트(웹 팝업/동일 탭) 전달
-  try {
-    if (txId) localStorage.setItem('PASS_RESULT_TX', txId);
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: 'PASS_RESULT', txId: txId }, ${JSON.stringify(targetOrigin)});
+  var txId=${JSON.stringify(txId)};
+  try{
+    if(txId) localStorage.setItem('PASS_RESULT_TX',txId);
+    if(window.opener&&!window.opener.closed){
+      window.opener.postMessage({type:'PASS_RESULT',txId:txId},${JSON.stringify(targetOrigin)});
     }
-  } catch(e){}
+  }catch(e){}
 
-  // 2) 앱(커스텀탭/외부 브라우저) 복귀 신호
-  var appLinks = ${JSON.stringify(appLinks)};
-  var customScheme = ${JSON.stringify(customScheme)};
-  var intentUrl = ${JSON.stringify(intentUrl)};
+  var a1=${JSON.stringify(appLinks1)}, a2=${JSON.stringify(appLinks2)};
+  var s1=${JSON.stringify(customScheme1)}, s2=${JSON.stringify(customScheme2)};
+  var i1=${JSON.stringify(intent1)}, i2=${JSON.stringify(intent2)};
 
-  // 기본: App Links로 앱 깨우기
-  setTimeout(function(){ location.href = appLinks; }, 150);
-
+  // 순차 복귀 시도 (앱 링크 → 커스텀스킴 → 인텐트)
+  setTimeout(function(){ location.href = a1; }, 100);
+  setTimeout(function(){ location.href = a2; }, 250);
   ${USE_INTENT ? `
-  // 선택: 커스텀 스킴 + 인텐트 보강
-  setTimeout(function(){ location.href = customScheme; }, 350);
-  setTimeout(function(){ location.href = intentUrl; }, 650);
+  setTimeout(function(){ location.href = s1; }, 400);
+  setTimeout(function(){ location.href = s2; }, 600);
+  setTimeout(function(){ location.href = i1; }, 800);
+  setTimeout(function(){ location.href = i2; }, 1100);
   ` : ''}
 
-  // 3) 웹 팝업이면 닫기 시도
-  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1000);
-
-  // 디버그 마커
-  setTimeout(function(){
-    document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;bottom:8px;left:8px;font-size:11px;opacity:.4">OK</div>');
-  }, 1200);
+  // 웹 팝업 닫기(있다면)
+  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1500);
 })();
 </script>`;
 }

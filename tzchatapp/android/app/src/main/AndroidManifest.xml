@@ -92,12 +92,31 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ✅ tzchat://pass 딥링크 처리 (앱 복귀용) -->
-            <intent-filter android:autoVerify="true">
+            <!-- ✅ 커스텀 스킴 (tzchat://pass-result?txId=...) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tzchat" />
+            </intent-filter>
+
+            <!-- ✅ 호스트 포함 버전 (tzchat://pass?txId=...) 과 호환 -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tzchat" android:host="pass" />
+            </intent-filter>
+
+            <!-- ✅ 앱링크 (https://tzchat.tazocode.com/app/pass-result?txId=...) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="tzchat.tazocode.com"
+                    android:pathPrefix="/app/pass-result" />
             </intent-filter>
         </activity>
 
