@@ -157,27 +157,41 @@ const fmt = (d) => {
 const isNative = Capacitor.isNativePlatform();
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
-/* ──────────────── 네이티브 복귀: tzchat://pass?txId=... 수신 ──────────────── */
+/* ──────────────── 네이티브 복귀: 딥링크 수신 ──────────────── */
 let appUrlOpenSub = null;
 let browserFinishedSub = null;
 
 function handleAppUrlOpen(data) {
   try {
-    const url = new URL(data?.url || '');
-    if (url.protocol !== 'tzchat:') return;
-    if (url.host !== 'pass') return;               // AndroidManifest의 host=pass 에 맞춤
+    const rawUrl = String(data?.url || '');
+    const url = new URL(rawUrl);
+
+    // 1) 커스텀 스킴: tzchat://pass-result?txId=...  (백엔드 relay와 동일하게 맞춤)
+    // 2) 앱링크(https): https://tzchat.tazocode.com/app/pass-result?txId=...
+    // 어떤 형태든 txId가 있으면 처리
     const txId = url.searchParams.get('txId') || '';
     if (txId) {
       txIdRef.value = txId;
-      // 브라우저 닫고 진행
+      // 커스텀탭/외부 브라우저 닫고 진행
       Browser.close().catch(() => {});
       proceedRouteByTx(txId);
-    } else {
-      lastFailCode.value = 'NO_TXID';
-      mode.value = 'fail';
-      busy.value = false;
-      Browser.close().catch(() => {});
+      return;
     }
+
+    // 일부 단말에서 host만 다른 케이스 대비(이전 버전 호환: tzchat://pass?txId=...)
+    const altTx = /txId=([^&#]+)/.exec(rawUrl)?.[1] || '';
+    if (altTx) {
+      txIdRef.value = altTx;
+      Browser.close().catch(() => {});
+      proceedRouteByTx(altTx);
+      return;
+    }
+
+    // txId 없음 → 실패 처리 및 브라우저 닫기
+    lastFailCode.value = 'NO_TXID';
+    mode.value = 'fail';
+    busy.value = false;
+    Browser.close().catch(() => {});
   } catch {
     // 무시
   }
@@ -328,16 +342,19 @@ function onMessage(e) {
   const data = e?.data || {};
   if (data?.type === 'PASS_RESULT' && data?.txId) {
     txIdRef.value = String(data.txId);
+    if (isNative) { Browser.close().catch(() => {}); } // 앱에서는 즉시 브라우저 닫기
     proceedRouteByTx(txIdRef.value);
   } else if (data?.type === 'PASS_FAIL') {
     lastFailCode.value = data?.reason || 'FAIL';
     lastFailDetail.value = data?.detail || {};
     mode.value = 'fail'; busy.value = false;
+    if (isNative) { Browser.close().catch(() => {}); }
   }
 }
 function onStorage(e) {
   if (e.key === 'PASS_RESULT_TX' && e.newValue) {
     txIdRef.value = String(e.newValue);
+    if (isNative) { Browser.close().catch(() => {}); }
     proceedRouteByTx(txIdRef.value);
   }
 }
