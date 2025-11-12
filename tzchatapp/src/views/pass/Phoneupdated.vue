@@ -28,9 +28,9 @@
             </div>
 
             <p class="desc">
-              이 화면은 로그인된 계정의 <b>전화번호 변경</b>에 사용됩니다.<br />
-              PASS 인증 완료 후 동일 CI 여부를 확인하여, 제공된 <b>최신 전화번호/통신사</b>를 계정에 즉시 반영합니다.<br />
-              <small>※ 보안상, PASS 결과의 CI가 현재 계정의 CI와 다르면 반영되지 않습니다.</small>
+              로그인된 계정에서 PASS 인증을 다시 수행해 <b>최신 전화번호/통신사</b>를 반영합니다.<br />
+              인증은 <b>팝업</b>으로 열리고, 완료 시 팝업이 자동으로 닫힙니다.<br />
+              <small>※ 보안상, PASS 결과의 CI가 현재 계정과 다르면 반영하지 않습니다.</small>
             </p>
 
             <div class="status">
@@ -131,33 +131,83 @@ function clearPassStorage() {
 }
 
 // ─────────────────────────────
-// 외부 브라우저 열기 (네이티브: Capacitor Browser, 웹: window.open)
-// - startUrl: GET/redirect 방식
-// - formHtml: POST(auto-submit) 방식 지원(웹 전용)
+// 팝업 유틸 (PassPortal과 동일 정책)
+// - noopener/noreferrer 금지(opener 필요)
+// - 동일 이름 재사용해 중복 생성 방지
 // ─────────────────────────────
+const popupWin = ref(null)
+
+function openPopup(features = '') {
+  const baseFeatures = [
+    'popup=yes',
+    'width=480',
+    'height=720',
+    'menubar=no',
+    'toolbar=no',
+    'location=no',
+    'status=no',
+    'resizable=yes',
+    'scrollbars=yes',
+  ].join(',')
+  const final = features ? `${baseFeatures},${features}` : baseFeatures
+  const w = window.open('', 'passPopup', final)
+  if (!w) return null
+  try { w.focus() } catch {}
+  popupWin.value = w
+  return w
+}
+
 async function openExternal(url) {
   if (isNative) {
     try {
       const { Browser } = await import('@capacitor/browser')
       await Browser.open({ url })
       return
-    } catch {
-      // 네이티브에서 플러그인 문제 시 폴백
-    }
+    } catch { /* noop */ }
   }
-  const win = window.open(url, '_blank', 'noopener')
-  if (!win) location.href = url // 팝업 차단 시 현재 탭 이동
+  const w = openPopup()
+  if (!w) {
+    // 팝업 차단 시 현재 탭으로 이동
+    location.href = url
+    return
+  }
+  try { w.location.href = url } catch { location.href = url }
 }
 
 async function openExternalFormHtml(html) {
   if (isNative) {
-    // 네이티브에선 formHtml 직접 처리 곤란 → 서버에서 URL 제공(retry) 필요
+    // 네이티브에선 formHtml 직접 구동 곤란
     throw new Error('NATIVE_NEEDS_URL')
   }
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const win = window.open(url, '_blank', 'noopener')
-  if (!win) location.href = url // 팝업 차단 시 현재 탭
+  const w = openPopup()
+  if (!w) {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    location.href = url
+    return
+  }
+  try {
+    w.document.open('text/html', 'replace')
+    w.document.write(html)
+    w.document.close()
+  } catch {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    w.location.href = url
+  }
+}
+
+async function closeExternal() {
+  if (isNative) {
+    try {
+      const { Browser } = await import('@capacitor/browser')
+      await Browser.close()
+    } catch {}
+  }
+  try {
+    if (popupWin.value && !popupWin.value.closed) popupWin.value.close()
+  } catch {}
+  popupWin.value = null
 }
 
 // ─────────────────────────────
@@ -174,13 +224,8 @@ const phase = ref('idle')
 const certified = ref(false)
 const txId = ref('')
 
-// 레거시 팝업 폴백용
-const openedWin = ref(null)
-const heartbeat = ref(null)
-
 // 상태 폴링
 const statusPoller = ref(null)
-
 const endpointCommit = '/api/user/pass-phone/commit'
 
 const maskedPhone = computed(() => {
@@ -205,39 +250,7 @@ function onSecondaryAction() {
   }
 }
 
-function stopHeartbeat() {
-  if (heartbeat.value) {
-    clearInterval(heartbeat.value)
-    heartbeat.value = null
-  }
-  try { if (openedWin.value && !openedWin.value.closed) openedWin.value.close() } catch {}
-  openedWin.value = null
-}
-
-function startHeartbeat() {
-  if (heartbeat.value) clearInterval(heartbeat.value)
-  heartbeat.value = setInterval(() => {
-    try {
-      if (openedWin.value && openedWin.value.closed) {
-        const tx = localStorage.getItem('PASS_RESULT_TX')
-        const fail = localStorage.getItem('PASS_FAIL')
-        if (tx) {
-          localStorage.removeItem('PASS_RESULT_TX')
-          txId.value = String(tx)
-          certified.value = true
-          stopHeartbeat()
-        } else if (fail) {
-          localStorage.removeItem('PASS_FAIL')
-          error.value = 'PASS 인증이 취소되었거나 실패했습니다.'
-          errorCode.value = 'USER_CANCEL'
-          stopHeartbeat()
-        }
-      }
-    } catch {}
-  }, 400)
-}
-
-// ✅ 앱 방법 A 대응: 서버 상태 폴링
+// ✅ 상태 폴링 (postMessage/로컬스토리지가 먼저 오면 곧바로 중단)
 function stopStatusPolling() {
   if (statusPoller.value) {
     clearInterval(statusPoller.value)
@@ -259,31 +272,46 @@ function startStatusPolling(currentTxId) {
       if (j.status === 'success') {
         certified.value = true
         stopStatusPolling()
+        await closeExternal()
       } else if (j.status === 'fail') {
         error.value = j?.result?.failMessage || '인증 실패'
         errorCode.value = j?.result?.failCode || 'FAIL'
         stopStatusPolling()
+        await closeExternal()
       } else if (j.status === 'consumed') {
         error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
         errorCode.value = 'CONSUMED'
         stopStatusPolling()
+        await closeExternal()
       }
-      // pending은 유지
     } catch {}
-  }, 1500)
+  }, 1200)
 }
 
-function handlePostMessage(ev) {
+// postMessage & storage 핸들러 (팝업 → 본창)
+function onMessage(ev) {
   try {
     const data = ev?.data || {}
     if (data?.type === 'PASS_RESULT' && data?.txId) {
       txId.value = String(data.txId)
       certified.value = true
-      stopHeartbeat()
+      stopStatusPolling()
+      void closeExternal()
     } else if (data?.type === 'PASS_FAIL') {
-      error.value = String(data?.reason || 'USER_CANCEL')
-      errorCode.value = 'USER_CANCEL'
-      stopHeartbeat()
+      error.value = data?.detail?.message || String(data?.reason || 'FAIL')
+      errorCode.value = data?.reason || 'FAIL'
+      stopStatusPolling()
+      void closeExternal()
+    }
+  } catch {}
+}
+function onStorage(ev) {
+  try {
+    if (ev.key === 'PASS_RESULT_TX' && ev.newValue) {
+      txId.value = String(ev.newValue)
+      certified.value = true
+      stopStatusPolling()
+      void closeExternal()
     }
   } catch {}
 }
@@ -319,19 +347,21 @@ async function onStartPass() {
   try {
     if (isLocal) {
       const url = router.resolve({ name: 'PassManual' }).href
-      openedWin.value = window.open(`${location.origin}${url}`, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
-      startHeartbeat()
+      // 팝업 선오픈(차단 회피 & opener 확보)
+      if (!popupWin.value || popupWin.value.closed) openPopup()
+      // 수동 입력 화면을 팝업에서 열기
+      await openExternal(`${location.origin}${url}`)
       return
     }
 
-    // 권장 경로: 서버에서 { ok, txId, startUrl?, formHtml? } 수신
+    // 서버에서 { ok, txId, startUrl?, formHtml? } 수신
     const result = await startPass('phone_update', { preferUrl: true })
     if (!result.ok) throw new Error(result.message || '시작 실패')
 
     if (result.manual) {
+      if (!popupWin.value || popupWin.value.closed) openPopup()
       const url = router.resolve({ name: 'PassManual' }).href
-      openedWin.value = window.open(`${location.origin}${url}`, 'PASS_PHONE', 'width=460,height=680,menubar=no,toolbar=no,location=no,status=no')
-      startHeartbeat()
+      await openExternal(`${location.origin}${url}`)
       return
     }
 
@@ -340,6 +370,7 @@ async function onStartPass() {
       startStatusPolling(txId.value)
     }
 
+    // 팝업에서 PASS 진행
     if (result.startUrl) {
       await openExternal(result.startUrl)
     } else if (result.formHtml) {
@@ -351,6 +382,7 @@ async function onStartPass() {
     console.error('[PhoneUpdate][start] error', e)
     error.value = e?.message || '시작 실패'
     if (e?.message?.includes('로그인이 필요')) setTimeout(() => router.replace('/login'), 600)
+    await closeExternal()
   } finally {
     busy.value = false
     phase.value = 'idle'
@@ -408,11 +440,13 @@ async function commitUpdate() {
     success.value = true
     clearPassStorage()
     await reloadMe()
+    await closeExternal()
     setTimeout(() => { router.replace('/home/6page') }, 650)
   } catch (e) {
     console.error('[PhoneUpdate][commit] error', e)
     error.value = e?.message || '반영 실패'
     errorCode.value = 'COMMIT_EXCEPTION'
+    await closeExternal()
   } finally {
     busy.value = false
     phase.value = 'idle'
@@ -421,13 +455,15 @@ async function commitUpdate() {
 
 onMounted(async () => {
   clearPassStorage()
-  window.addEventListener('message', handlePostMessage)
+  window.addEventListener('message', onMessage)
+  window.addEventListener('storage', onStorage)
   await reloadMe()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('message', handlePostMessage)
-  stopHeartbeat()
+  window.removeEventListener('message', onMessage)
+  window.removeEventListener('storage', onStorage)
   stopStatusPolling()
+  void closeExternal()
 })
 </script>
 

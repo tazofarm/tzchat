@@ -15,8 +15,7 @@
         <div class="card">
           <h2>본인인증</h2>
           <p class="desc">
-            모바일 앱에선 외부 브라우저(Chrome Custom Tabs)로 PASS 인증이 열립니다.
-            인증을 마치고 앱으로 돌아오면 결과를 자동으로 확인합니다.
+            인증은 별도 팝업으로 진행됩니다. 완료되면 팝업이 자동으로 닫히고, 이 화면에서 결과를 확인합니다.
           </p>
 
           <ion-button
@@ -118,7 +117,6 @@ import { Capacitor } from '@capacitor/core';
 const route = useRoute();
 const router = useRouter();
 
-// API helper
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`;
 
@@ -127,6 +125,7 @@ const lastFailCode = ref('');
 const lastFailDetail = ref(null);
 const statusPoller = ref(null);
 const txIdRef = ref('');
+const popupWin = ref(null);
 
 // PassResult 디버그
 const passResult = ref(null);
@@ -157,42 +156,88 @@ const isNative = Capacitor.isNativePlatform();
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
 // ─────────────────────────────
-// Browser API (동적 import; 웹빌드에서 @capacitor/browser 의존성 제거)
-// - startUrl: GET/redirect 방식
-// - formHtml: POST(auto-submit) 방식도 지원
+// 팝업 열기(고정 이름/특징). noopener/noreferrer 사용하면 opener가 사라지므로 금지!
 // ─────────────────────────────
+function openPopup(features = '') {
+  // 기본 팝업 스펙
+  const baseFeatures = [
+    'popup=yes',
+    'width=480',
+    'height=720',
+    'menubar=no',
+    'toolbar=no',
+    'location=no',
+    'status=no',
+    'resizable=yes',
+    'scrollbars=yes',
+  ].join(',');
+  const final = features ? `${baseFeatures},${features}` : baseFeatures;
+
+  // 같은 이름의 팝업을 재사용(중복 생성 방지)
+  const w = window.open('', 'passPopup', final);
+  if (!w) return null;
+  try { w.focus(); } catch {}
+  popupWin.value = w;
+  return w;
+}
+
 async function openExternal(url) {
   if (isNative) {
+    // 네이티브는 외부 브라우저 사용
     try {
       const { Browser } = await import('@capacitor/browser');
       await Browser.open({ url });
       return;
-    } catch {
-      // 네이티브에서 플러그인 없을 때 폴백
-    }
+    } catch { /* fallback 없음 */ }
   }
-  const win = window.open(url, '_blank', 'noopener');
-  if (!win) location.href = url; // 팝업 차단 시 현재 탭으로 이동
+  const w = openPopup();
+  if (!w) {
+    // 팝업 차단 시 현재 탭 전환
+    location.href = url;
+    return;
+  }
+  try { w.location.href = url; } catch { location.href = url; }
 }
 
 async function openExternalFormHtml(html) {
   if (isNative) {
-    // 네이티브에서는 formHtml 처리 곤란 → 서버에서 URL을 주도록 재시도 유도
+    // 네이티브: formHtml 직접 구동 곤란 → 서버에서 URL 제공을 권장
     throw new Error('NATIVE_NEEDS_URL');
   }
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank', 'noopener');
-  if (!win) location.href = url; // 팝업 차단 시 현재 탭 전환
+  const w = openPopup();
+  if (!w) {
+    // 팝업 차단 시 blob으로 현재탭 대체
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    location.href = url;
+    return;
+  }
+  // 팝업 문서에 직접 주입 (auto-submit formHtml 가정)
+  try {
+    w.document.open('text/html', 'replace');
+    w.document.write(html);
+    w.document.close();
+  } catch {
+    // 실패 시 blob URL 대체
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    w.location.href = url;
+  }
 }
 
 async function closeExternal() {
+  // 네이티브
   if (isNative) {
     try {
       const { Browser } = await import('@capacitor/browser');
       await Browser.close();
-    } catch { /* noop */ }
+    } catch {}
   }
+  // 웹 팝업
+  try {
+    if (popupWin.value && !popupWin.value.closed) popupWin.value.close();
+  } catch {}
+  popupWin.value = null;
 }
 
 // 상태 폴링
@@ -212,11 +257,13 @@ function startStatusPolling(txId) {
         lastFailCode.value = 'CONSUMED';
         lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
         mode.value = 'fail'; busy.value = false;
+        await closeExternal();
       } else if (j.status === 'fail') {
         stopPolling();
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
         lastFailDetail.value = { code: j?.result?.failCode || 'UNKNOWN', message: j?.result?.failMessage || '' };
         mode.value = 'fail'; busy.value = false;
+        await closeExternal();
       } else if (j.status === 'success') {
         stopPolling();
         await proceedRouteByTx(txId);
@@ -224,7 +271,7 @@ function startStatusPolling(txId) {
     } catch {
       // 일시 오류 무시
     }
-  }, 1500);
+  }, 1200);
 }
 function stopPolling() {
   if (statusPoller.value) {
@@ -233,8 +280,29 @@ function stopPolling() {
   }
 }
 
+// postMessage & storage 핸들러
+function onMessage(e) {
+  const data = e?.data || {};
+  if (data?.type === 'PASS_RESULT' && data?.txId) {
+    txIdRef.value = String(data.txId);
+    proceedRouteByTx(txIdRef.value);
+  } else if (data?.type === 'PASS_FAIL') {
+    lastFailCode.value = data?.reason || 'FAIL';
+    lastFailDetail.value = data?.detail || {};
+    mode.value = 'fail'; busy.value = false;
+  }
+}
+function onStorage(e) {
+  if (e.key === 'PASS_RESULT_TX' && e.newValue) {
+    txIdRef.value = String(e.newValue);
+    proceedRouteByTx(txIdRef.value);
+  }
+}
+
 onMounted(async () => {
-  // URL의 txId로 재진입한 경우
+  window.addEventListener('message', onMessage);
+  window.addEventListener('storage', onStorage);
+
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
     txIdRef.value = qTx;
@@ -244,7 +312,6 @@ onMounted(async () => {
     return;
   }
 
-  // 실패 쿼리 표시
   const qFail = route.query.fail ? String(route.query.fail) : '';
   if (qFail) {
     lastFailCode.value = qFail;
@@ -254,7 +321,10 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener('message', onMessage);
+  window.removeEventListener('storage', onStorage);
   stopPolling();
+  void closeExternal();
 });
 
 async function loadPassResult(txId) {
@@ -282,6 +352,7 @@ async function proceedRouteByTx(txId) {
       lastFailCode.value = 'ROUTE_NON_JSON';
       lastFailDetail.value = { raw: txt };
       mode.value = 'fail'; busy.value = false;
+      await closeExternal();
       return;
     }
 
@@ -289,6 +360,7 @@ async function proceedRouteByTx(txId) {
       lastFailCode.value = 'CONSUMED';
       lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
       mode.value = 'fail'; busy.value = false;
+      await closeExternal();
       return;
     }
 
@@ -296,6 +368,7 @@ async function proceedRouteByTx(txId) {
       lastFailCode.value = j?.code || 'ROUTE_ERROR';
       lastFailDetail.value = j;
       mode.value = 'fail'; busy.value = false;
+      await closeExternal();
       return;
     }
 
@@ -307,6 +380,7 @@ async function proceedRouteByTx(txId) {
       lastFailCode.value = 'ROUTE_MISSING';
       lastFailDetail.value = j;
       mode.value = 'fail'; busy.value = false;
+      await closeExternal();
       return;
     }
 
@@ -316,13 +390,12 @@ async function proceedRouteByTx(txId) {
     } catch {}
 
     if (nextRoute === 'signup') {
-      const qs = `?passTxId=${encodeURIComponent(txId)}`;
       try {
         await router.replace({ name: 'Signup', query: { passTxId: txId } });
       } catch {
-        await router.replace({ path: `/signup${qs}` });
+        await router.replace({ path: `/signup?passTxId=${encodeURIComponent(txId)}` });
       }
-      try { await closeExternal(); } catch {}
+      await closeExternal();
     } else if (nextRoute === 'templogin') {
       try {
         const resp = await fetch(api(`/api/auth/pass/temp-login`), {
@@ -338,19 +411,22 @@ async function proceedRouteByTx(txId) {
         lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
         lastFailDetail.value = { response: String(e) };
         mode.value = 'fail'; busy.value = false;
+        await closeExternal();
         return;
       }
       await router.replace({ name: 'Home' });
-      try { await closeExternal(); } catch {}
+      await closeExternal();
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
       mode.value = 'fail'; busy.value = false;
+      await closeExternal();
     }
   } catch (e) {
     lastFailCode.value = e?.message || 'ROUTE_ERROR';
     lastFailDetail.value = { message: e?.message || '', stackTop: String(e?.stack || '').split('\n')[0] };
     mode.value = 'fail'; busy.value = false;
+    await closeExternal();
   }
 }
 
@@ -361,14 +437,22 @@ async function onClickPass() {
   busy.value = true; mode.value = 'running';
 
   try {
-    // 로컬 개발(웹)은 수동 입력 페이지로 유도
     if (isLocal) {
       await router.replace({ name: 'PassManual' });
       busy.value = false; mode.value = 'idle';
       return;
     }
 
-    // 서버에서 PASS 세션 생성: { ok, txId, startUrl? , formHtml? }
+    // 1) 팝업을 먼저 열어두기(팝업 차단 회피 & opener 확보)
+    if (!popupWin.value || popupWin.value.closed) {
+      const w = openPopup();
+      if (!w) {
+        // 팝업 차단 시에도 최소한 진행
+        console.warn('Popup blocked; proceeding without popup.');
+      }
+    }
+
+    // 2) PASS 세션 생성
     const resp = await fetch(api('/api/auth/pass/start'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -384,20 +468,22 @@ async function onClickPass() {
 
     txIdRef.value = startJson.txId || '';
 
+    // 3) 팝업에서 인증 열기
     if (startJson.startUrl) {
       await openExternal(startJson.startUrl);      // GET/redirect 방식
     } else if (startJson.formHtml) {
-      await openExternalFormHtml(startJson.formHtml); // POST(auto-submit) 방식(웹)
+      await openExternalFormHtml(startJson.formHtml); // POST(auto-submit) 방식
     } else {
       throw new Error('NO_START_ENTRY');
     }
 
-    // 상태 폴링 시작
+    // 4) 상태 폴링 (postMessage/Storage가 먼저 오면 폴링은 즉시 멈춤)
     if (txIdRef.value) startStatusPolling(txIdRef.value);
   } catch (e) {
     lastFailCode.value = e?.message || 'START_ERROR';
     lastFailDetail.value = null;
     mode.value = 'fail'; busy.value = false;
+    await closeExternal();
   }
 }
 
@@ -407,9 +493,8 @@ function onBack() {
   try {
     sessionStorage.removeItem('passTxId');
     localStorage.removeItem('PASS_RESULT_TX');
-    // 개발 중 캐시 정리(선택)
-    // localStorage.removeItem('PASS_LAST_RESULT');
   } catch {}
+  void closeExternal();
   router.replace('/login');
 }
 
