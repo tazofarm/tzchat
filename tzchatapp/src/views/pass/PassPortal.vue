@@ -156,10 +156,9 @@ const isNative = Capacitor.isNativePlatform();
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
 // ─────────────────────────────
-// 팝업 열기(고정 이름/특징). noopener/noreferrer 사용하면 opener가 사라지므로 금지!
+// 팝업 유틸: 현재 탭 이동 금지
 // ─────────────────────────────
 function openPopup(features = '') {
-  // 기본 팝업 스펙
   const baseFeatures = [
     'popup=yes',
     'width=480',
@@ -173,67 +172,100 @@ function openPopup(features = '') {
   ].join(',');
   const final = features ? `${baseFeatures},${features}` : baseFeatures;
 
-  // 같은 이름의 팝업을 재사용(중복 생성 방지)
+  // 같은 이름 재사용
   const w = window.open('', 'passPopup', final);
   if (!w) return null;
-  try { w.focus(); } catch {}
+
+  try {
+    w.document.open('text/html', 'replace');
+    w.document.write(`
+      <!doctype html>
+      <meta charset="utf-8">
+      <title>PASS 인증 준비중…</title>
+      <style>
+        html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
+        .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+        .small{opacity:.7;font-size:12px}
+      </style>
+      <div class="wrap">
+        <div>PASS 인증 창을 여는 중…</div>
+        <div class="small">이 창은 인증 완료 시 자동으로 닫힙니다.</div>
+      </div>
+    `);
+    w.document.close();
+    try { w.focus(); } catch {}
+  } catch {
+    // 문서 쓰기 실패는 무시(일부 브라우저 보안설정)
+  }
+
   popupWin.value = w;
   return w;
 }
 
+function popupBlockedFail() {
+  lastFailCode.value = 'POPUP_BLOCKED';
+  lastFailDetail.value = { code: 'POPUP_BLOCKED', message: '브라우저가 팝업을 차단했습니다. 팝업 허용 후 다시 시도하세요.' };
+  mode.value = 'fail';
+  busy.value = false;
+}
+
+// 외부 URL을 팝업에서만 열기
 async function openExternal(url) {
   if (isNative) {
-    // 네이티브는 외부 브라우저 사용
     try {
       const { Browser } = await import('@capacitor/browser');
       await Browser.open({ url });
       return;
-    } catch { /* fallback 없음 */ }
+    } catch {
+      lastFailCode.value = 'NATIVE_BROWSER_OPEN_FAIL';
+      mode.value = 'fail';
+      busy.value = false;
+      return;
+    }
   }
-  const w = openPopup();
-  if (!w) {
-    // 팝업 차단 시 현재 탭 전환
-    location.href = url;
-    return;
-  }
-  try { w.location.href = url; } catch { location.href = url; }
-}
 
-async function openExternalFormHtml(html) {
-  if (isNative) {
-    // 네이티브: formHtml 직접 구동 곤란 → 서버에서 URL 제공을 권장
-    throw new Error('NATIVE_NEEDS_URL');
-  }
-  const w = openPopup();
+  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
   if (!w) {
-    // 팝업 차단 시 blob으로 현재탭 대체
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    location.href = url;
+    popupBlockedFail();
     return;
   }
-  // 팝업 문서에 직접 주입 (auto-submit formHtml 가정)
   try {
-    w.document.open('text/html', 'replace');
-    w.document.write(html);
-    w.document.close();
+    w.location.replace(url); // 현재 탭은 절대 이동 금지
   } catch {
-    // 실패 시 blob URL 대체
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // 드물게 replace가 막히는 경우에도 현재 탭 이동은 하지 않는다.
     w.location.href = url;
   }
 }
 
+// formHtml을 팝업에만 주입
+async function openExternalFormHtml(html) {
+  if (isNative) {
+    lastFailCode.value = 'NATIVE_NEEDS_URL';
+    lastFailDetail.value = { message: '네이티브에선 URL 방식이 필요합니다.' };
+    mode.value = 'fail'; busy.value = false;
+    return;
+  }
+  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
+  if (!w) { popupBlockedFail(); return; }
+
+  try {
+    w.document.open('text/html', 'replace');
+    w.document.write(html); // auto-submit form 가정
+    w.document.close();
+  } catch (e) {
+    lastFailCode.value = 'POPUP_WRITE_FAIL';
+    lastFailDetail.value = { message: String(e) };
+    mode.value = 'fail'; busy.value = false;
+  }
+}
+
 async function closeExternal() {
-  // 네이티브
   if (isNative) {
     try {
       const { Browser } = await import('@capacitor/browser');
       await Browser.close();
     } catch {}
   }
-  // 웹 팝업
   try {
     if (popupWin.value && !popupWin.value.closed) popupWin.value.close();
   } catch {}
@@ -446,10 +478,7 @@ async function onClickPass() {
     // 1) 팝업을 먼저 열어두기(팝업 차단 회피 & opener 확보)
     if (!popupWin.value || popupWin.value.closed) {
       const w = openPopup();
-      if (!w) {
-        // 팝업 차단 시에도 최소한 진행
-        console.warn('Popup blocked; proceeding without popup.');
-      }
+      if (!w) { popupBlockedFail(); return; }
     }
 
     // 2) PASS 세션 생성
