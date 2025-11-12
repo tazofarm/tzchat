@@ -15,7 +15,7 @@
         <div class="card">
           <h2>본인인증</h2>
           <p class="desc">
-            인증은 별도 팝업으로 진행됩니다. 완료되면 팝업이 자동으로 닫히고, 이 화면에서 결과를 확인합니다.
+            인증은 별도 팝업(웹) 또는 외부 브라우저(앱)에서 진행됩니다. 완료되면 자동으로 이 화면에서 결과를 처리합니다.
           </p>
 
           <ion-button
@@ -113,6 +113,8 @@ import {
 import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 
 const route = useRoute();
 const router = useRouter();
@@ -155,9 +157,35 @@ const fmt = (d) => {
 const isNative = Capacitor.isNativePlatform();
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
-// ─────────────────────────────
-// 팝업 유틸: 현재 탭 이동 금지
-// ─────────────────────────────
+/* ──────────────── 네이티브 복귀: tzchat://pass?txId=... 수신 ──────────────── */
+let appUrlOpenSub = null;
+let browserFinishedSub = null;
+
+function handleAppUrlOpen(data) {
+  try {
+    const url = new URL(data?.url || '');
+    if (url.protocol !== 'tzchat:') return;
+    if (url.host !== 'pass') return;               // AndroidManifest의 host=pass 에 맞춤
+    const txId = url.searchParams.get('txId') || '';
+    if (txId) {
+      txIdRef.value = txId;
+      // 브라우저 닫고 진행
+      Browser.close().catch(() => {});
+      proceedRouteByTx(txId);
+    } else {
+      lastFailCode.value = 'NO_TXID';
+      mode.value = 'fail';
+      busy.value = false;
+      Browser.close().catch(() => {});
+    }
+  } catch {
+    // 무시
+  }
+}
+
+/* ─────────────────────────────
+   팝업 유틸(웹): 현재 탭 이동 금지
+   ───────────────────────────── */
 function openPopup(features = '') {
   const baseFeatures = [
     'popup=yes',
@@ -172,7 +200,6 @@ function openPopup(features = '') {
   ].join(',');
   const final = features ? `${baseFeatures},${features}` : baseFeatures;
 
-  // 같은 이름 재사용
   const w = window.open('', 'passPopup', final);
   if (!w) return null;
 
@@ -194,9 +221,7 @@ function openPopup(features = '') {
     `);
     w.document.close();
     try { w.focus(); } catch {}
-  } catch {
-    // 문서 쓰기 실패는 무시(일부 브라우저 보안설정)
-  }
+  } catch {}
 
   popupWin.value = w;
   return w;
@@ -209,12 +234,11 @@ function popupBlockedFail() {
   busy.value = false;
 }
 
-// 외부 URL을 팝업에서만 열기
+/* ──────────────── 외부 페이지 열기 ──────────────── */
 async function openExternal(url) {
   if (isNative) {
     try {
-      const { Browser } = await import('@capacitor/browser');
-      await Browser.open({ url });
+      await Browser.open({ url, presentationStyle: 'fullscreen' });
       return;
     } catch {
       lastFailCode.value = 'NATIVE_BROWSER_OPEN_FAIL';
@@ -223,21 +247,11 @@ async function openExternal(url) {
       return;
     }
   }
-
   const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
-  if (!w) {
-    popupBlockedFail();
-    return;
-  }
-  try {
-    w.location.replace(url); // 현재 탭은 절대 이동 금지
-  } catch {
-    // 드물게 replace가 막히는 경우에도 현재 탭 이동은 하지 않는다.
-    w.location.href = url;
-  }
+  if (!w) return popupBlockedFail();
+  try { w.location.replace(url); } catch { w.location.href = url; }
 }
 
-// formHtml을 팝업에만 주입
 async function openExternalFormHtml(html) {
   if (isNative) {
     lastFailCode.value = 'NATIVE_NEEDS_URL';
@@ -246,11 +260,11 @@ async function openExternalFormHtml(html) {
     return;
   }
   const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
-  if (!w) { popupBlockedFail(); return; }
+  if (!w) return popupBlockedFail();
 
   try {
     w.document.open('text/html', 'replace');
-    w.document.write(html); // auto-submit form 가정
+    w.document.write(html); // auto-submit form
     w.document.close();
   } catch (e) {
     lastFailCode.value = 'POPUP_WRITE_FAIL';
@@ -261,10 +275,7 @@ async function openExternalFormHtml(html) {
 
 async function closeExternal() {
   if (isNative) {
-    try {
-      const { Browser } = await import('@capacitor/browser');
-      await Browser.close();
-    } catch {}
+    try { await Browser.close(); } catch {}
   }
   try {
     if (popupWin.value && !popupWin.value.closed) popupWin.value.close();
@@ -272,7 +283,7 @@ async function closeExternal() {
   popupWin.value = null;
 }
 
-// 상태 폴링
+/* ──────────────── 상태 폴링 ──────────────── */
 function startStatusPolling(txId) {
   if (!txId) return;
   if (statusPoller.value) clearInterval(statusPoller.value);
@@ -312,7 +323,7 @@ function stopPolling() {
   }
 }
 
-// postMessage & storage 핸들러
+/* ──────────────── postMessage & storage (웹용 백업 경로) ──────────────── */
 function onMessage(e) {
   const data = e?.data || {};
   if (data?.type === 'PASS_RESULT' && data?.txId) {
@@ -331,9 +342,19 @@ function onStorage(e) {
   }
 }
 
+/* ──────────────── 라이프사이클 ──────────────── */
 onMounted(async () => {
   window.addEventListener('message', onMessage);
   window.addEventListener('storage', onStorage);
+
+  if (isNative) {
+    appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen);
+    browserFinishedSub = Browser.addListener('browserFinished', () => {
+      // 사용자가 커스텀탭을 닫았을 때 로딩 해제
+      busy.value = false;
+      mode.value = 'idle';
+    });
+  }
 
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
@@ -357,8 +378,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('storage', onStorage);
   stopPolling();
   void closeExternal();
+  if (appUrlOpenSub) appUrlOpenSub.remove?.();
+  if (browserFinishedSub) browserFinishedSub.remove?.();
 });
 
+/* ──────────────── 서버 결과/분기 처리 ──────────────── */
 async function loadPassResult(txId) {
   if (!txId) return;
   try {
@@ -462,6 +486,7 @@ async function proceedRouteByTx(txId) {
   }
 }
 
+/* ──────────────── 시작 버튼 ──────────────── */
 async function onClickPass() {
   lastFailCode.value = '';
   lastFailDetail.value = null;
@@ -475,10 +500,12 @@ async function onClickPass() {
       return;
     }
 
-    // 1) 팝업을 먼저 열어두기(팝업 차단 회피 & opener 확보)
-    if (!popupWin.value || popupWin.value.closed) {
-      const w = openPopup();
-      if (!w) { popupBlockedFail(); return; }
+    // 1) (웹) 팝업을 먼저 열어두기
+    if (!isNative) {
+      if (!popupWin.value || popupWin.value.closed) {
+        const w = openPopup();
+        if (!w) { popupBlockedFail(); return; }
+      }
     }
 
     // 2) PASS 세션 생성
@@ -497,16 +524,16 @@ async function onClickPass() {
 
     txIdRef.value = startJson.txId || '';
 
-    // 3) 팝업에서 인증 열기
+    // 3) 외부 브라우저/팝업에서 인증 열기
     if (startJson.startUrl) {
-      await openExternal(startJson.startUrl);      // GET/redirect 방식
+      await openExternal(startJson.startUrl);
     } else if (startJson.formHtml) {
-      await openExternalFormHtml(startJson.formHtml); // POST(auto-submit) 방식
+      await openExternalFormHtml(startJson.formHtml);
     } else {
       throw new Error('NO_START_ENTRY');
     }
 
-    // 4) 상태 폴링 (postMessage/Storage가 먼저 오면 폴링은 즉시 멈춤)
+    // 4) 상태 폴링 (postMessage/Storage/appUrlOpen이 먼저 오면 폴링은 즉시 멈춤)
     if (txIdRef.value) startStatusPolling(txIdRef.value);
   } catch (e) {
     lastFailCode.value = e?.message || 'START_ERROR';
@@ -516,7 +543,7 @@ async function onClickPass() {
   }
 }
 
-// 뒤로가기
+/* ──────────────── 뒤로가기 ──────────────── */
 function onBack() {
   stopPolling();
   try {
@@ -527,7 +554,7 @@ function onBack() {
   router.replace('/login');
 }
 
-// 디버그 패널 버튼
+/* ──────────────── 디버그 패널 버튼 ──────────────── */
 function goSignup() {
   const txId = txIdRef.value || pr.value?.txId || '';
   if (!txId) return;

@@ -92,12 +92,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ✅ tzchat:// 딥링크 처리 -->
-            <intent-filter>
+            <!-- ✅ tzchat://pass 딥링크 처리 (앱 복귀용) -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="tzchat" />
+                <data android:scheme="tzchat" android:host="pass" />
             </intent-filter>
         </activity>
 

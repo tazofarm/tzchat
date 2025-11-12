@@ -20,10 +20,10 @@ import { connectSocket, getSocket } from '@/lib/socket'
 import { useUserStore } from '@/store/user'
 
 // ✅ (추가) 안드로이드 권한 유틸
-import { requestBasicPermissions, testLocalNotification } from '@/lib/permissions'
+import { requestBasicPermissions } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
-import { App as CapApp } from '@capacitor/app' // ✅ 딥링크 수신
-import { Browser } from '@capacitor/browser'    // ✅ 커스텀탭 닫기용
+import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 수신
+import { Browser } from '@capacitor/browser'     // ✅ 커스텀탭 닫기용
 
 /* Ionicons */
 import { addIcons } from 'ionicons'
@@ -83,7 +83,6 @@ async function killServiceWorkersInDev() {
   }
 }
 
-// ✅ 즉시실행 async 함수(IIFE)로 감싸 Top-level await 제거
 ;(async () => {
   await killServiceWorkersInDev()
 })().catch(err => {
@@ -120,8 +119,8 @@ try {
 }
 
 /* =======================
- * 🔌 소켓 부트스트랩 가드
- * ===================== */
+// 🔌 소켓 부트스트랩 가드
+/* ===================== */
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 
 declare global {
@@ -134,7 +133,6 @@ function hasToken(): boolean {
   try { return !!localStorage.getItem(TOKEN_KEY) } catch { return false }
 }
 
-// ✅ 규칙 준수: '/api/me' 로 수정
 async function hasSession(): Promise<boolean> {
   try {
     const me = await api.get('/api/me')
@@ -154,29 +152,23 @@ function ensureBindUserStoreToSocket() {
 }
 
 async function bootstrapSocketOnce() {
-  // 이미 부트스트랩된 경우에도 바인딩은 보장
   if (window.__TZCHAT_SOCKET_BOOTSTRAPPED__) {
     console.log('🧲 [Socket] bootstrap skipped (flag set).')
     ensureBindUserStoreToSocket()
     return
   }
-
-  // 소켓이 이미 있으면 재사용 + 바인딩 보장
   if (getSocket()) {
     console.log('🧲 [Socket] bootstrap skipped (socket exists).')
     window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
     ensureBindUserStoreToSocket()
     return
   }
-
   let ok = hasToken()
   if (!ok) ok = await hasSession()
-
   if (!ok) {
     console.log('⏸️ [Socket] no token/session → not connecting yet.')
     return
   }
-
   try {
     const sock = connectSocket()
     window.__TZCHAT_SOCKET_BOOTSTRAPPED__ = true
@@ -188,8 +180,8 @@ async function bootstrapSocketOnce() {
 }
 
 /* =======================
- * 유틸 함수
- * ===================== */
+// 유틸 함수
+/* ===================== */
 function logPrimaryColorVar() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--ion-color-primary')
   console.log('🎨 --ion-color-primary:', v || '(빈 값)')
@@ -202,7 +194,6 @@ function logLoadedAssets() {
   console.log('📜 scripts:', scripts.map(s => (s as HTMLScriptElement).src || '(inline/module)'))
 }
 
-/* (디버그) Ionic 수화 확인 유틸 */
 async function waitForCustomElements(tags: string[]) {
   await Promise.all(tags.map(tag => customElements.whenDefined(tag)))
 }
@@ -252,17 +243,15 @@ async function checkIonicHydrationSafe() {
 }
 
 /* =======================
- * 앱 부트
- * ===================== */
+// 앱 부트
+/* ===================== */
 const app = createApp(App)
 const pinia = createPinia()
 
-/* ✅ 플랫폼별 시각 차이 제거: md 모드 고정 */
 app.use(IonicVue, { mode: 'md' })
 app.use(pinia)
 app.use(router)
 
-/* ✅ 전역 API 지갑 이벤트 수신 → Pinia 반영 */
 const userStore = useUserStore()
 window.addEventListener('api:wallet', (e: Event) => {
   try {
@@ -282,14 +271,15 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
-    // ✅ 안드로이드에서만 기본 권한 요청(알림/위치)
+    // ✅ 안드로이드에서만 권한 요청하되, 자동 "테스트 알림" 제거
     try {
       if (Capacitor.getPlatform() === 'android') {
         const res = await requestBasicPermissions()
         console.log('🔐 [perm] requested →', res)
-        if (res.notification) {
-          await testLocalNotification()
-        }
+        // 주석 처리 또는 제거:
+        // if (res.notification) {
+        //   await testLocalNotification()
+        // }
       } else {
         console.log('↪️ non-Android platform: 권한 요청 생략')
       }
@@ -297,22 +287,16 @@ router.isReady()
       console.warn('⚠️ 권한 요청 중 오류:', e?.message)
     }
 
-    // ✅ 딥링크 처리 (tzchat:// & https 앱링크 모두)
+    // ✅ 딥링크 처리
     CapApp.addListener('appUrlOpen', async ({ url }) => {
       try {
         if (!url) return
-
-        // 가능한 즉시 커스텀탭 닫기 (PASS 커스텀탭용)
         try { await Browser.close() } catch {}
 
-        // 1) PASS 결과 딥링크 (예: tzchat://pass-result?txId=... 또는 https://.../app/pass-result?txId=...)
         const isCustom = url.startsWith('tzchat://')
         const isHttps  = url.startsWith('http://') || url.startsWith('https://')
-
-        // URL 파싱
         let txId = ''
         if (isCustom) {
-          // tzchat://pass-result?txId=...
           const raw = url.replace('tzchat://', '')
           const [path, qs = ''] = raw.split('?')
           if (path === 'pass-result') {
@@ -320,7 +304,6 @@ router.isReady()
             txId = p.get('txId') || ''
           }
         } else if (isHttps) {
-          // https://tzchat.tazocode.com/app/pass-result?txId=...
           try {
             const u = new URL(url)
             if (u.pathname.replace(/^\/+/, '') === 'app/pass-result') {
@@ -330,11 +313,8 @@ router.isReady()
         }
 
         if (txId) {
-          // PASS 결과를 앱으로 전달 (우리 화면들은 storage 이벤트를 듣고 있음)
           try { localStorage.setItem('PASS_RESULT_TX', txId) } catch {}
           window.dispatchEvent(new StorageEvent('storage', { key: 'PASS_RESULT_TX', newValue: txId } as any))
-
-          // 현재 경로가 /pass 계열이 아니면 PassPortal로 안내
           const onPassPage = location.pathname.includes('/pass')
           if (!onPassPage) {
             try {
@@ -347,7 +327,6 @@ router.isReady()
           return
         }
 
-        // 2) 일반 내부 딥링크 (기존 로직 유지)
         if (url.startsWith('tzchat://')) {
           const path = url.replace('tzchat://', '').replace(/^\/+/, '')
           if (path.startsWith('chat/')) {
@@ -365,9 +344,7 @@ router.isReady()
       }
     })
 
-    // ✅ 소켓 연결 + 스토어 바인딩을 한 번만 보장
     await bootstrapSocketOnce()
-
     await nextTick()
     logLoadedAssets()
     logPrimaryColorVar()

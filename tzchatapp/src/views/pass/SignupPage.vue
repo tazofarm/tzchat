@@ -95,10 +95,7 @@
           <p v-if="errorMsg" class="hint error">{{ errorMsg }}</p>
           <p v-if="successMsg" class="hint success">{{ successMsg }}</p>
 
-
-
-
-          <!-- ⬇️ PASS 디버그 패널(개발용): 하단에 받은 변수/값 노출 
+          <!-- ⬇️ 개발용 디버그 패널(운영 시 숨김)
           <div class="pass-debug" v-if="txId || passStatus !== 'none'">
             <div class="panel-head">
               <h3>PASS 디버그(개발용)</h3>
@@ -108,11 +105,6 @@
               <li v-if="txId"><span class="k">txId</span><span class="v mono">{{ txId }}</span></li>
               <li><span class="k">status</span><span class="v">{{ passStatus }}</span></li>
               <li v-if="passError"><span class="k">error</span><span class="v">{{ passError }}</span></li>
-
-              -->
-              
-
-              <!-- PASS에서 받은 정보들을 추가로 표시 
               <li v-if="passResult?.name"><span class="k">name(masked)</span><span class="v">{{ passResult?.name }}</span></li>
               <li v-if="passResult?.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult?.birthyear }}</span></li>
               <li v-if="passResult?.gender"><span class="k">gender</span><span class="v">{{ passResult?.gender }}</span></li>
@@ -136,10 +128,8 @@
               <pre class="raw">{{ pretty(passResult) }}</pre>
             </details>
           </div>
-
           -->
 
-          
         </form>
       </div>
     </ion-content>
@@ -147,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { IonPage, IonHeader, IonToolbar, IonTitle, IonContent } from '@ionic/vue'
 import { api, auth as AuthAPI } from '@/lib/api'
@@ -169,7 +159,7 @@ function clearPassKeys() {
     localStorage.removeItem('PASS_FAIL_DETAIL')
   } catch {}
 }
-
+ 
 // ✅ 전역 헬퍼: JSON pretty 출력
 function pretty(obj: any) {
   try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
@@ -221,6 +211,25 @@ type PassResultT = {
 } | null
 const passResult = ref<PassResultT>(null)
 
+// 🔁 PASS 상태 폴링 (보정)
+const poller = ref<ReturnType<typeof setInterval> | null>(null)
+function startPolling() {
+  stopPolling()
+  poller.value = setInterval(() => {
+    if (passStatus.value === 'pending' && txId.value) {
+      fetchPassStatus()
+    } else {
+      stopPolling()
+    }
+  }, 1200)
+}
+function stopPolling() {
+  if (poller.value) {
+    clearInterval(poller.value)
+    poller.value = null
+  }
+}
+
 const passSuccess = computed(() => passStatus.value === 'success')
 const passStatusLabel = computed(() => {
   if (!txId.value) return 'PASS 미사용'
@@ -234,7 +243,8 @@ const passBrief = computed(() => {
   const y = passResult.value.birthyear ? `${passResult.value.birthyear}년생` : ''
   const g = passResult.value.gender === 'man' ? '남' : (passResult.value.gender === 'woman' ? '여' : '')
   const p = passResult.value.phone ? passResult.value.phone : ''
-  return [y, g, p].filter(Boolean).join(' · ')
+  const c = passResult.value.carrier ? passResult.value.carrier : ''
+  return [y, g, p, c].filter(Boolean).join(' · ')
 })
 const passBannerClass = computed(() => ({
   ok: passSuccess.value,
@@ -318,6 +328,7 @@ async function fetchPassStatus() {
   if (!txId.value) {
     passStatus.value = 'none'
     passResult.value = null
+    stopPolling()
     return
   }
   loadingPass.value = true
@@ -348,16 +359,19 @@ async function fetchPassStatus() {
       }
       // 필요 시 txId 보존
       try { sessionStorage.setItem('passTxId', txId.value) } catch {}
+      stopPolling()
     } else if (j.status === 'fail') {
       passStatus.value = 'fail'
       passResult.value = null
       passError.value = (j?.result && j.result.failCode) ? `실패코드: ${j.result.failCode}` : '인증 실패'
+      stopPolling()
     } else if (j.status === 'consumed') {
       // ⬅️ 서버가 이미 소모된 PASS 토큰으로 응답
       passStatus.value = 'fail'
       passResult.value = null
       passError.value = '이미 사용된 PASS 토큰입니다. 다시 인증해 주세요.'
       clearPassKeys()
+      stopPolling()
     } else {
       passStatus.value = 'pending'
       passResult.value = null
@@ -366,6 +380,7 @@ async function fetchPassStatus() {
     passStatus.value = 'fail'
     passResult.value = null
     passError.value = e?.message || 'PASS 상태 조회 에러'
+    stopPolling()
   } finally {
     loadingPass.value = false
   }
@@ -396,6 +411,7 @@ onMounted(async () => {
     try { sessionStorage.setItem('passTxId', txId.value) } catch {}
   }
   await fetchPassStatus()
+  if (passStatus.value === 'pending' && txId.value) startPolling()
 })
 
 // 라우터가 나중에 쿼리를 채워주는 상황 대응
@@ -403,9 +419,15 @@ watch(() => route.query, () => {
   const next = readInitialTxId()
   if (next && next !== txId.value) {
     txId.value = next
-    fetchPassStatus()
+    fetchPassStatus().then(() => {
+      if (passStatus.value === 'pending') startPolling()
+    })
   }
 }, { deep: true })
+
+onBeforeUnmount(() => {
+  stopPolling()
+})
 
 // 제출
 async function onSubmit() {

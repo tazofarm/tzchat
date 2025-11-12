@@ -1,12 +1,12 @@
 // backend/routes/pass/passRouter.js
 // base: /api/auth/pass
-// - POST /start
-// - GET  /start/html/:txId      ← 외부 브라우저용 캐시된 HTML 서빙
+// - ALL  /start                  ← 앱/웹 공용 시작 (preferUrl=1이면 외부 브라우저용 URL 반환)
+// - GET  /start/html/:txId       ← 외부 브라우저용 캐시된 HTML 서빙
 // - ALL  /callback               ← 결과 저장 후 /relay 로 302 리다이렉트
 // - GET  /status
 // - GET  /route
 // - GET  /result/:txId
-// - GET  /relay                  ← NEW: 웹/앱 통합 릴레이 페이지
+// - GET  /relay                  ← 웹/앱 통합 릴레이 페이지(앱 복귀: tzchat://pass?txId=...)
 
 const express = require('express');
 const router = express.Router();
@@ -168,11 +168,13 @@ const APP_LINK_BASE = (process.env.APP_LINK_BASE || 'https://tzchat.tazocode.com
 const CUSTOM_SCHEME = process.env.APP_CUSTOM_SCHEME || 'tzchat';
 const USE_INTENT = String(process.env.PASS_USE_INTENT || '0') === '1'; // 커스텀스킴+intent 병행할지
 
+// ★ 중요: AndroidManifest의 intent-filter와 일치하도록 host='pass' 사용
+//   tzchat://pass?txId=...   (Capacitor App.appUrlOpen 에서 수신)
 function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
-  const appLinks = `${appLinkBase}/app/pass-result?txId=${encodeURIComponent(txId)}`;
-  const customScheme = `${CUSTOM_SCHEME}://pass-result?txId=${encodeURIComponent(txId)}`;
+  const appLinks = `${appLinkBase}/app/pass?txId=${encodeURIComponent(txId)}`;
+  const customScheme = `${CUSTOM_SCHEME}://pass?txId=${encodeURIComponent(txId)}`;
   const intentUrl =
-    `intent://pass-result?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks)};end`;
+    `intent://pass?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks)};end`;
 
   return `<!doctype html>
 <meta charset="utf-8">
@@ -198,7 +200,7 @@ function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
     }
   } catch(e){}
 
-  // 2) 앱(커스텀탭) 신호
+  // 2) 앱(커스텀탭/외부 브라우저) 복귀 신호
   var appLinks = ${JSON.stringify(appLinks)};
   var customScheme = ${JSON.stringify(customScheme)};
   var intentUrl = ${JSON.stringify(intentUrl)};
@@ -311,7 +313,7 @@ router.all('/callback', async (req, res) => {
           console.log('[PASS/callback][decoded]', { len: text.length, keys: Object.keys(req.body||{}) });
         }
       }
-    }
+    } 
 
     // 1) 파싱
     const parsed = await danal.parseCallback(req);

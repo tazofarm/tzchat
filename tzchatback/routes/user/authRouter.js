@@ -44,7 +44,7 @@ router.post('/signup', async (req, res) => {
     consents = [],
     passTxId,
   } = req.body || {};
- 
+  
   try {
     username = s(username);
     nickname = s(nickname);
@@ -92,11 +92,16 @@ router.post('/signup', async (req, res) => {
 
     // ✅ 최종 저장값 확정 (PASS 우선)
     const finalBirthyear = prOverride?.birthyear ?? (Number.isFinite(birthYearNum) ? birthYearNum : undefined);
-    const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : 'man');
+    const finalGender    = prOverride?.gender    ?? (['man', 'woman'].includes(String(gender)) ? String(gender) : '');
     const finalPhone     = prOverride?.phone     || undefined;
     const finalCiHash    = prOverride?.ciHash    || undefined;
     const finalDiHash    = prOverride?.diHash    || undefined;
     const finalCarrier   = prOverride?.carrier   || undefined;
+
+    // 클라이언트 직접 입력 경로에서 성별이 비어있으면 오류(기존 기본값 'man' 제거)
+    if (!passTxId && !finalGender) {
+      return res.status(400).json({ ok: false, message: '성별이 올바르지 않습니다.' });
+    }
 
     // ✅ 미성년자 차단(올해 기준 만 19세 미만)
     const CURRENT_YEAR = new Date().getFullYear();
