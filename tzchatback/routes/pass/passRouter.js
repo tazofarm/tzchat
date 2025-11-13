@@ -190,7 +190,7 @@ function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
   .small{opacity:.7;font-size:12px}
 </style>
 <div class="wrap">
-  <div>인증 결과를 전달중입니다…</div>
+  <div>인증 결과를 전달중입니다…!!</div>
   <div class="small">잠시만 기다려주세요.</div>
 </div>
 <script>
