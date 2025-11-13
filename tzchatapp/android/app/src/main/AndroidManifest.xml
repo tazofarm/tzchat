@@ -85,14 +85,14 @@
             android:windowLayoutInDisplayCutoutMode="shortEdges"
             tools:replace="android:windowSoftInputMode">
 
-            <!-- 🧭 일반 런처 (HOME 카테고리 사용 금지) -->
+            <!-- 🧭 런처 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ✅ 커스텀 스킴 (tzchat://pass-result?txId=...) -->
+            <!-- ✅ 커스텀 스킴 전체(tzchat://anything...) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -100,15 +100,17 @@
                 <data android:scheme="tzchat" />
             </intent-filter>
 
-            <!-- ✅ 호스트 포함 버전 (tzchat://pass?txId=...) 과 호환 -->
+            <!-- ✅ 호스트 pass 버전 (tzchat://pass?txId=...) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="tzchat" android:host="pass" />
+                <data
+                    android:scheme="tzchat"
+                    android:host="pass" />
             </intent-filter>
 
-            <!-- ✅ 앱링크 (https://tzchat.tazocode.com/app/pass-result?txId=...) -->
+            <!-- ✅ HTTPS 앱링크 (https://tzchat.tazocode.com/app/pass?txId=...) -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -116,7 +118,7 @@
                 <data
                     android:scheme="https"
                     android:host="tzchat.tazocode.com"
-                    android:pathPrefix="/app/pass-result" />
+                    android:pathPrefix="/app/pass" />
             </intent-filter>
         </activity>
 
