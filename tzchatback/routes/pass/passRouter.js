@@ -166,7 +166,8 @@ function loadHtml(txId) {
 const APP_PACKAGE = process.env.ANDROID_APP_PACKAGE || process.env.APP_PACKAGE || 'com.example.tzchat';
 const APP_LINK_BASE = (process.env.APP_LINK_BASE || 'https://tzchat.tazocode.com').replace(/\/+$/, '');
 const CUSTOM_SCHEME = process.env.APP_CUSTOM_SCHEME || 'tzchat';
-const USE_INTENT = String(process.env.PASS_USE_INTENT || '0') === '1'; // 커스텀스킴+intent 병행할지
+// 커스텀 스킴 + intent 복귀를 항상 시도
+const USE_INTENT = true;
 
 // ★ 중요: AndroidManifest의 intent-filter와 일치하도록 host='pass' 사용
 //   tzchat://pass?txId=...   (Capacitor App.appUrlOpen 에서 수신)
@@ -318,7 +319,7 @@ router.all('/callback', async (req, res) => {
 
     // 2) 핵심 필드 가공
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
-    const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
+       const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
