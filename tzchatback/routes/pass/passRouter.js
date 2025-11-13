@@ -169,58 +169,97 @@ const CUSTOM_SCHEME = process.env.APP_CUSTOM_SCHEME || 'tzchat';
 // 커스텀 스킴 + intent 복귀를 항상 시도
 const USE_INTENT = true;
 
-// ★ 중요: AndroidManifest의 intent-filter와 일치하도록 host='pass' 사용
-//   tzchat://pass?txId=...   (Capacitor App.appUrlOpen 에서 수신)
+// ★ 중요: AndroidManifest의 intent-filter와 일치하도록 host='pass' 또는 'pass-result' 사용
+//   tzchat://pass-result?txId=...   (Capacitor App.appUrlOpen 에서 수신)
 function buildRelayHtml({ txId, targetOrigin, appLinkBase }) {
-  // 복귀 경로 2종(구/신) + 보강 시나리오
-  const appLinks1 = `${appLinkBase}/app/pass?txId=${encodeURIComponent(txId)}`;
-  const appLinks2 = `${appLinkBase}/app/pass-result?txId=${encodeURIComponent(txId)}`;
-  const customScheme1 = `${CUSTOM_SCHEME}://pass?txId=${encodeURIComponent(txId)}`;
-  const customScheme2 = `${CUSTOM_SCHEME}://pass-result?txId=${encodeURIComponent(txId)}`;
-  const intent1 = `intent://pass?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks1)};end`;
-  const intent2 = `intent://pass-result?txId=${encodeURIComponent(txId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLinks2)};end`;
+  const safeTxId = String(txId || '');
+
+  // 앱에서 처리할 메인 딥링크 & 웹 앱 링크 (pass-result 기준으로 통일)
+  const appLink = `${appLinkBase}/app/pass-result?txId=${encodeURIComponent(safeTxId)}`;
+  const customScheme = `${CUSTOM_SCHEME}://pass-result?txId=${encodeURIComponent(safeTxId)}`;
+  const intent = `intent://pass-result?txId=${encodeURIComponent(safeTxId)}#Intent;scheme=${encodeURIComponent(CUSTOM_SCHEME)};package=${encodeURIComponent(APP_PACKAGE)};S.browser_fallback_url=${encodeURIComponent(appLink)};end`;
 
   return `<!doctype html>
-<meta charset="utf-8">
-<title>PASS 인증 완료</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
-  .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center}
-  .small{opacity:.7;font-size:12px}
-</style>
-<div class="wrap">
-  <div>인증 결과를 전달중입니다…!!</div>
-  <div class="small">잠시만 기다려주세요.</div>
-</div>
-<script>
-(function(){
-  var txId=${JSON.stringify(txId)};
-  try{
-    if(txId) localStorage.setItem('PASS_RESULT_TX',txId);
-    if(window.opener&&!window.opener.closed){
-      window.opener.postMessage({type:'PASS_RESULT',txId:txId},${JSON.stringify(targetOrigin)});
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>PASS 인증 처리중…</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
+    .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;padding:24px;box-sizing:border-box}
+    .spinner{width:40px;height:40px;border-radius:50%;border:4px solid rgba(255,255,255,.2);border-top-color:#ffd54f;animation:spin 1s linear infinite;margin-bottom:8px}
+    .title{font-size:18px;font-weight:600}
+    .small{opacity:.7;font-size:12px;line-height:1.5}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="spinner"></div>
+    <div class="title">유저 정보를 불러오고 있습니다</div>
+    <div class="small">
+      잠시만 기다려 주세요.<br/>
+      인증 결과를 앱으로 전달하는 중입니다.
+    </div>
+    <div class="small" style="opacity:.5;margin-top:8px;">
+      txId: ${safeTxId || '—'}
+    </div>
+  </div>
+  <script>
+  (function(){
+    var txId = ${JSON.stringify(safeTxId)};
+    var targetOrigin = ${JSON.stringify(targetOrigin)};
+    var appLink = ${JSON.stringify(appLink)};
+    var customScheme = ${JSON.stringify(customScheme)};
+    var intentUrl = ${JSON.stringify(intent)};
+
+    function safeOpen(url){
+      if(!url) return;
+      try{ location.href = url; }catch(e){}
     }
-  }catch(e){}
 
-  var a1=${JSON.stringify(appLinks1)}, a2=${JSON.stringify(appLinks2)};
-  var s1=${JSON.stringify(customScheme1)}, s2=${JSON.stringify(customScheme2)};
-  var i1=${JSON.stringify(intent1)}, i2=${JSON.stringify(intent2)};
+    // 1) 웹/팝업 ↔ 부모창 통신(웹용)
+    try{
+      if(txId){
+        localStorage.setItem('PASS_RESULT_TX', txId);
+      }
+      if(window.opener && !window.opener.closed){
+        window.opener.postMessage({ type: 'PASS_RESULT', txId: txId }, targetOrigin);
+      }
+    }catch(e){}
 
-  // 순차 복귀 시도 (앱 링크 → 커스텀스킴 → 인텐트)
-  setTimeout(function(){ location.href = a1; }, 100);
-  setTimeout(function(){ location.href = a2; }, 250);
-  ${USE_INTENT ? `
-  setTimeout(function(){ location.href = s1; }, 400);
-  setTimeout(function(){ location.href = s2; }, 600);
-  setTimeout(function(){ location.href = i1; }, 800);
-  setTimeout(function(){ location.href = i2; }, 1100);
-  ` : ''}
+    // 2) 앱 복귀 시도: 커스텀 스킴 → 인텐트(앱링크 fallback 포함)
+    //    - 먼저 앱으로 돌아가는 것이 목표
+    setTimeout(function(){
+      safeOpen(customScheme);
+    }, 500);
 
-  // 웹 팝업 닫기(있다면)
-  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1500);
-})();
-</script>`;
+    ${USE_INTENT ? `
+    setTimeout(function(){
+      safeOpen(intentUrl);
+    }, 1500);
+    ` : ''}
+
+    // 3) 혹시라도 pure 웹 환경에서 앱이 없으면, 웹 앱 링크로 이동 (선택적)
+    setTimeout(function(){
+      safeOpen(appLink);
+    }, 2200);
+
+    // 4) 웹 팝업으로 열린 경우에만 창 닫기 시도
+    //    - Custom Tabs / 외부 브라우저에서는 대부분 무시되며,
+    //      실제 닫기는 네이티브 쪽 Browser.close()가 담당
+    setTimeout(function(){
+      try{
+        if(window.opener && !window.opener.closed){
+          window.close();
+        }
+      }catch(e){}
+    }, 3000);
+  })();
+  </script>
+</body>
+</html>`;
 }
 
 /* ===================== 1) START ======================= */
@@ -319,7 +358,7 @@ router.all('/callback', async (req, res) => {
 
     // 2) 핵심 필드 가공
     const birthdate = (parsed.birthdate && /^\d{8}$/.test(parsed.birthdate)) ? parsed.birthdate : '';
-       const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
+    const birthyear = birthdate ? Number(birthdate.slice(0,4)) : (Number(parsed.birthyear) || null);
     const g = String(parsed.gender || '').toUpperCase();
     const gender = (g === 'M' || g === 'MAN') ? 'man' : ((g === 'F' || g === 'WOMAN') ? 'woman' : '');
 
@@ -537,6 +576,3 @@ router.get('/route', async (req, res) => {
 });
 
 module.exports = router;
-
-
-//
