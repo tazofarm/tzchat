@@ -130,8 +130,12 @@ router.post('/temp-login', async (req, res) => {
     }
 
     // 4) JWT 발급 + 세션 쿠키
+    const userIdStr = String(user._id);
     const payload = {
-      uid: String(user._id),
+      uid: userIdStr,
+      userId: userIdStr,
+      _id: userIdStr,
+      sub: userIdStr,
     };
 
     const token = jwt.sign(payload, JWT_SECRET, {
@@ -161,7 +165,7 @@ router.post('/temp-login', async (req, res) => {
     // ✅ 토큰도 응답에 포함 (프론트에서 Authorization 헤더용으로 보관 가능)
     return res.json({
       ok: true,
-      userId: String(user._id),
+      userId: userIdStr,
       consumed: !!pr.consumed,
       token,
     });

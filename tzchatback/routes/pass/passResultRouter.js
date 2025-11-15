@@ -162,8 +162,8 @@ router.get('/result/:txId', async (req, res) => {
  *   · 동일 CI 유저가 있으면 → { ok:true, route:'templogin', userExists:true }
  * - consumed 가 true 여도 에러가 아님 (단지 플래그로만 전달)
  *
- * - debug=1 이나 debug=true 로 호출하면,
- *   매칭된 유저의 최소 정보(debugUser)를 함께 반환 (임시 디버그용)
+ * - debug=1 또는 true 로 호출하면
+ *   동일 CI 로 매칭된 유저의 요약정보를 debugUser 로 함께 내려줌 (검토용)
  */
 router.get('/route', async (req, res) => {
   try {
@@ -200,7 +200,6 @@ router.get('/route', async (req, res) => {
     }
 
     // 여기부터는 PASS "성공" 상태
-    // consumed 가 true 여도 그대로 진행
     if (!pr.ciHash) {
       // CI가 없으면 신규 가입으로만 처리
       return json(res, 200, {
@@ -259,7 +258,7 @@ router.get('/route', async (req, res) => {
 
     const routeName = userExists ? 'templogin' : 'signup';
 
-    // 디버그 유저 정보(선택)
+    // 디버그용 유저 정보 (옵션)
     let debugUserPayload = undefined;
     if (wantDebugUser && debugUser) {
       debugUserPayload = {
@@ -292,4 +291,6 @@ router.get('/route', async (req, res) => {
   }
 });
 
+
 module.exports = router;
+ 
