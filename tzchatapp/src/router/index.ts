@@ -126,8 +126,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/pass/manual', name: 'PassManual', component: PassManual, meta: { public: true, layout: 'blank' } },
 
   // 🔐 회원가입/임시로그인도 공개
-  { path: '/signup', component: SignupPage, meta: { public: true } },
-  { path: '/templogin', component: TempLogin, meta: { public: true } },
+  { path: '/signup', name: 'Signup', component: SignupPage, meta: { public: true } },
+  { path: '/templogin', name: 'TempLogin', component: TempLogin, meta: { public: true } },
+
 
   // ✅ 외부 공개 라우트(로그인 불필요)
   { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage, meta: { public: true } },

@@ -532,7 +532,7 @@ async function proceedRouteByTx(txId) {
     } catch {}
 
     if (nextRoute === 'signup') {
-      // ➜ 회원가입 페이지로 이동
+      // 회원가입
       try {
         await router.replace({ name: 'Signup', query: { passTxId: txId } });
       } catch {
@@ -542,16 +542,19 @@ async function proceedRouteByTx(txId) {
       }
       await closeExternal();
     } else if (nextRoute === 'templogin') {
-      // ➜ 임시로그인 "화면"으로 이동 (여기서는 로그인 API 호출하지 않음)
+      // ✅ 임시로그인 페이지로 이동 (TempLogin.vue)
       try {
-        await router.replace({ name: 'TempLogin', query: { passTxId: txId } });
+        // 쿼리 키는 TempLogin.vue에서 읽는 이름에 맞춰 txId 로 보냄
+        await router.replace({ name: 'TempLogin', query: { txId } });
       } catch {
+        // 라우터 path도 '/templogin' 으로 맞춤
         await router.replace({
-          path: `/temp-login?passTxId=${encodeURIComponent(txId)}`
+          path: `/templogin?txId=${encodeURIComponent(txId)}`
         });
       }
       await closeExternal();
     } else {
+
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
       mode.value = 'fail';
