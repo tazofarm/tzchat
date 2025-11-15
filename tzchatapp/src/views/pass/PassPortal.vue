@@ -134,28 +134,51 @@ const passResult = ref(null);
 const passResultRaw = ref(null);
 const hasPassResult = computed(() => !!passResult.value);
 const pr = computed(() => (passResult.value?.result || passResult.value || {}));
-const passTxShort = computed(() => (pr.value?.txId || txIdRef.value || '').slice(0, 18) + (txIdRef.value ? '…' : ''));
+const passTxShort = computed(
+  () =>
+    (pr.value?.txId || txIdRef.value || '').slice(0, 18) +
+    (txIdRef.value ? '…' : '')
+);
 
 // 버튼 상태
 const mode = ref('idle'); // idle | running | fail
-const buttonText = computed(() => mode.value === 'running' ? '인증 중…' : (mode.value === 'fail' ? '인증 실패 · 재시도' : 'PASS 인증하기'));
-const buttonColor = computed(() => (mode.value === 'fail' ? 'danger' : 'primary'));
+const buttonText = computed(() =>
+  mode.value === 'running'
+    ? '인증 중…'
+    : mode.value === 'fail'
+      ? '인증 실패 · 재시도'
+      : 'PASS 인증하기'
+);
+const buttonColor = computed(() =>
+  mode.value === 'fail' ? 'danger' : 'primary'
+);
 
 // 상세 표시
 const detail = computed(() => lastFailDetail.value || {});
 const hasDetail = computed(() => !!lastFailDetail.value);
-const pretty = (obj) => { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } };
+const pretty = (obj) => {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+};
 const fmt = (d) => {
   try {
     const dt = new Date(d);
     if (Number.isNaN(dt.getTime())) return String(d);
     const z = (n) => String(n).padStart(2, '0');
-    return `${dt.getFullYear()}-${z(dt.getMonth()+1)}-${z(dt.getDate())} ${z(dt.getHours())}:${z(dt.getMinutes())}:${z(dt.getSeconds())}`;
-  } catch { return String(d); }
+    return `${dt.getFullYear()}-${z(dt.getMonth() + 1)}-${z(
+      dt.getDate()
+    )} ${z(dt.getHours())}:${z(dt.getMinutes())}:${z(dt.getSeconds())}`;
+  } catch {
+    return String(d);
+  }
 };
 
 const isNative = Capacitor.isNativePlatform();
-const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
+const isLocal =
+  !isNative && ['localhost', '127.0.0.1'].includes(location.hostname);
 
 /* ──────────────── 네이티브 복귀: 딥링크 수신 ──────────────── */
 let appUrlOpenSub = null;
@@ -177,7 +200,7 @@ function handleAppUrlOpen(data) {
       proceedRouteByTx(txId);
       return;
     }
- 
+
     // 일부 단말에서 host만 다른 케이스 대비(이전 버전 호환: tzchat://pass?txId=...)
     const altTx = /txId=([^&#]+)/.exec(rawUrl)?.[1] || '';
     if (altTx) {
@@ -210,7 +233,7 @@ function openPopup(features = '') {
     'location=no',
     'status=no',
     'resizable=yes',
-    'scrollbars=yes',
+    'scrollbars=yes'
   ].join(',');
   const final = features ? `${baseFeatures},${features}` : baseFeatures;
 
@@ -234,7 +257,9 @@ function openPopup(features = '') {
       </div>
     `);
     w.document.close();
-    try { w.focus(); } catch {}
+    try {
+      w.focus();
+    } catch {}
   } catch {}
 
   popupWin.value = w;
@@ -243,7 +268,10 @@ function openPopup(features = '') {
 
 function popupBlockedFail() {
   lastFailCode.value = 'POPUP_BLOCKED';
-  lastFailDetail.value = { code: 'POPUP_BLOCKED', message: '브라우저가 팝업을 차단했습니다. 팝업 허용 후 다시 시도하세요.' };
+  lastFailDetail.value = {
+    code: 'POPUP_BLOCKED',
+    message: '브라우저가 팝업을 차단했습니다. 팝업 허용 후 다시 시도하세요.'
+  };
   mode.value = 'fail';
   busy.value = false;
 }
@@ -261,19 +289,26 @@ async function openExternal(url) {
       return;
     }
   }
-  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
+  const w =
+    (popupWin.value && !popupWin.value.closed && popupWin.value) || openPopup();
   if (!w) return popupBlockedFail();
-  try { w.location.replace(url); } catch { w.location.href = url; }
+  try {
+    w.location.replace(url);
+  } catch {
+    w.location.href = url;
+  }
 }
 
 async function openExternalFormHtml(html) {
   if (isNative) {
     lastFailCode.value = 'NATIVE_NEEDS_URL';
     lastFailDetail.value = { message: '네이티브에선 URL 방식이 필요합니다.' };
-    mode.value = 'fail'; busy.value = false;
+    mode.value = 'fail';
+    busy.value = false;
     return;
   }
-  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup();
+  const w =
+    (popupWin.value && !popupWin.value.closed && popupWin.value) || openPopup();
   if (!w) return popupBlockedFail();
 
   try {
@@ -283,13 +318,16 @@ async function openExternalFormHtml(html) {
   } catch (e) {
     lastFailCode.value = 'POPUP_WRITE_FAIL';
     lastFailDetail.value = { message: String(e) };
-    mode.value = 'fail'; busy.value = false;
+    mode.value = 'fail';
+    busy.value = false;
   }
 }
 
 async function closeExternal() {
   if (isNative) {
-    try { await Browser.close(); } catch {}
+    try {
+      await Browser.close();
+    } catch {}
   }
   try {
     if (popupWin.value && !popupWin.value.closed) popupWin.value.close();
@@ -304,26 +342,33 @@ function startStatusPolling(txId) {
 
   statusPoller.value = setInterval(async () => {
     try {
-      const res = await fetch(api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`), { credentials: 'include' });
+      const res = await fetch(
+        api(`/api/auth/pass/status?txId=${encodeURIComponent(txId)}`),
+        { credentials: 'include' }
+      );
       const txt = await res.text();
-      let j = null; try { j = JSON.parse(txt); } catch { return; }
+      let j = null;
+      try {
+        j = JSON.parse(txt);
+      } catch {
+        return;
+      }
       if (!j?.ok) return;
 
-      if (j.status === 'consumed') {
+      // ✅ success / consumed 둘 다 결과분기 진행
+      if (j.status === 'success' || j.status === 'consumed') {
         stopPolling();
-        lastFailCode.value = 'CONSUMED';
-        lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
-        mode.value = 'fail'; busy.value = false;
-        await closeExternal();
+        await proceedRouteByTx(txId);
       } else if (j.status === 'fail') {
         stopPolling();
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        lastFailDetail.value = { code: j?.result?.failCode || 'UNKNOWN', message: j?.result?.failMessage || '' };
-        mode.value = 'fail'; busy.value = false;
+        lastFailDetail.value = {
+          code: j?.result?.failCode || 'UNKNOWN',
+          message: j?.result?.failMessage || ''
+        };
+        mode.value = 'fail';
+        busy.value = false;
         await closeExternal();
-      } else if (j.status === 'success') {
-        stopPolling();
-        await proceedRouteByTx(txId);
       }
     } catch {
       // 일시 오류 무시
@@ -342,19 +387,26 @@ function onMessage(e) {
   const data = e?.data || {};
   if (data?.type === 'PASS_RESULT' && data?.txId) {
     txIdRef.value = String(data.txId);
-    if (isNative) { Browser.close().catch(() => {}); } // 앱에서는 즉시 브라우저 닫기
+    if (isNative) {
+      Browser.close().catch(() => {});
+    } // 앱에서는 즉시 브라우저 닫기
     proceedRouteByTx(txIdRef.value);
   } else if (data?.type === 'PASS_FAIL') {
     lastFailCode.value = data?.reason || 'FAIL';
     lastFailDetail.value = data?.detail || {};
-    mode.value = 'fail'; busy.value = false;
-    if (isNative) { Browser.close().catch(() => {}); }
+    mode.value = 'fail';
+    busy.value = false;
+    if (isNative) {
+      Browser.close().catch(() => {});
+    }
   }
 }
 function onStorage(e) {
   if (e.key === 'PASS_RESULT_TX' && e.newValue) {
     txIdRef.value = String(e.newValue);
-    if (isNative) { Browser.close().catch(() => {}); }
+    if (isNative) {
+      Browser.close().catch(() => {});
+    }
     proceedRouteByTx(txIdRef.value);
   }
 }
@@ -400,71 +452,75 @@ onBeforeUnmount(() => {
 });
 
 /* ──────────────── 서버 결과/분기 처리 ──────────────── */
+async function loadPassResult(txId) {
+  if (!txId) return;
+  try {
+    const res = await fetch(
+      api(`/api/auth/pass/result/${encodeURIComponent(txId)}`),
+      { credentials: 'include' }
+    );
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = { ok: false, raw: text };
+    }
+    passResultRaw.value = json;
+    passResult.value = json;
+    try {
+      localStorage.setItem('PASS_LAST_RESULT', JSON.stringify(json));
+    } catch {}
+  } catch (e) {
+    passResult.value = { ok: false, error: String(e) };
+    passResultRaw.value = { ok: false, error: String(e) };
+  }
+}
+
 async function proceedRouteByTx(txId) {
   try {
     await loadPassResult(txId);
 
-    const res = await fetch(api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`), { credentials: 'include' });
+    const res = await fetch(
+      api(`/api/auth/pass/route?txId=${encodeURIComponent(txId)}`),
+      { credentials: 'include' }
+    );
     const txt = await res.text();
-    let j = null; try { j = JSON.parse(txt); } catch {
+    let j = null;
+    try {
+      j = JSON.parse(txt);
+    } catch {
       lastFailCode.value = 'ROUTE_NON_JSON';
       lastFailDetail.value = { raw: txt };
-      mode.value = 'fail'; busy.value = false;
+      mode.value = 'fail';
+      busy.value = false;
       await closeExternal();
       return;
     }
 
-    // ✅ 백엔드가 410 / code: CONSUMED 를 내려줘도
-    //    PassResult 자체는 success 인 경우가 있음
-    //    → 이때는 임시로그인(temp-login)을 바로 시도한다.
-    if (res.status === 410 || j?.code === 'CONSUMED') {
-      if (pr.value?.status === 'success') {
-        try {
-          const resp = await fetch(api(`/api/auth/pass/temp-login`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ txId, updateProfile: true })
-          });
-          const bodyText = await resp.text();
-          const jj = JSON.parse(bodyText);
-          if (!resp.ok || !jj?.ok) throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
-        } catch (e) {
-          lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
-          lastFailDetail.value = { response: String(e) };
-          mode.value = 'fail'; busy.value = false;
-          await closeExternal();
-          return;
-        }
-        await router.replace({ name: 'Home' });
-        await closeExternal();
-        return;
-      }
-
-      // PassResult 도 실패 상태면 진짜 오류로 처리
-      lastFailCode.value = 'CONSUMED';
-      lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
-      mode.value = 'fail'; busy.value = false;
-      await closeExternal();
-      return;
-    }
-
+    // 여기서부터는 /route의 판단에 따름
     if (!res.ok || j?.ok === false) {
       lastFailCode.value = j?.code || 'ROUTE_ERROR';
       lastFailDetail.value = j;
-      mode.value = 'fail'; busy.value = false;
+      mode.value = 'fail';
+      busy.value = false;
       await closeExternal();
       return;
     }
 
     const stay = String(route.query.stay || '') === '1';
-    if (stay) { mode.value = 'idle'; busy.value = false; return; }
+    if (stay) {
+      mode.value = 'idle';
+      busy.value = false;
+      return;
+    }
 
     const nextRoute = j?.route || j?.next;
     if (!nextRoute) {
       lastFailCode.value = 'ROUTE_MISSING';
       lastFailDetail.value = j;
-      mode.value = 'fail'; busy.value = false;
+      mode.value = 'fail';
+      busy.value = false;
       await closeExternal();
       return;
     }
@@ -478,7 +534,9 @@ async function proceedRouteByTx(txId) {
       try {
         await router.replace({ name: 'Signup', query: { passTxId: txId } });
       } catch {
-        await router.replace({ path: `/signup?passTxId=${encodeURIComponent(txId)}` });
+        await router.replace({
+          path: `/signup?passTxId=${encodeURIComponent(txId)}`
+        });
       }
       await closeExternal();
     } else if (nextRoute === 'templogin') {
@@ -491,11 +549,13 @@ async function proceedRouteByTx(txId) {
         });
         const bodyText = await resp.text();
         const jj = JSON.parse(bodyText);
-        if (!resp.ok || !jj?.ok) throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
+        if (!resp.ok || !jj?.ok)
+          throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
       } catch (e) {
         lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
         lastFailDetail.value = { response: String(e) };
-        mode.value = 'fail'; busy.value = false;
+        mode.value = 'fail';
+        busy.value = false;
         await closeExternal();
         return;
       }
@@ -504,32 +564,35 @@ async function proceedRouteByTx(txId) {
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
       lastFailDetail.value = j;
-      mode.value = 'fail'; busy.value = false;
+      mode.value = 'fail';
+      busy.value = false;
       await closeExternal();
     }
   } catch (e) {
     lastFailCode.value = e?.message || 'ROUTE_ERROR';
-    lastFailDetail.value = { message: e?.message || '', stackTop: String(e?.stack || '').split('\n')[0] };
-    mode.value = 'fail'; busy.value = false;
+    lastFailDetail.value = {
+      message: e?.message || '',
+      stackTop: String(e?.stack || '').split('\n')[0]
+    };
+    mode.value = 'fail';
+    busy.value = false;
     await closeExternal();
   }
 }
-
-
-
-
 
 /* ──────────────── 시작 버튼 ──────────────── */
 async function onClickPass() {
   lastFailCode.value = '';
   lastFailDetail.value = null;
   if (busy.value) return;
-  busy.value = true; mode.value = 'running';
+  busy.value = true;
+  mode.value = 'running';
 
   try {
     if (isLocal) {
       await router.replace({ name: 'PassManual' });
-      busy.value = false; mode.value = 'idle';
+      busy.value = false;
+      mode.value = 'idle';
       return;
     }
 
@@ -537,7 +600,10 @@ async function onClickPass() {
     if (!isNative) {
       if (!popupWin.value || popupWin.value.closed) {
         const w = openPopup();
-        if (!w) { popupBlockedFail(); return; }
+        if (!w) {
+          popupBlockedFail();
+          return;
+        }
       }
     }
 
@@ -549,7 +615,12 @@ async function onClickPass() {
       body: JSON.stringify({ intent: 'unified', preferUrl: true })
     });
     const startText = await resp.text();
-    let startJson = null; try { startJson = JSON.parse(startText); } catch { throw new Error('START_NON_JSON'); }
+    let startJson = null;
+    try {
+      startJson = JSON.parse(startText);
+    } catch {
+      throw new Error('START_NON_JSON');
+    }
 
     if (!resp.ok || !startJson?.ok || !(startJson?.startUrl || startJson?.formHtml)) {
       throw new Error(startJson?.code || 'START_ERROR');
@@ -571,7 +642,8 @@ async function onClickPass() {
   } catch (e) {
     lastFailCode.value = e?.message || 'START_ERROR';
     lastFailDetail.value = null;
-    mode.value = 'fail'; busy.value = false;
+    mode.value = 'fail';
+    busy.value = false;
     await closeExternal();
   }
 }
@@ -599,29 +671,109 @@ function goHome() {
 </script>
 
 <style scoped>
-.container { max-width: 720px; margin: 0 auto; padding: 16px; }
-.card { background: var(--ion-card-background, #1e1e1e); border-radius: 16px; padding: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
-h2 { margin: 0 0 8px; }
-.desc { opacity: 0.85; margin-bottom: 16px; }
-.mr-2 { margin-right: 8px; }
-.fail-code { margin-top: 12px; color: var(--ion-color-danger); }
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.card {
+  background: var(--ion-card-background, #1e1e1e);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+h2 {
+  margin: 0 0 8px;
+}
+.desc {
+  opacity: 0.85;
+  margin-bottom: 16px;
+}
+.mr-2 {
+  margin-right: 8px;
+}
+.fail-code {
+  margin-top: 12px;
+  color: var(--ion-color-danger);
+}
 
-.fail-detail { margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 0, 0, 0.06); border: 1px solid rgba(255, 0, 0, 0.2); }
-.fail-detail h3 { margin: 0 0 8px; font-size: 1rem; }
-.kv { list-style: none; padding: 0; margin: 0 0 8px; }
-.kv li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 4px 0; }
-.kv .k { opacity: 0.7; }
-.kv .v { word-break: break-all; }
-.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-.raw { margin: 8px 0 0; max-height: 240px; overflow: auto; background: rgba(255,255,255,0.06); padding: 8px; border-radius: 8px; }
+.fail-detail {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 0, 0, 0.06);
+  border: 1px solid rgba(255, 0, 0, 0.2);
+}
+.fail-detail h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+.kv {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+.kv li {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+}
+.kv .k {
+  opacity: 0.7;
+}
+.kv .v {
+  word-break: break-all;
+}
+.kv .v.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', monospace;
+}
+.raw {
+  margin: 8px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 8px;
+  border-radius: 8px;
+}
 
-.tips { margin-top: 16px; font-size: 0.95rem; opacity: 0.9; }
-.tips ul { margin: 6px 0 0 18px; }
+.tips {
+  margin-top: 16px;
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+.tips ul {
+  margin: 6px 0 0 18px;
+}
 
-.result-panel { margin-top: 16px; padding: 12px; border-radius: 12px; background: rgba(0, 128, 255, 0.06); border: 1px solid rgba(0, 128, 255, 0.2); }
-.result-panel .panel-head { display: flex; align-items: baseline; gap: 8px; }
-.result-panel .panel-head h3 { margin: 0; font-size: 1rem; }
-.result-panel .panel-head .muted { opacity: 0.7; }
-.result-actions { display: flex; gap: 8px; margin-top: 8px; }
-.hint { margin-top: 6px; opacity: 0.7; font-size: 0.85rem; }
+.result-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 128, 255, 0.06);
+  border: 1px solid rgba(0, 128, 255, 0.2);
+}
+.result-panel .panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.result-panel .panel-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.result-panel .panel-head .muted {
+  opacity: 0.7;
+}
+.result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hint {
+  margin-top: 6px;
+  opacity: 0.7;
+  font-size: 0.85rem;
+}
 </style>
