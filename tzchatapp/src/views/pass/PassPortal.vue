@@ -310,21 +310,16 @@ function startStatusPolling(txId) {
       if (!j?.ok) return;
 
       if (j.status === 'consumed') {
-        // 🔸 예전에는 여기서 바로 실패 처리했음
-        //     -> 동일 CI가 있는 경우 임시로그인 분기로 못 감
-        // 🔸 이제는 콜백이 이미 끝난 상태라고 보고
-        //     /route 에게 실제 분기를 맡긴다.
         stopPolling();
-        await proceedRouteByTx(txId);
+        lastFailCode.value = 'CONSUMED';
+        lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
+        mode.value = 'fail'; busy.value = false;
+        await closeExternal();
       } else if (j.status === 'fail') {
         stopPolling();
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        lastFailDetail.value = {
-          code: j?.result?.failCode || 'UNKNOWN',
-          message: j?.result?.failMessage || ''
-        };
-        mode.value = 'fail';
-        busy.value = false;
+        lastFailDetail.value = { code: j?.result?.failCode || 'UNKNOWN', message: j?.result?.failMessage || '' };
+        mode.value = 'fail'; busy.value = false;
         await closeExternal();
       } else if (j.status === 'success') {
         stopPolling();
@@ -335,7 +330,6 @@ function startStatusPolling(txId) {
     }
   }, 1200);
 }
-
 function stopPolling() {
   if (statusPoller.value) {
     clearInterval(statusPoller.value);
@@ -406,21 +400,6 @@ onBeforeUnmount(() => {
 });
 
 /* ──────────────── 서버 결과/분기 처리 ──────────────── */
-async function loadPassResult(txId) {
-  if (!txId) return;
-  try {
-    const res = await fetch(api(`/api/auth/pass/result/${encodeURIComponent(txId)}`), { credentials: 'include' });
-    const text = await res.text();
-    let json = null; try { json = JSON.parse(text); } catch { json = { ok: false, raw: text }; }
-    passResultRaw.value = json;
-    passResult.value = json;
-    try { localStorage.setItem('PASS_LAST_RESULT', JSON.stringify(json)); } catch {}
-  } catch (e) {
-    passResult.value = { ok: false, error: String(e) };
-    passResultRaw.value = { ok: false, error: String(e) };
-  }
-}
-
 async function proceedRouteByTx(txId) {
   try {
     await loadPassResult(txId);
@@ -435,7 +414,34 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
+    // ✅ 백엔드가 410 / code: CONSUMED 를 내려줘도
+    //    PassResult 자체는 success 인 경우가 있음
+    //    → 이때는 임시로그인(temp-login)을 바로 시도한다.
     if (res.status === 410 || j?.code === 'CONSUMED') {
+      if (pr.value?.status === 'success') {
+        try {
+          const resp = await fetch(api(`/api/auth/pass/temp-login`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ txId, updateProfile: true })
+          });
+          const bodyText = await resp.text();
+          const jj = JSON.parse(bodyText);
+          if (!resp.ok || !jj?.ok) throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
+        } catch (e) {
+          lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
+          lastFailDetail.value = { response: String(e) };
+          mode.value = 'fail'; busy.value = false;
+          await closeExternal();
+          return;
+        }
+        await router.replace({ name: 'Home' });
+        await closeExternal();
+        return;
+      }
+
+      // PassResult 도 실패 상태면 진짜 오류로 처리
       lastFailCode.value = 'CONSUMED';
       lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
       mode.value = 'fail'; busy.value = false;
@@ -508,6 +514,10 @@ async function proceedRouteByTx(txId) {
     await closeExternal();
   }
 }
+
+
+
+
 
 /* ──────────────── 시작 버튼 ──────────────── */
 async function onClickPass() {

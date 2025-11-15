@@ -11,8 +11,7 @@ module.exports = (app) => {
   //    (catch-all 성격의 일반 /api 라우터보다 선행해야 합니다)
   // ----------------------------------------------------------
  
-  // app.use('/api/auth/pass', require('./pass/passRouter')); // PASS (정상 공급사 연동)
-  
+ 
   app.use('/api/auth/pass', require('./pass/passStartRouter')); // PASS (정상 공급사 연동) 
   app.use('/api/auth/pass', require('./pass/passResultRouter')); // PASS (정상 공급사 연동)
 
