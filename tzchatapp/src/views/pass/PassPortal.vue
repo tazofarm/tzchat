@@ -310,16 +310,21 @@ function startStatusPolling(txId) {
       if (!j?.ok) return;
 
       if (j.status === 'consumed') {
+        // 🔸 예전에는 여기서 바로 실패 처리했음
+        //     -> 동일 CI가 있는 경우 임시로그인 분기로 못 감
+        // 🔸 이제는 콜백이 이미 끝난 상태라고 보고
+        //     /route 에게 실제 분기를 맡긴다.
         stopPolling();
-        lastFailCode.value = 'CONSUMED';
-        lastFailDetail.value = { code: 'CONSUMED', message: '이미 사용된 PASS 토큰입니다.' };
-        mode.value = 'fail'; busy.value = false;
-        await closeExternal();
+        await proceedRouteByTx(txId);
       } else if (j.status === 'fail') {
         stopPolling();
         lastFailCode.value = j?.result?.failCode || 'UNKNOWN';
-        lastFailDetail.value = { code: j?.result?.failCode || 'UNKNOWN', message: j?.result?.failMessage || '' };
-        mode.value = 'fail'; busy.value = false;
+        lastFailDetail.value = {
+          code: j?.result?.failCode || 'UNKNOWN',
+          message: j?.result?.failMessage || ''
+        };
+        mode.value = 'fail';
+        busy.value = false;
         await closeExternal();
       } else if (j.status === 'success') {
         stopPolling();
@@ -330,6 +335,7 @@ function startStatusPolling(txId) {
     }
   }, 1200);
 }
+
 function stopPolling() {
   if (statusPoller.value) {
     clearInterval(statusPoller.value);
