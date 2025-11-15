@@ -525,12 +525,14 @@ async function proceedRouteByTx(txId) {
       return;
     }
 
+    // PASS 결과 txId를 저장 (회원가입/임시로그인 페이지에서 공통 사용)
     try {
       sessionStorage.setItem('passTxId', txId);
       localStorage.setItem('PASS_RESULT_TX', txId);
     } catch {}
 
     if (nextRoute === 'signup') {
+      // ➜ 회원가입 페이지로 이동
       try {
         await router.replace({ name: 'Signup', query: { passTxId: txId } });
       } catch {
@@ -540,26 +542,14 @@ async function proceedRouteByTx(txId) {
       }
       await closeExternal();
     } else if (nextRoute === 'templogin') {
+      // ➜ 임시로그인 "화면"으로 이동 (여기서는 로그인 API 호출하지 않음)
       try {
-        const resp = await fetch(api(`/api/auth/pass/temp-login`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ txId, updateProfile: true })
+        await router.replace({ name: 'TempLogin', query: { passTxId: txId } });
+      } catch {
+        await router.replace({
+          path: `/temp-login?passTxId=${encodeURIComponent(txId)}`
         });
-        const bodyText = await resp.text();
-        const jj = JSON.parse(bodyText);
-        if (!resp.ok || !jj?.ok)
-          throw new Error(jj?.code || 'TEMPLOGIN_FAILED');
-      } catch (e) {
-        lastFailCode.value = e?.message || 'TEMPLOGIN_FAILED';
-        lastFailDetail.value = { response: String(e) };
-        mode.value = 'fail';
-        busy.value = false;
-        await closeExternal();
-        return;
       }
-      await router.replace({ name: 'Home' });
       await closeExternal();
     } else {
       lastFailCode.value = 'ROUTE_UNKNOWN';
