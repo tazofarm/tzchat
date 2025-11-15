@@ -65,7 +65,7 @@
     </div>
   </div>
 </template>
-
+ 
 <script setup lang="ts">
 /**
  * LoginPage.vue
@@ -108,7 +108,8 @@ function redirectTarget() {
     : '/home/6page'
 }
 function redirectAfterLogin() {
-  router.push(redirectTarget())
+  // ✅ 로그인 후에는 히스토리를 덮어써서 뒤로가기 시 로그인 화면이 나오지 않도록 처리
+  router.replace(redirectTarget())
 }
 
 /** 뒤로가기 동작 */
@@ -268,7 +269,8 @@ async function checkPendingAgreementsOrRedirect() {
 
     if (Array.isArray(pending) && pending.length > 0) {
       // router/index.ts 기준: AgreementPagePublic
-      router.push({ name: 'AgreementPagePublic', query: { return: redirectTarget() } })
+      // ✅ 동의 페이지로 이동 시에도 replace 사용해서 로그인 히스토리를 남기지 않음
+      router.replace({ name: 'AgreementPagePublic', query: { return: redirectTarget() } })
     } else {
       redirectAfterLogin()
     }

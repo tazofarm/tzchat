@@ -22,7 +22,7 @@ import { useUserStore } from '@/store/user'
 // ✅ (추가) 안드로이드 권한 유틸
 import { requestBasicPermissions } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
-import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 수신
+import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 / 백버튼
 import { Browser } from '@capacitor/browser'     // ✅ 커스텀탭 닫기용
 
 /* Ionicons */
@@ -343,6 +343,37 @@ router.isReady()
         console.warn('[DEEPLINK] handle error:', e?.message)
       }
     })
+
+    // ✅ 안드로이드 하드웨어 뒤로가기 처리
+    if (Capacitor.getPlatform() === 'android') {
+      CapApp.addListener('backButton', ({ canGoBack }) => {
+        const current = router.currentRoute.value
+        const path = current.path || ''
+        const name = (current.name as string | undefined) || ''
+
+        // 👉 여기 조건을 실제 "메인 화면" 기준으로 필요하면 조정
+        const isMainLike =
+          path === '/' ||
+          path === '/home' ||
+          path === '/home/' ||
+          path === '/home/0page' ||
+          name === 'Home' ||
+          name === 'MainPage'
+
+        // 메인 화면에서는 뒤로가기 → 앱 종료 (로그인 화면으로 돌아가지 않도록)
+        if (isMainLike) {
+          CapApp.exitApp()
+          return
+        }
+
+        // 그 외 화면에서는 history 가 있으면 뒤로가기, 없으면 종료
+        if (canGoBack && router.options.history.state.back !== null) {
+          router.back()
+        } else {
+          CapApp.exitApp()
+        }
+      })
+    }
 
     await bootstrapSocketOnce()
     await nextTick()

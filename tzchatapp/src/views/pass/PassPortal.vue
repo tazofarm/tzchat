@@ -177,7 +177,7 @@ function handleAppUrlOpen(data) {
       proceedRouteByTx(txId);
       return;
     }
-
+ 
     // 일부 단말에서 host만 다른 케이스 대비(이전 버전 호환: tzchat://pass?txId=...)
     const altTx = /txId=([^&#]+)/.exec(rawUrl)?.[1] || '';
     if (altTx) {

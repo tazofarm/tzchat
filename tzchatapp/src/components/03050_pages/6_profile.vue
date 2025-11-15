@@ -324,7 +324,7 @@
               </td>
             </tr>
 
-            <!-- 회원등급 (TEST) -->
+            <!-- 회원등급 (TEST) 
             <tr class="editable-row" @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal">
               <td class="pf-th">
                 <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
@@ -334,6 +334,8 @@
                 {{ user.user_level || '일반회원' }}
               </td>
             </tr>
+            -->
+
           </tbody>
         </table>
       </div>
@@ -375,7 +377,7 @@
       @close="showLevelModal = false"
       @updated="handleLevelUpdated"
     />
-
+    
     <PasswordChangeModal :is-open="showPasswordModal" @close="showPasswordModal = false" @updated="onPasswordUpdated" />
   </div>
 </template>
