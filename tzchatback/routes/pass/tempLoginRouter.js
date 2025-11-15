@@ -1,173 +1,131 @@
 // backend/routes/pass/tempLoginRouter.js
-// base mount: /api/auth/pass
-// POST /temp-login  → PASS txId로 임시 로그인(JWT + 세션 쿠키 발급)
+// base: /api/auth/pass
+// - POST /temp-login
 
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const router = express.Router();
+const crypto = require('crypto');
 
-const { PassResult, PassIdentity, User } = require('@/models');
+const { PassResult, User, PassIdentity } = require('@/models');
+const { issueSessionForUser } = require('@/lib/auth/session');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'tzchatjwtsecret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'tzchat.jwt';
+/* ──────────────── 공통 유틸 ──────────────── */
 
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const IS_PROD = NODE_ENV === 'production';
+const sha256Hex = (s = '') =>
+  crypto.createHash('sha256').update(String(s)).digest('hex');
 
-// 공통 에러 응답 유틸
-function jsonError(res, status, body) {
+function json(res, status, body) {
+  res.set({
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
   return res.status(status).json(body);
 }
 
-/**
- * PASS 임시 로그인
- * body: { txId: string, updateProfile?: boolean }
- *
- * 동작 요약:
- * 1) PassResult(txId)를 조회해서 PASS 성공 결과인지 확인
- * 2) CI 기준으로 User 찾기 (PassIdentity → User, 없으면 User.ciHash/pass.ciHash 로 탐색)
- * 3) JWT 발급 + httpOnly 쿠키 세팅
- * 4) PassResult.consumed = true 로 마킹 (로그용)  ← 하지만 **더 이상 이걸로 에러를 내지 않음**
- */
+/* ===================== 1) KR 전화번호 정규화 ====================== */
+
+function normalizePhoneKR(raw = '') {
+  let clean = String(raw).replace(/[^\d+]/g, '');
+  if (!clean) return '';
+  if (clean.startsWith('+0')) clean = '+' + clean.slice(2);
+  if (clean.startsWith('+')) return clean;
+  if (clean.startsWith('0')) return '+82' + clean.slice(1);
+  if (clean.startsWith('82')) return '+' + clean;
+  return '+82' + clean;
+}
+
+/* ===================== 2) PassResult 기반 임시 로그인 ====================== */
+
 router.post('/temp-login', async (req, res) => {
   try {
-    const { txId } = req.body || {};
-
+    const { txId, updateProfile } = req.body || {};
     if (!txId) {
-      return jsonError(res, 400, {
-        ok: false,
-        code: 'NO_TXID',
-        message: 'txId is required',
-      });
+      return json(res, 400, { ok: false, code: 'NO_TXID' });
     }
 
-    // 1) PASS 결과 조회
-    const pr = await PassResult.findOne({ txId });
+    const pr = await PassResult.findOne({ txId }).lean();
     if (!pr) {
-      return jsonError(res, 404, {
-        ok: false,
-        code: 'PASS_TX_NOT_FOUND',
-        message: 'PASS 결과를 찾을 수 없습니다.',
-      });
+      return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
     }
 
     if (pr.status !== 'success') {
-      return jsonError(res, 400, {
-        ok: false,
-        code: 'PASS_NOT_SUCCESS',
-        status: pr.status,
-        message: 'PASS 인증이 성공 상태가 아닙니다.',
-      });
+      return json(res, 400, { ok: false, code: 'NOT_SUCCESS' });
     }
+
+    // ❗ 여기서 더 이상 consumed 를 에러로 취급하지 않는다.
+    // 동일 txId 로 temp-login 을 여러 번 호출해도 허용.
+    // consumed 플래그는 "사용 기록" 정도로만 남겨둔다.
+    //
+    // if (pr.consumed === true || pr.consumedAt) {
+    //   return json(res, 410, { ok: false, code: 'CONSUMED' });
+    // }
 
     if (!pr.ciHash) {
-      return jsonError(res, 400, {
-        ok: false,
-        code: 'NO_CI',
-        message: 'PASS 결과에 CI 정보가 없습니다.',
-      });
+      return json(res, 400, { ok: false, code: 'NO_CI' });
     }
 
-    // 2) CI 기준으로 회원 찾기 (route 로직과 동일한 기준)
+    // 1) CI 기준으로 유저 찾기
     let user = null;
 
-    // 2-1) PassIdentity 에 연결된 userId 우선
+    // 1-1) PassIdentity 연결 우선
     const ident = await PassIdentity.findOne({ ciHash: pr.ciHash })
       .select('userId')
       .lean()
       .catch(() => null);
 
     if (ident?.userId) {
-      user = await User.findById(ident.userId).exec();
+      user = await User.findOne({ _id: ident.userId }).lean();
     }
 
-    // 2-2) 없으면 User.ciHash / User.pass.ciHash 로 직접 탐색
+    // 1-2) 과거에 User 에 ciHash 직접 저장한 경우도 검색
     if (!user) {
       user = await User.findOne({
         $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
-      }).exec();
+      }).lean();
     }
 
     if (!user) {
-      // 이 상황은 보통 /route 에서 templogin 으로 오지 않도록 막지만,
-      // 혹시 모를 불일치를 위해 방어적으로 에러 반환
-      return jsonError(res, 404, {
-        ok: false,
-        code: 'USER_NOT_FOUND',
-        message: 'CI 에 해당하는 회원이 없습니다.',
-      });
+      return json(res, 404, { ok: false, code: 'USER_NOT_FOUND' });
     }
 
-    // 2-3) PassIdentity 가 없으면 생성 (다음부터는 바로 매핑)
-    if (!ident || String(ident.userId) !== String(user._id)) {
-      try {
-        await PassIdentity.updateOne(
-          { ciHash: pr.ciHash },
-          {
-            $setOnInsert: {
-              userId: user._id,
-              createdAt: new Date(),
-            },
-          },
-          { upsert: true }
-        );
-      } catch (e) {
-        console.warn('[PASS][TEMP-LOGIN] PassIdentity upsert warn:', e?.message || e);
+    // 2) 필요한 경우 프로필 정보 업데이트 (전화번호 / 통신사 등)
+    const updates = {};
+    if (updateProfile) {
+      if (pr.phone) {
+        updates.phone = normalizePhoneKR(pr.phone);
+        updates.phoneHash = sha256Hex(updates.phone);
+      }
+      if (pr.carrier) {
+        updates.carrier = pr.carrier;
+      }
+      if (Object.keys(updates).length > 0) {
+        await User.updateOne({ _id: user._id }, { $set: updates });
       }
     }
 
-    // 3) PassResult 에 consumed 플래그만 표시 (로그용)
-    //    👉 더 이상 consumed 때문에 에러를 내지 않는다.
+    // 3) 세션 발급
+    await issueSessionForUser(res, user);
+
+    // 4) PassResult 에 consumed 플래그만 기록 (재호출은 허용)
     if (!pr.consumed) {
-      pr.consumed = true;
-      pr.consumedAt = new Date();
-      try {
-        await pr.save();
-      } catch (e) {
-        console.warn('[PASS][TEMP-LOGIN] PassResult save warn:', e?.message || e);
-      }
-    }
-
-    // 4) JWT 발급 + 세션 쿠키
-    const payload = {
-      uid: String(user._id),
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
-    });
-
-    const maxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7일
-
-    res.cookie(COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: IS_PROD,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: maxAgeMs,
-    });
-
-    // 마지막 로그인 시간 정도만 갱신 (실패해도 로그인 자체는 성공)
-    try {
-      await User.updateOne(
-        { _id: user._id },
-        { $set: { lastLoginAt: new Date() } }
+      await PassResult.updateOne(
+        { txId },
+        { $set: { consumed: true, consumedAt: new Date() } }
       );
-    } catch (e) {
-      console.warn('[PASS][TEMP-LOGIN] lastLoginAt update warn:', e?.message || e);
     }
 
-    return res.json({
+    return json(res, 200, {
       ok: true,
+      code: 'TEMP_LOGIN_OK',
       userId: String(user._id),
-      consumed: !!pr.consumed,
     });
   } catch (e) {
-    console.error('[PASS][TEMP-LOGIN][ERR]', e);
-    return res.status(500).json({
+    console.error('[PASS/temp-login] error:', e);
+    return json(res, 500, {
       ok: false,
-      code: 'SERVER_ERROR',
+      code: 'TEMPLOGIN_ERROR',
       message: 'temp-login failed',
     });
   }

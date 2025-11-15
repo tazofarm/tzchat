@@ -6,10 +6,14 @@
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 
 const { PassResult, User, PassIdentity } = require('@/models');
 
 /* ──────────────── 공통 유틸 ──────────────── */
+
+const sha256Hex = (s = '') =>
+  crypto.createHash('sha256').update(String(s)).digest('hex');
 
 function json(res, status, body) {
   res.set({
@@ -21,14 +25,8 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
-/* ===================== 1) STATUS ====================== */
-/**
- * GET /api/auth/pass/status?txId=...
- *
- * - PASS 진행 상태만 간단히 확인
- * - status: 'pending' | 'success' | 'fail'
- * - consumed 는 boolean 플래그로만 전달 (에러 아님)
- */
+/* ===================== 2) STATUS ====================== */
+
 router.get('/status', async (req, res) => {
   try {
     const { txId } = req.query;
@@ -42,7 +40,6 @@ router.get('/status', async (req, res) => {
 
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) {
-      // 아직 콜백이 안 온 상태
       return json(res, 200, { ok: true, status: 'pending' });
     }
 
@@ -86,7 +83,6 @@ router.get('/status', async (req, res) => {
       });
     }
 
-    // status 가 정의되어 있지 않으면 pending 취급
     return json(res, 200, { ok: true, status: 'pending' });
   } catch (e) {
     console.error('[PASS/status] error:', e);
@@ -98,13 +94,8 @@ router.get('/status', async (req, res) => {
   }
 });
 
-/* ===================== 2) RESULT ====================== */
-/**
- * GET /api/auth/pass/result/:txId
- *
- * - PASS 결과 전체(마스킹 버전)를 항상 돌려줌
- * - consumed 가 true 여도 에러가 아니라 그냥 플래그만 표시
- */
+/* ===================== 3) RESULT ====================== */
+
 router.get('/result/:txId', async (req, res) => {
   try {
     const { txId } = req.params || {};
@@ -117,6 +108,7 @@ router.get('/result/:txId', async (req, res) => {
       return json(res, 404, { ok: false, code: 'NOT_FOUND' });
     }
 
+    // ✅ consumed 여부와 상관없이 항상 PassResult 전체를 돌려줌
     return json(res, 200, {
       ok: true,
       status: doc.status,
@@ -140,7 +132,6 @@ router.get('/result/:txId', async (req, res) => {
         gender: doc.gender || '',
         phone: doc.phone || '',
         carrier: doc.carrier || '',
-        rawMasked: doc.rawMasked || null,
       },
     });
   } catch (e) {
@@ -153,15 +144,8 @@ router.get('/result/:txId', async (req, res) => {
   }
 });
 
-/* ===================== 3) ROUTE (CI-only & real user check) ====================== */
-/**
- * GET /api/auth/pass/route?txId=...
- *
- * - PASS 성공 후, CI 기준으로
- *   · 동일 CI 유저가 없으면 → { ok:true, route:'signup', userExists:false }
- *   · 동일 CI 유저가 있으면 → { ok:true, route:'templogin', userExists:true }
- * - consumed 가 true 여도 에러가 아님 (단지 플래그로만 전달)
- */
+/* ===================== 4) ROUTE (CI-only & real user check) ====================== */
+
 router.get('/route', async (req, res) => {
   try {
     const { txId } = req.query;
@@ -174,7 +158,8 @@ router.get('/route', async (req, res) => {
       return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
     }
 
-    // PASS 자체가 실패한 경우만 에러 처리
+    // ❗ 여기서는 consumed 를 더 이상 에러로 보지 않는다.
+    // PASS 자체가 실패했을 때만 실패 처리한다.
     if (pr.status === 'fail') {
       return json(res, 200, {
         ok: false,
@@ -183,7 +168,6 @@ router.get('/route', async (req, res) => {
       });
     }
 
-    // 아직 success 상태가 아니면 대기 / 에러
     if (pr.status !== 'success') {
       return json(res, 200, {
         ok: false,
@@ -192,10 +176,9 @@ router.get('/route', async (req, res) => {
       });
     }
 
-    // 여기부터는 PASS "성공" 상태
-    // consumed 가 true 여도 그대로 진행
+    // 여기부터는 PASS 성공 상태: CI 기준으로 회원 존재 여부 확인
     if (!pr.ciHash) {
-      // CI가 없으면 신규 가입으로만 처리
+      // CI 자체가 없으면 무조건 회원가입 경로
       return json(res, 200, {
         ok: true,
         route: 'signup',
@@ -207,10 +190,8 @@ router.get('/route', async (req, res) => {
 
     let userExists = false;
 
-    // 1차: PassIdentity 컬렉션 매핑 확인
-    const ident = await PassIdentity.findOne({
-      ciHash: pr.ciHash,
-    })
+    // 1) PassIdentity 컬렉션에서 연결된 유저 찾기
+    const ident = await PassIdentity.findOne({ ciHash: pr.ciHash })
       .select('userId')
       .lean()
       .catch(() => null);
@@ -222,7 +203,7 @@ router.get('/route', async (req, res) => {
       if (linked?._id) userExists = true;
     }
 
-    // 2차: User 본문에 ciHash / pass.ciHash 로 직접 매칭
+    // 2) 과거에 바로 User 안에 ciHash 저장해 둔 경우도 검색
     if (!userExists) {
       const found = await User.findOne({
         $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
