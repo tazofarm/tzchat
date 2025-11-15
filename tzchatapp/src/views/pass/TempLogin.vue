@@ -19,7 +19,8 @@
             <p class="desc">
               PASS 포털에서 전달된 <b>txId</b>로 임시로그인을 진행합니다.<br />
               <b>아래 버튼을 눌러</b> 임시로그인을 시도하세요.<br />
-              <small>※ 안전을 위해 <b>로그인 후 반드시 비밀번호를 변경</b>해 주세요. (마이페이지 &gt; 보안 &gt; 비밀번호 변경)</small>
+              <small>※ 안전을 위해 <b>로그인 후 반드시 비밀번호를 변경</b>해 주세요.
+                (마이페이지 &gt; 보안 &gt; 비밀번호 변경)</small>
             </p>
 
             <div class="status">
@@ -76,6 +77,39 @@
               <div v-if="redirectInfo">이동 대상: <code>{{ redirectInfo }}</code></div>
               <div v-if="!txId" class="row error">PASS 인증이 필요합니다. 포털에서 인증을 먼저 진행하세요.</div>
             </div>
+
+            <!-- 🔎 디버그 패널: PASS 결과 + 매칭된 유저 정보 (나중에 주석처리 예정) -->
+            <div v-if="passResult || debugUser" class="debug-panel">
+              <h3>PASS 결과 (PassResult)</h3>
+              <ul v-if="passResult && passResult.result" class="kv">
+                <li><span class="k">status</span><span class="v">{{ passResult.result.status }}</span></li>
+                <li v-if="passResult.result.name"><span class="k">name</span><span class="v">{{ passResult.result.name }}</span></li>
+                <li v-if="passResult.result.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult.result.birthyear }}</span></li>
+                <li v-if="passResult.result.gender"><span class="k">gender</span><span class="v">{{ passResult.result.gender }}</span></li>
+                <li v-if="passResult.result.phone"><span class="k">phone</span><span class="v">{{ passResult.result.phone }}</span></li>
+                <li v-if="passResult.result.carrier"><span class="k">carrier</span><span class="v">{{ passResult.result.carrier }}</span></li>
+                <li v-if="passResult.result.ciHash"><span class="k">ciHash</span><span class="v mono">{{ passResult.result.ciHash }}</span></li>
+              </ul>
+              <details v-if="passResult">
+                <summary>PASS 전체 JSON 보기</summary>
+                <pre class="raw">{{ pretty(passResult) }}</pre>
+              </details>
+
+              <div v-if="debugUser" class="user-panel">
+                <h3>동일 CI 매칭 유저 정보 (디버그)</h3>
+                <ul class="kv">
+                  <li><span class="k">userId</span><span class="v mono">{{ debugUser._id }}</span></li>
+                  <li v-if="debugUser.nickname"><span class="k">닉네임</span><span class="v">{{ debugUser.nickname }}</span></li>
+                  <li v-if="debugUser.phone"><span class="k">phone</span><span class="v">{{ debugUser.phone }}</span></li>
+                  <li v-if="debugUser.carrier"><span class="k">carrier</span><span class="v">{{ debugUser.carrier }}</span></li>
+                  <li v-if="debugUser.gender"><span class="k">gender</span><span class="v">{{ debugUser.gender }}</span></li>
+                  <li v-if="debugUser.birthyear"><span class="k">birthyear</span><span class="v">{{ debugUser.birthyear }}</span></li>
+                  <li v-if="debugUser.level"><span class="k">level</span><span class="v">{{ debugUser.level }}</span></li>
+                  <li v-if="debugUser.createdAt"><span class="k">createdAt</span><span class="v">{{ debugUser.createdAt }}</span></li>
+                </ul>
+              </div>
+            </div>
+            <!-- 🔎 디버그 패널 끝 -->
           </ion-card-content>
         </ion-card>
       </div>
@@ -157,9 +191,59 @@ const success = ref(false)
 const redirectInfo = ref('')
 const endpointTried = ref('')
 
+// 디버그용 PASS / 유저 정보
+const passResult = ref<any | null>(null)
+const debugUser = ref<any | null>(null)
+
+const pretty = (obj: any) => {
+  try {
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return String(obj)
+  }
+}
+
 // ❌ 자동 시도 없음: 사용자가 명시적으로 버튼을 눌러 진행
-onMounted(() => {
-  // 안내만 표시
+onMounted(async () => {
+  // 안내 + 디버그용 데이터 로딩
+  if (!txId.value) return
+
+  // PASS 결과
+  try {
+    const res = await fetch(api(`/api/auth/pass/result/${encodeURIComponent(txId.value)}`), {
+      credentials: 'include'
+    })
+    const text = await res.text()
+    let json: any
+    try {
+      json = JSON.parse(text)
+    } catch {
+      json = { ok: false, raw: text }
+    }
+    passResult.value = json
+  } catch (e: any) {
+    passResult.value = { ok: false, error: String(e?.message || e) }
+  }
+
+  // route + 디버그 유저
+  try {
+    const res = await fetch(
+      api(`/api/auth/pass/route?txId=${encodeURIComponent(txId.value)}&debug=1`),
+      { credentials: 'include' }
+    )
+    const text = await res.text()
+    let json: any
+    try {
+      json = JSON.parse(text)
+    } catch {
+      json = { ok: false, raw: text }
+    }
+    if (json?.debugUser) {
+      debugUser.value = json.debugUser
+    }
+  } catch (e: any) {
+    // 무시 가능
+  }
 })
 
 async function toast(message: string, color: 'primary'|'success'|'warning'|'danger' = 'primary') {
@@ -277,4 +361,49 @@ function goBack() {
 .actions { display: grid; gap: 10px; margin-top: 8px; }
 .meta { margin-top: 14px; font-size: 0.9rem; opacity: 0.85; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+.debug-panel {
+  margin-top: 18px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 128, 255, 0.06);
+  border: 1px solid rgba(0, 128, 255, 0.25);
+  font-size: 0.9rem;
+}
+.debug-panel h3 {
+  margin: 4px 0 6px;
+  font-size: 0.95rem;
+}
+.kv {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+.kv li {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px;
+  padding: 2px 0;
+}
+.kv .k {
+  opacity: 0.7;
+}
+.kv .v {
+  word-break: break-all;
+}
+.kv .v.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}
+.raw {
+  margin: 6px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 8px;
+  border-radius: 8px;
+}
+.user-panel {
+  margin-top: 10px;
+}
 </style>

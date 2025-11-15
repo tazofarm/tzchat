@@ -161,6 +161,9 @@ router.get('/result/:txId', async (req, res) => {
  *   · 동일 CI 유저가 없으면 → { ok:true, route:'signup', userExists:false }
  *   · 동일 CI 유저가 있으면 → { ok:true, route:'templogin', userExists:true }
  * - consumed 가 true 여도 에러가 아님 (단지 플래그로만 전달)
+ *
+ * - debug=1 이나 debug=true 로 호출하면,
+ *   매칭된 유저의 최소 정보(debugUser)를 함께 반환 (임시 디버그용)
  */
 router.get('/route', async (req, res) => {
   try {
@@ -168,6 +171,10 @@ router.get('/route', async (req, res) => {
     if (!txId) {
       return json(res, 400, { ok: false, code: 'NO_TXID' });
     }
+
+    const wantDebugUser = ['1', 'true', 'yes'].includes(
+      String(req.query.debug || '').toLowerCase()
+    );
 
     const pr = await PassResult.findOne({ txId }).lean();
     if (!pr) {
@@ -206,6 +213,7 @@ router.get('/route', async (req, res) => {
     }
 
     let userExists = false;
+    let debugUser = null;
 
     // 1차: PassIdentity 컬렉션 매핑 확인
     const ident = await PassIdentity.findOne({
@@ -220,13 +228,16 @@ router.get('/route', async (req, res) => {
 
     if (ident?.userId) {
       const linked = await User.findOne({ _id: ident.userId })
-        .select('_id')
+        .select('_id nickname phone carrier gender birthyear level createdAt')
         .lean()
         .catch(e => {
           console.warn('[PASS/route] linked user lookup error:', e?.message || e);
           return null;
         });
-      if (linked?._id) userExists = true;
+      if (linked?._id) {
+        userExists = true;
+        debugUser = linked;
+      }
     }
 
     // 2차: User 본문에 ciHash / pass.ciHash 로 직접 매칭
@@ -234,16 +245,34 @@ router.get('/route', async (req, res) => {
       const found = await User.findOne({
         $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
       })
-        .select('_id')
+        .select('_id nickname phone carrier gender birthyear level createdAt')
         .lean()
         .catch(e => {
           console.warn('[PASS/route] direct user lookup error:', e?.message || e);
           return null;
         });
-      if (found?._id) userExists = true;
+      if (found?._id) {
+        userExists = true;
+        debugUser = found;
+      }
     }
 
     const routeName = userExists ? 'templogin' : 'signup';
+
+    // 디버그 유저 정보(선택)
+    let debugUserPayload = undefined;
+    if (wantDebugUser && debugUser) {
+      debugUserPayload = {
+        _id: String(debugUser._id),
+        nickname: debugUser.nickname || null,
+        phone: debugUser.phone || null,
+        carrier: debugUser.carrier || null,
+        gender: debugUser.gender || null,
+        birthyear: debugUser.birthyear ?? null,
+        level: debugUser.level ?? null,
+        createdAt: debugUser.createdAt || null,
+      };
+    }
 
     return json(res, 200, {
       ok: true,
@@ -251,6 +280,7 @@ router.get('/route', async (req, res) => {
       txId,
       userExists,
       consumed: !!pr.consumed,
+      ...(debugUserPayload ? { debugUser: debugUserPayload } : {}),
     });
   } catch (e) {
     console.error('[PASS/route] error:', e);

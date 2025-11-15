@@ -158,10 +158,12 @@ router.post('/temp-login', async (req, res) => {
       console.warn('[PASS][TEMP-LOGIN] lastLoginAt update warn:', e?.message || e);
     }
 
+    // ✅ 토큰도 응답에 포함 (프론트에서 Authorization 헤더용으로 보관 가능)
     return res.json({
       ok: true,
       userId: String(user._id),
       consumed: !!pr.consumed,
+      token,
     });
   } catch (e) {
     console.error('[PASS][TEMP-LOGIN][ERR]', e);
