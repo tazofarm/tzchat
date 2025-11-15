@@ -379,26 +379,35 @@ router.get('/status', async (req, res) => {
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 200, { ok: true, status: 'pending' });
 
-    if (doc.consumed === true)
-      return json(res, 200, { ok: true, status: 'consumed', txId });
+    const baseResult = {
+      txId: doc.txId,
+      status: doc.status,
+      consumed: !!doc.consumed,
+      failCode:
+        doc.status === 'fail' ? doc.failCode || 'UNKNOWN' : null,
+      failMessage:
+        doc.status === 'fail'
+          ? doc.failMessage ||
+            (doc.rawMasked && doc.rawMasked.RETURNMSG) ||
+            null
+          : null,
+      ciHash: doc.ciHash || null,
+      diHash: doc.diHash || null,
+      name: doc.name || '',
+      birthyear: doc.birthyear ?? null,
+      gender: doc.gender || '',
+      phone: doc.phone || '',
+      carrier: doc.carrier || '',
+      debugPhoneVia: doc.rawMasked?.__debug_phone_via || null,
+      debugKeys: doc.rawMasked?.__debug_keys || null,
+    };
 
     if (doc.status === 'success') {
       return json(res, 200, {
         ok: true,
         status: 'success',
-        result: {
-          txId: doc.txId,
-          status: doc.status,
-          ciHash: doc.ciHash || null,
-          diHash: doc.diHash || null,
-          name: doc.name || '',
-          birthyear: doc.birthyear ?? null,
-          gender: doc.gender || '',
-          phone: doc.phone || '',
-          carrier: doc.carrier || '',
-          debugPhoneVia: doc.rawMasked?.__debug_phone_via || null,
-          debugKeys: doc.rawMasked?.__debug_keys || null,
-        },
+        consumed: !!doc.consumed,
+        result: baseResult,
       });
     }
 
@@ -406,15 +415,8 @@ router.get('/status', async (req, res) => {
       return json(res, 200, {
         ok: true,
         status: 'fail',
-        result: {
-          txId: doc.txId,
-          status: doc.status,
-          failCode: doc.failCode || 'UNKNOWN',
-          failMessage:
-            doc.failMessage ||
-            (doc.rawMasked && doc.rawMasked.RETURNMSG) ||
-            null,
-        },
+        consumed: !!doc.consumed,
+        result: baseResult,
       });
     }
 
@@ -438,15 +440,17 @@ router.get('/result/:txId', async (req, res) => {
 
     const doc = await PassResult.findOne({ txId }).lean();
     if (!doc) return json(res, 404, { ok: false, code: 'NOT_FOUND' });
-    if (doc.consumed === true)
-      return json(res, 410, { ok: false, code: 'CONSUMED' });
 
+    // ❌ 이전 코드: consumed === true 이면 410 + { code: 'CONSUMED' }
+    // ✅ 변경: 항상 PassResult 전체를 돌려주고, consumed 플래그만 표기
     return json(res, 200, {
       ok: true,
       status: doc.status,
+      consumed: !!doc.consumed,
       result: {
         txId: doc.txId,
         status: doc.status,
+        consumed: !!doc.consumed,
         failCode:
           doc.status === 'fail' ? doc.failCode || 'UNKNOWN' : null,
         failMessage:
@@ -484,8 +488,9 @@ router.get('/route', async (req, res) => {
 
     const pr = await PassResult.findOne({ txId }).lean();
     if (!pr) return json(res, 404, { ok: false, code: 'PASS_TX_NOT_FOUND' });
-    if (pr.consumed === true)
-      return json(res, 410, { ok: false, code: 'CONSUMED' });
+
+    // ❌ 이전 코드: pr.consumed === true 이면 410 + { code: 'CONSUMED' }
+    // ✅ 변경: consumed 여부와 상관없이 status가 success 이면 분기 로직 수행
     if (pr.status === 'fail')
       return json(res, 200, {
         ok: false,
@@ -499,12 +504,14 @@ router.get('/route', async (req, res) => {
         status: pr.status,
       });
 
+    // 여기부터는 PASS 성공 상태: CI 기준으로 회원 존재 여부 확인
     if (!pr.ciHash) {
       return json(res, 200, {
         ok: true,
         route: 'signup',
         txId,
         userExists: false,
+        consumed: !!pr.consumed,
       });
     }
 
@@ -533,7 +540,13 @@ router.get('/route', async (req, res) => {
     }
 
     const routeName = userExists ? 'templogin' : 'signup';
-    return json(res, 200, { ok: true, route: routeName, txId, userExists });
+    return json(res, 200, {
+      ok: true,
+      route: routeName,
+      txId,
+      userExists,
+      consumed: !!pr.consumed,
+    });
   } catch (e) {
     console.error('[PASS/route] error:', e);
     return json(res, 500, {
