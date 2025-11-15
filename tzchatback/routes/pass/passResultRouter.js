@@ -213,19 +213,12 @@ router.get('/route', async (req, res) => {
     })
       .select('userId')
       .lean()
-      .catch(e => {
-        console.warn('[PASS/route] identity lookup error:', e?.message || e);
-        return null;
-      });
+      .catch(() => null);
 
     if (ident?.userId) {
       const linked = await User.findOne({ _id: ident.userId })
         .select('_id')
-        .lean()
-        .catch(e => {
-          console.warn('[PASS/route] linked user lookup error:', e?.message || e);
-          return null;
-        });
+        .lean();
       if (linked?._id) userExists = true;
     }
 
@@ -235,11 +228,7 @@ router.get('/route', async (req, res) => {
         $or: [{ ciHash: pr.ciHash }, { 'pass.ciHash': pr.ciHash }],
       })
         .select('_id')
-        .lean()
-        .catch(e => {
-          console.warn('[PASS/route] direct user lookup error:', e?.message || e);
-          return null;
-        });
+        .lean();
       if (found?._id) userExists = true;
     }
 
