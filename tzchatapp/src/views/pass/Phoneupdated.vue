@@ -71,7 +71,7 @@
                 <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
                 <span>{{ secondaryBtnText }}</span>
               </ion-button>
-
+              <!--
               <ion-button
                 expand="block"
                 fill="clear"
@@ -80,6 +80,7 @@
               >
                 내 정보 새로고침
               </ion-button>
+              -->   
             </div>
           </ion-card-content>
         </ion-card>
