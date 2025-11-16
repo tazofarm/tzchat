@@ -28,8 +28,7 @@
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
           <tbody>
             <!-- 회원등급 + 구독하기 버튼 -->
-            <!--  @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal"-->
-            <tr class="editable-row" >
+            <tr class="editable-row">
               <td class="pf-th">
                 <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
                 <strong class="label">{{ user.user_level }}</strong>
@@ -46,7 +45,7 @@
               </td>
             </tr>
 
-            <!-- 닉네임 (모든 레벨 수정 가능) -->
+            <!-- 닉네임 -->
             <tr
               :class="['editable-row', { disabled: !canEditFieldLocal('nickname') }]"
               tabindex="0"
@@ -57,7 +56,7 @@
               <td class="pf-td editable-text">{{ user.nickname }}</td>
             </tr>
 
-            <!-- 출생년도 (가입시 고정) -->
+            <!-- 나이 -->
             <tr class="editable-row disabled" aria-disabled="true">
               <td class="pf-th"><IonIcon :icon="icons.calendarOutline" class="row-icon" /><strong class="label">나이</strong></td>
               <td class="pf-td readonly editable-text">
@@ -65,7 +64,7 @@
               </td>
             </tr>
 
-            <!-- 성별 (가입시 고정) -->
+            <!-- 성별 -->
             <tr class="editable-row disabled" aria-disabled="true">
               <td class="pf-th"><IonIcon :icon="icons.maleFemaleOutline" class="row-icon" /><strong class="label">성별</strong></td>
               <td class="pf-td readonly editable-text">
@@ -73,7 +72,7 @@
               </td>
             </tr>
 
-            <!-- 전화번호: 풀폭 행으로 변경하여 왼쪽(라벨 자리)에 마스킹된 번호 표기 -->
+            <!-- 전화번호: 마스킹 -->
             <tr class="editable-row pf-row--phone" tabindex="-1">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -87,15 +86,13 @@
                     class="btn-inline-gray"
                     @click.stop="onChangePhoneClick"
                   >
-                    번호 업데이트
+                    번호변경
                   </IonButton>
                 </div>
               </td>
             </tr>
 
-
-
-            <!-- 지역 (모든 레벨 수정 가능) -->
+            <!-- 지역 -->
             <tr
               :class="['editable-row', { disabled: !canEditFieldLocal('region') }]"
               tabindex="0"
@@ -124,7 +121,7 @@
               </td>
             </tr>
 
-            <!-- 결혼 (모든 레벨 수정 가능) -->
+            <!-- 결혼 -->
             <tr
               :class="['editable-row', { disabled: !canEditFieldLocal('marriage') }]"
               tabindex="0"
@@ -302,7 +299,7 @@
               </td>
             </tr>
 
-            <!-- Speed Maching 만 연결하기 -->
+            <!-- Speed Matching 만 연결하기 -->
             <tr class="editable-row">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -324,19 +321,6 @@
                 </div>
               </td>
             </tr>
-
-            <!-- 회원등급 (TEST) 
-            <tr class="editable-row" @click="openLevelModal" tabindex="0" @keydown.enter="openLevelModal">
-              <td class="pf-th">
-                <IonIcon :icon="icons.ribbonOutline" class="row-icon" />
-                <strong class="label">회원등급 (TEST)</strong>
-              </td>
-              <td class="pf-td editable-text">
-                {{ user.user_level || '일반회원' }}
-              </td>
-            </tr>
-            -->
-
           </tbody>
         </table>
       </div>
@@ -344,7 +328,7 @@
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
 
-    <!-- ✅ 내 프로필 모달들 -->
+    <!-- 모달들 -->
     <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" @updated="handleRegionUpdate" />
     <PopupModal_2
       v-if="showModal2"
@@ -357,7 +341,6 @@
     <PopupModal_4 v-if="showModal4" :message="popupMessage" @close="showModal4 = false" @updated="handleNicknameUpdate" />
     <ModalMarriage v-if="showMarriageModal" :message="user?.marriage || ''" @close="showMarriageModal = false" @updated="handleMarriageUpdated" />
 
-    <!-- ✅ 검색 모달들 -->
     <Search_Year_Modal
       v-if="showSearchYear"
       :initial-from="user?.search_birthyear1 ?? ''"
@@ -371,7 +354,6 @@
     <Search_Preference_Modal v-if="showSearchPreference" :message="user?.search_preference ?? ''" @close="showSearchPreference = false" @updated="onSearchPreferenceUpdated" />
     <Search_Marriage v-if="showSearchMarriage" :message="user?.search_marriage ?? '전체'" @close="showSearchMarriage = false" @updated="handleSearchMarriageUpdated" />
 
-    <!-- ✅ 회원등급 수정 모달 (TEST) -->
     <ModalLevel
       v-if="showLevelModal"
       :current="user?.user_level || '일반회원'"
@@ -389,6 +371,7 @@ import { toastController, alertController, IonIcon, IonButton } from '@ionic/vue
 import axios from '@/lib/api'
 import { useRouter } from 'vue-router'
 import { Contacts } from '@capacitor-community/contacts'
+import { Capacitor } from '@capacitor/core'
 import { setNotificationsOptOut } from '@/push/webPush'
 
 import PopupModal_1 from '@/components/04610_Page6_profile/Modal_region.vue'
@@ -406,10 +389,8 @@ import ProfilePhotoManager from '@/components/04610_Page6_profile/ProfilePhotoMa
 import ModalMarriage from '@/components/04610_Page6_profile/Modal_marriage.vue'
 import Search_Marriage from '@/components/04610_Page6_profile/Search_Marriage.vue'
 
-/* ✅ 회원등급 모달 */
 import ModalLevel from '@/components/04610_Page6_profile/Modal_Level.vue'
 
-/* ✅ 등급 규칙 모듈 */
 import { RULES, isPremium as isPremiumLevel, canEditField as canEditFieldByLevel, isRestricted as isRestrictedByLevel, normalizeLevel } from '@/components/05110_Membership/grade/gradeRule.js'
 
 import {
@@ -423,16 +404,11 @@ const router = useRouter()
 const nickname = ref('')
 const user = ref(null)
 
-/* =========================
-   🔒 등급별 편집 규칙 (모듈 사용)
-   ========================= */
+/* 등급/편집 규칙 */
 const myLevel = computed(() => normalizeLevel(user.value?.user_level || '일반회원'))
-// 앱 내부 gender('man' | 'woman') → 룰 모듈 기대값('male' | 'female')로 정규화
 const myGender = computed(() => (user.value?.gender === 'woman' ? 'female' : 'male'))
-
 const isPremiumComputed = computed(() => isPremiumLevel(myLevel.value))
 
-// ✅ level + gender 모두 전달
 function canEditFieldLocal(field) {
   return canEditFieldByLevel(field, myLevel.value, myGender.value)
 }
@@ -440,8 +416,7 @@ function isRestrictedLocal(field, kind) {
   return isRestrictedByLevel(field, myLevel.value, myGender.value, kind)
 }
 
-
-/* 누락된 오프너 및 모달 on/off */
+/* 모달 상태 */
 const showModal1 = ref(false)
 const showModal2 = ref(false)
 const showModal3 = ref(false)
@@ -450,12 +425,10 @@ const showMarriageModal = ref(false)
 const showSearchMarriage = ref(false)
 const popupMessage = ref('')
 
-/* 검색 모달 */
 const showSearchYear = ref(false)
 const showSearchRegion = ref(false)
 const showSearchPreference = ref(false)
 
-/* ✅ 회원등급 모달 on/off */
 const showLevelModal = ref(false)
 function openLevelModal(){ showLevelModal.value = true }
 async function handleLevelUpdated(val){
@@ -464,20 +437,16 @@ async function handleLevelUpdated(val){
   t.present()
 }
 
-/* ✅ 누락된 오프너 3종 */
 function openSearchYearModal(){ showSearchYear.value = true }
 function openSearchRegionModal(){ showSearchRegion.value = true }
 function openSearchPreferenceModal(){ showSearchPreference.value = true }
 
-/* 비번 */
 const showPasswordModal = ref(false)
 function openPasswordModal() { showPasswordModal.value = true }
 async function onPasswordUpdated() {
   const t = await toastController.create({ message: '비밀번호가 변경되었습니다.', duration: 1400, color: 'success' })
   t.present()
 }
-
-
 
 async function onChangePhoneClick() {
   router.push('/home/phoneupdate')
@@ -486,7 +455,6 @@ async function onChangePhoneClick() {
 /* 이동 */
 function goSetting() { router.push('/home/7page') }
 function goMembership() { router.push('/home/setting/0002') }
-/*function goMembership() { router.push('/home/membership/buy') }*/
 
 /* 사진 */
 function onProfilePhotoUpdated() {}
@@ -499,11 +467,10 @@ async function onProfileMainChanged() {
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
 const openPopup = (n, v) => { popupMessage.value = v; showModal1.value = n===1; showModal2.value = n===2; showModal3.value = n===3; showModal4.value = n===4 }
 
-/* 결혼유무 모달 열기 */
 function openMarriageModal() { showMarriageModal.value = true }
 function openSearchMarriageModal() { showSearchMarriage.value = true }
 
-/* 지역 모달 계산 */
+/* 지역 모달/표시 */
 const regionsForModal = computed(() => {
   if (!user.value) return []
   const fromSnake = Array.isArray(user.value.search_regions) ? user.value.search_regions : []
@@ -516,7 +483,6 @@ const regionsForModal = computed(() => {
   return [{ region1: r1, region2: r2 }]
 })
 
-/* 지역 표시 */
 const searchRegionsBuffer = ref([])
 const effectiveRegions = computed(() => {
   if (searchRegionsBuffer.value?.length) return searchRegionsBuffer.value
@@ -586,7 +552,7 @@ async function onSearchRegionUpdated(payload){
   } finally { showSearchRegion.value = false }
 }
 
-/* 검색특징 저장 (등급 제약 반영) */
+/* 검색특징 저장 */
 async function onSearchPreferenceUpdated(payload){
   const can = canEditFieldLocal('search_preference')
   if (!can) { lock('검색특징', '일반/라이트회원은 "전체"만 사용 가능'); showSearchPreference.value = false; return }
@@ -600,7 +566,7 @@ async function onSearchPreferenceUpdated(payload){
   } finally { showSearchPreference.value = false }
 }
 
-/* 결혼유무(개인) 업데이트 반영 */
+/* 결혼(본인) */
 async function handleMarriageUpdated(value){
   if (user.value) user.value.marriage = value
   const t = await toastController.create({ message: '결혼유무가 변경되었습니다.', duration: 1300, color: 'success' })
@@ -608,7 +574,7 @@ async function handleMarriageUpdated(value){
   showMarriageModal.value = false
 }
 
-/* 상대 결혼유무(검색조건) 업데이트 반영 (등급 제약) */
+/* 결혼(검색조건) */
 async function handleSearchMarriageUpdated(value){
   if (!canEditFieldLocal('search_marriage')) {
     lock('검색결혼', '일반/라이트회원은 "전체"만 사용 가능')
@@ -621,7 +587,7 @@ async function handleSearchMarriageUpdated(value){
   showSearchMarriage.value = false
 }
 
-/* 즉시 반영 */
+/* 기타 필드 업데이트 */
 async function handleNicknameUpdate(payload){
   const v = typeof payload==='string' ? payload : payload?.nickname ?? ''
   if(user.value && v) user.value.nickname=v
@@ -668,9 +634,7 @@ async function handleIntroUpdate(payload){
   showModal3.value=false
 }
 
-/* ===========================
-   ✅ 스위치(5개) — DB에 ON/OFF 저장
-   =========================== */
+/* 스위치들 */
 const disconnectLocalContacts = ref(false)
 const allowFriendRequests    = ref(false)
 const allowNotifications     = ref(false)
@@ -707,9 +671,50 @@ async function saveSwitchesToDB() {
 
 /* 연락처/토글 로직 */
 async function toggleDisconnectLocalContacts(){
+  const platform = Capacitor.getPlatform ? Capacitor.getPlatform() : 'web'
   const nextState = !disconnectLocalContacts.value
+
+  // ✅ 1) 웹: 연락처/폰은 건드리지 않고, 스위치 + DB만 업데이트
+  if (platform === 'web') {
+    disconnectLocalContacts.value = nextState
+
+    try {
+      await saveSwitchesToDB()
+
+      if (nextState) {
+        const msg =
+          '웹에서는 휴대폰 연락처를 불러올 수 없습니다.\n' +
+          '이미 앱에서 저장된 전화번호/연락처 기준으로만 필터가 적용됩니다.'
+        ;(await toastController.create({
+          message: msg,
+          duration: 2600,
+          color: 'medium'
+        })).present()
+      } else {
+        ;(await toastController.create({
+          message: '휴대폰 연락처 기반 필터가 해제되었습니다.',
+          duration: 1800,
+          color: 'medium'
+        })).present()
+      }
+    } catch (err) {
+      console.error('웹 스위치 저장 실패:', err)
+      // 실패 시 원래 상태로 롤백
+      disconnectLocalContacts.value = !nextState
+      ;(await toastController.create({
+        message: '설정 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        duration: 2000,
+        color: 'danger'
+      })).present()
+    }
+
+    return
+  }
+
+  // ✅ 2) 앱(안드로이드/iOS): 연락처 해시 업로드/삭제 + 스위치/DB 동기화
   if (nextState) {
-    const ok = await confirmDialog('휴대폰 내 번호 업데이트 하겠습니까?')
+    // OFF → ON : 연락처 읽어서 해시 업로드
+    const ok = await confirmDialog('휴대폰 내 번호(연락처)를 업데이트 하겠습니까?')
     if (!ok) return
 
     try {
@@ -717,28 +722,62 @@ async function toggleDisconnectLocalContacts(){
       await axios.post('/api/contacts/hashes', { hashes }, { withCredentials: true })
       disconnectLocalContacts.value = true
       await saveSwitchesToDB()
-      ;(await toastController.create({ message: `연락처 ${hashes.length}건이 저장되었습니다.`, duration: 1500, color: 'success' })).present()
+      ;(await toastController.create({
+        message: `연락처 ${hashes.length}건이 저장되었습니다.`,
+        duration: 1500,
+        color: 'success'
+      })).present()
     } catch (err) {
       console.error('연락처 저장 실패:', err)
-      ;(await toastController.create({ message: '연락처 저장에 실패했습니다.', duration: 1600, color: 'danger' })).present()
+      const raw =
+        err?.response?.data?.error ||
+        err?.message ||
+        String(err || '')
+
+      let msg = '연락처 저장에 실패했습니다.'
+      if (/not implemented on web/i.test(raw)) {
+        msg = '이 기능은 앱(안드로이드/iOS)에서만 사용할 수 있습니다.'
+      } else if (/(READ_CONTACTS|WRITE_CONTACTS)/i.test(raw)) {
+        msg = '연락처 권한이 부족합니다. 앱 설정에서 연락처 권한을 허용해 주세요.'
+      } else if (/연락처에서 전화번호를 찾지 못했습니다/.test(raw)) {
+        msg = '연락처에서 전화번호를 찾지 못했습니다. 휴대폰에 저장된 연락처를 한번 확인해 주세요.'
+      } else if (err?.response?.data?.error) {
+        msg = err.response.data.error
+      }
+
+      ;(await toastController.create({
+        message: msg,
+        duration: 2000,
+        color: 'danger'
+      })).present()
       disconnectLocalContacts.value = false
     }
   } else {
-    const ok = await confirmDialog('저장된 전화번호를 삭제하겠습니다.')
+    // ON → OFF : 서버에 저장된 연락처 해시 삭제 + 필터 해제
+    const ok = await confirmDialog('저장된 전화번호를 삭제하고, 연락처 기반 필터를 해제하겠습니다.')
     if (!ok) return
 
     try {
       await axios.delete('/api/contacts/hashes', { withCredentials: true })
       disconnectLocalContacts.value = false
       await saveSwitchesToDB()
-      ;(await toastController.create({ message: '저장된 연락처가 삭제되었습니다.', duration: 1400, color: 'success' })).present()
+      ;(await toastController.create({
+        message: '저장된 연락처가 삭제되었습니다.',
+        duration: 1400,
+        color: 'success'
+      })).present()
     } catch (err) {
       console.error('연락처 삭제 실패:', err)
-      ;(await toastController.create({ message: '연락처 삭제에 실패했습니다.', duration: 1600, color: 'danger' })).present()
+      ;(await toastController.create({
+        message: '연락처 삭제에 실패했습니다.',
+        duration: 1600,
+        color: 'danger'
+      })).present()
       disconnectLocalContacts.value = true
     }
   }
 }
+
 
 /* 다른 스위치들 */
 async function toggleAllowFriendRequests()   { allowFriendRequests.value    = !allowFriendRequests.value;    await saveSwitchesToDB(); feedbackOK('설정이 적용되었습니다.') }
@@ -749,7 +788,6 @@ async function toggleAllowNotifications() {
   feedbackOK('설정이 적용되었습니다.')
 }
 
-/* 🔒 프리미엄 제약 토글 */
 async function onToggleOnlyWithPhoto(){
   if (!canEditFieldLocal('onlyWithPhoto')) {
     if (onlyWithPhoto.value) {
@@ -793,7 +831,6 @@ async function confirmDialog(message){
   return role === 'confirm'
 }
 
-/* 🔐 잠금 안내 유틸 (템플릿에서 lock(...) 호출) */
 async function lock(title = '제한됨', message = '현재 등급에서 변경할 수 없습니다.') {
   const t = await toastController.create({
     message: `${title}: ${message}`,
@@ -803,57 +840,40 @@ async function lock(title = '제한됨', message = '현재 등급에서 변경�
   t.present()
 }
 
-/* 연락처 수집 → 정규화 → 해시 */
-/* 🔢 내 프로필 전화번호 마스킹 (010 xx00 xx00) */
+/* 전화번호 마스킹 */
 const maskedPhone = computed(() => {
   const raw =
     user.value?.phone ||
     user.value?.phoneFormatted ||
     user.value?.phoneMasked ||
     ''
-
   if (!raw) return ''
-
   return maskPhoneToXX00(raw)
 })
 
 function normalizePhoneForDisplay(raw = '') {
   if (!raw) return ''
-  const onlyDigits = String(raw).replace(/\D/g, '') // 숫자만
-
+  const onlyDigits = String(raw).replace(/\D/g, '')
   if (!onlyDigits) return ''
-
   let digits = onlyDigits
-
-  // +82 / 82 → 0으로 변환 (예: 821012345678 → 01012345678)
   if (digits.startsWith('82')) {
     digits = '0' + digits.slice(2)
   }
-
-  // 최소 10자리(휴대폰) 아니면 원본 리턴
   if (digits.length < 10) return digits
-
-  // 01012345678 형태 유지
   return digits
 }
-
 function maskPhoneToXX00(raw = '') {
   const digits = normalizePhoneForDisplay(raw)
-  if (!digits || digits.length < 7) return raw  // 최소 길이 체크
-
-  const head = digits.slice(0, 3)        // 010
-  const midBlock = digits.slice(3, 7)    // 예: 1234
-  const tailBlock = digits.slice(7)      // 예: 1234
-
-  const midLast2  = midBlock.slice(-2)   // 90
-  const tailLast2 = tailBlock.slice(-2)  // 08
-
-  const midMasked  = `xx${midLast2}`     // xx90
-  const tailMasked = `xx${tailLast2}`    // xx08
-
+  if (!digits || digits.length < 7) return raw
+  const head = digits.slice(0, 3)
+  const midBlock = digits.slice(3, 7)
+  const tailBlock = digits.slice(7)
+  const midLast2  = midBlock.slice(-2)
+  const tailLast2 = tailBlock.slice(-2)
+  const midMasked  = `xx${midLast2}`
+  const tailMasked = `xx${tailLast2}`
   return `${head} ${midMasked} ${tailMasked}`
 }
-
 
 /* 연락처 수집 → 정규화 → 해시 */
 function normalizePhoneKR(raw=''){
@@ -870,6 +890,12 @@ async function sha256Hex(text){
 }
 
 async function getLocalContactPhoneNumbers() {
+  // 방어적으로 한 번 더: 웹이면 바로 에러
+  const platform = Capacitor.getPlatform ? Capacitor.getPlatform() : 'web'
+  if (platform === 'web') {
+    throw new Error('웹에서는 휴대폰 연락처를 읽을 수 없습니다.')
+  }
+
   try {
     if (typeof Contacts.requestPermissions === 'function') {
       await Contacts.requestPermissions()
@@ -918,14 +944,12 @@ onMounted(async () => {
     const list = fromSnake.length ? fromSnake : fromCamel
     if (list.length) searchRegionsBuffer.value = list
 
-    // 🔹 스위치 초기값 (DB 문자열 → 불리언)
     disconnectLocalContacts.value = onOffToBool(user.value?.search_disconnectLocalContacts)
     allowFriendRequests.value     = !onOffToBool(user.value?.search_allowFriendRequests)
     allowNotifications.value      = !onOffToBool(user.value?.search_allowNotifications)
     onlyWithPhoto.value           = onOffToBool(user.value?.search_onlyWithPhoto)
     matchPremiumOnly.value        = onOffToBool(user.value?.search_matchPremiumOnly)
 
-    // 🔒 일반/라이트: 프리미엄 전용 토글은 OFF로 강제 유지
     if (!canEditFieldLocal('onlyWithPhoto'))      { onlyWithPhoto.value = false }
     if (!canEditFieldLocal('matchPremiumOnly'))   { matchPremiumOnly.value = false }
   } catch (err) {
@@ -933,13 +957,12 @@ onMounted(async () => {
   }
 })
 
-/* 기타 */
 const formatDate = (s) => (!s ? '없음' : new Date(s).toLocaleString())
 const logout = async () => { try { await axios.post('/api/logout', {}, { withCredentials: true }); router.push('/login') } catch (e) { console.error('로그아웃 실패:', e) } }
 </script>
 
 <style scoped>
-/* (기존 스타일 동일) — 생략 없이 붙여둡니다 */
+/* (기존 스타일 그대로) */
 :root{--bg:#0b0b0e;--panel:#111215;--panel-2:#15161a;--gold:#d4af37;--gold-2:#b8901e;--gold-3:#8c6f12;--text:#eaeaea;--text-dim:#bdbdbd;--text-muted:#9aa0a6;--divider:rgba(212,175,55,.18);--shadow:rgba(0,0,0,.35)}
 .page-wrapper{background:radial-gradient(1200px 800px at 20% -10%, rgba(212,175,55,.08), transparent 55%), radial-gradient(900px 700px at 110% -20%, rgba(184,144,30,.06), transparent 60%), var(--bg); color:var(--text); min-height:100%}
 .container{padding:2px}
@@ -983,8 +1006,6 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 .pf-switch.is-on .pf-switch__text--left{opacity:.95}
 .pf-fullcell{padding:8px 8px!important}
 .pf-fullrow{display:flex; align-items:center; gap:8px; width:100%}
-
-/* ✅ 풀폭 라벨 톤/크기 */
 .pf-fullrow__label{
   flex:1 1 auto;
   white-space:normal!important;
@@ -1001,8 +1022,6 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
   font-weight: 700;
   line-height: 1.28;
 }
-
-/* 🔧 비활성 행 스타일 */
 .editable-row.disabled{cursor:not-allowed}
 .pf-scope .editable-row.disabled .pf-th,
 .pf-scope .editable-row.disabled .pf-th .label{
@@ -1019,14 +1038,10 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
 .pf-scope .editable-row.disabled .pf-td{
   color: var(--text-dim) !important;
 }
-
-/* 🔒 잠금 상태 표현 */
 .pf-lock{margin-left:6px; color:var(--text-muted); font-size:.9em}
 .pf-hint{margin-left:8px; color:var(--text-muted); font-size:.85em}
 .pf-switch.disabled{opacity:.5; cursor:not-allowed}
 .pf-lock-inline{margin-left:6px; opacity:.8; font-size:.95em}
-
-/* 버튼 */
 .btn-inline-gray {
   --background: transparent;
   --color: #666;
@@ -1043,7 +1058,6 @@ const logout = async () => { try { await axios.post('/api/logout', {}, { withCre
   min-height: unset;
   line-height: 1.2;
 }
-
 @media (max-width:360px){
   .container{padding:10px}
   .card{border-radius:10px; padding:10px}

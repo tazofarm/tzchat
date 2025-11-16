@@ -10,17 +10,17 @@
     <!-- 📌 Android 13+ 광고 ID 권한 (AdMob 사용 시) -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
-    <!-- 🔔 Android 13+ 알림 권한 (FCM/알림 사용 시) -->
+    <!-- 🔔 Android 13+ 알림 권한 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 📍 위치 권한: 실제 사용 시에만 유지 권장 -->
+    <!-- 📍 위치 권한 -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- 🔔 진동 알림용 권한 -->
+    <!-- 🔔 진동 -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- ✅ 태블릿/대형 화면 지원 신호 -->
+    <!-- 📱 기기 지원 -->
     <supports-screens
         android:smallScreens="true"
         android:normalScreens="true"
@@ -28,14 +28,17 @@
         android:xlargeScreens="true"
         android:anyDensity="true" />
 
-    <!-- ✅ 기기 필터 완화 -->
+    <!-- 📌 하드웨어 요구 완화 -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- 🔑 위치 하드웨어를 필수 아님으로 강제 -->
+    <!-- ☎️ 연락처 권한 (읽기/쓰기 둘 다 필요) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+
+    <!-- 📍 위치 하드웨어 필수 아님 -->
     <uses-feature
         android:name="android.hardware.location"
         android:required="false"
@@ -59,15 +62,16 @@
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- ✅ Google Mobile Ads SDK(App ID) -->
+        <!-- 📌 AdMob App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/admob_app_id" />
 
-        <!-- 🔔 FCM 기본 알림 아이콘/색상 -->
+        <!-- 🔔 FCM 알림 기본 아이콘/색상 -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_notification" />
+
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color" />
@@ -85,14 +89,14 @@
             android:windowLayoutInDisplayCutoutMode="shortEdges"
             tools:replace="android:windowSoftInputMode">
 
-            <!-- 🧭 런처 -->
+            <!-- 📌 App Icon Launch -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ✅ 커스텀 스킴 전체(tzchat://anything...) -->
+            <!-- 🔗 커스텀 스킴 전체(tzchat://...) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -100,7 +104,7 @@
                 <data android:scheme="tzchat" />
             </intent-filter>
 
-            <!-- ✅ 호스트 pass 버전 (tzchat://pass?txId=...) -->
+            <!-- 🔗 PASS 콜백 (tzchat://pass?txId=...) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -110,7 +114,7 @@
                     android:host="pass" />
             </intent-filter>
 
-            <!-- ✅ HTTPS 앱링크 (https://tzchat.tazocode.com/app/pass?txId=...) -->
+            <!-- 🔗 HTTPS 앱 링크 -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -133,7 +137,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- ✅ 포그라운드 FCM 수신 서비스 -->
+        <!-- 🔔 FCM 수신 서비스 -->
         <service
             android:name=".MyFirebaseService"
             android:exported="false">

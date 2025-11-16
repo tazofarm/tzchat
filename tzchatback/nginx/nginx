@@ -199,6 +199,17 @@ server {
     }
 
     # -----------------------------------------------------
+    # assetlinks.json (Android App Links 도메인 검증)
+    # -----------------------------------------------------
+    location ^~ /.well-known/ {
+        root /home/tazofarm/project/tzchat/tzchatapp/dist;
+        try_files $uri =404;
+        add_header Content-Type "application/json; charset=utf-8";
+        access_log /var/log/nginx/assetlinks_access.log;
+        error_log  /var/log/nginx/assetlinks_error.log;
+    }
+
+    # -----------------------------------------------------
     # SPA history
     # -----------------------------------------------------
     location / {
