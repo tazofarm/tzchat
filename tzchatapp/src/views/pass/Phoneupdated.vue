@@ -21,10 +21,14 @@
                 <span class="label">현재 번호</span>
                 <span class="value">{{ maskedPhone || '미등록' }}</span>
               </div>
+
+              <!--
               <div class="row">
                 <span class="label">통신사</span>
                 <span class="value">{{ me?.carrier || '—' }}</span>
               </div>
+
+              -->
             </div>
 
             <p class="desc">

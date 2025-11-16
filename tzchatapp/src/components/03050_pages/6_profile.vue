@@ -73,13 +73,13 @@
               </td>
             </tr>
 
-            <!-- 전화번호: 풀폭 행으로 변경하여 왼쪽(라벨 자리)에 실제 번호 전체 표기 -->
+            <!-- 전화번호: 풀폭 행으로 변경하여 왼쪽(라벨 자리)에 마스킹된 번호 표기 -->
             <tr class="editable-row pf-row--phone" tabindex="-1">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">
-                    {{ user.phoneMasked || user.phoneFormatted || user.phone }}
+                    {{ maskedPhone }}
                   </strong>
                   <IonButton
                     size="small"
@@ -92,6 +92,7 @@
                 </div>
               </td>
             </tr>
+
 
 
             <!-- 지역 (모든 레벨 수정 가능) -->
