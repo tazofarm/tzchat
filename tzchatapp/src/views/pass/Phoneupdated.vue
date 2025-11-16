@@ -459,6 +459,7 @@ async function commitUpdate() {
         setTimeout(() => router.replace('/login'), 650)
         return
       }
+
       if (res.status === 410 || json?.code === 'CONSUMED') {
         error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
         errorCode.value = 'CONSUMED'
@@ -466,13 +467,29 @@ async function commitUpdate() {
         clearPassStorage()
         return
       }
+
+      // CI 불일치: "사용자가 다릅니다" → 확인 후 /home/6page
       if (json?.code === 'CI_MISMATCH' || res.status === 403) {
-        error.value = '인증유저 정보가 로그인한 회원정보와 다릅니다'
+        error.value = '인증한 정보가 로그인한 회원정보와 다릅니다.'
         errorCode.value = 'CI_MISMATCH'
-      } else {
-        error.value = json?.message || `반영 실패 (HTTP ${res.status})`
-        errorCode.value = 'COMMIT_ERROR'
+        await closeExternal()
+        window.alert('인증한 정보가 로그인한 회원정보와 다릅니다.')
+        router.replace('/home/6page')
+        return
       }
+
+      // 전화번호 동일: "기존의 전화번호와 같습니다." → 확인 후 /home/6page
+      if (json?.code === 'PHONE_NOT_CHANGED') {
+        error.value = '기존의 전화번호와 같습니다.'
+        errorCode.value = 'PHONE_NOT_CHANGED'
+        await closeExternal()
+        window.alert('기존의 전화번호와 같습니다.')
+        router.replace('/home/6page')
+        return
+      }
+
+      error.value = json?.message || `반영 실패 (HTTP ${res.status})`
+      errorCode.value = 'COMMIT_ERROR'
       return
     }
 

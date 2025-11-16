@@ -87,7 +87,7 @@
                     class="btn-inline-gray"
                     @click.stop="onChangePhoneClick"
                   >
-                    번호 변경
+                    번호 업데이트
                   </IonButton>
                 </div>
               </td>

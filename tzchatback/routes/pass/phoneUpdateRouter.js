@@ -198,9 +198,24 @@ router.post('/commit', requireAuth, async (req, res) => {
     const nextCarrier = pr.carrier || '';
 
     const willUpdate = {};
-    if (nextPhone && nextPhone !== me.phone) willUpdate.phone = nextPhone;
-    if (nextCarrier && nextCarrier !== me.carrier) willUpdate.carrier = nextCarrier;
+    if (nextPhone && nextPhone !== me.phone) {
+      willUpdate.phone = nextPhone;
+    }
+    if (nextCarrier && nextCarrier !== me.carrier) {
+      willUpdate.carrier = nextCarrier;
+    }
 
+    // ✅ CI는 동일하지만, PASS에서 받은 전화번호가 기존과 완전히 같을 때
+    //    → "기존 전화번호와 같습니다." 에러로 처리
+    if (!willUpdate.phone && nextPhone && nextPhone === me.phone) {
+      return res.status(400).json({
+        ok: false,
+        code: 'PHONE_NOT_CHANGED',
+        message: '기존 전화번호와 같습니다.',
+      });
+    }
+
+    // 업데이트 할 필드가 전혀 없으면(예: carrier도 안 바뀐 경우)
     if (Object.keys(willUpdate).length === 0) {
       return res.json({ ok: true, updatedFields: [] });
     }
