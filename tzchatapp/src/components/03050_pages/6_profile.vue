@@ -804,6 +804,51 @@ async function lock(title = '제한됨', message = '현재 등급에서 변경�
 }
 
 /* 연락처 수집 → 정규화 → 해시 */
+/* 🔢 내 프로필 전화번호 마스킹 (010 xx00 xx00) */
+const maskedPhone = computed(() => {
+  const raw =
+    user.value?.phone ||
+    user.value?.phoneFormatted ||
+    user.value?.phoneMasked ||
+    ''
+
+  if (!raw) return ''
+
+  return maskPhoneToXX00(raw)
+})
+
+function normalizePhoneForDisplay(raw = '') {
+  if (!raw) return ''
+  const onlyDigits = String(raw).replace(/\D/g, '') // 숫자만
+
+  if (!onlyDigits) return ''
+
+  let digits = onlyDigits
+
+  // +82 / 82 → 0으로 변환 (예: 821012345678 → 01012345678)
+  if (digits.startsWith('82')) {
+    digits = '0' + digits.slice(2)
+  }
+
+  // 최소 10자리(휴대폰) 아니면 원본 리턴
+  if (digits.length < 10) return digits
+
+  // 01012345678 형태 유지
+  return digits
+}
+
+function maskPhoneToXX00(raw = '') {
+  const digits = normalizePhoneForDisplay(raw)
+  if (!digits || digits.length < 3) return raw
+
+  const head = digits.slice(0, 3) // 010
+  const mid = 'xx00'
+  const tail = 'xx00'
+
+  return `${head} ${mid} ${tail}`
+}
+
+/* 연락처 수집 → 정규화 → 해시 */
 function normalizePhoneKR(raw=''){
   const digits = String(raw).replace(/[^\d+]/g, '')
   if (!digits) return ''
@@ -816,6 +861,7 @@ async function sha256Hex(text){
   const buf = await crypto.subtle.digest('SHA-256', enc)
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')
 }
+
 async function getLocalContactPhoneNumbers() {
   try {
     if (typeof Contacts.requestPermissions === 'function') {
