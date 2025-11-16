@@ -70,7 +70,7 @@ module.exports = (app) => {
   app.use('/api', require('./search/searchingRouter'));             // 검색 설정 전용 라우터 (로그인 가드 / 등급 가드 제거: 값 그대로 저장)
   app.use('/api', require('./search/targetRouter'));             // 검색/추천 질의 전용 라우터 (로그인 가드)
   app.use('/api', require('./search/emergencyRouter'));          // 긴급모드 on/off, 잔여시간 계산 등
-
+  app.use('/api', require('./search/contactsRouter'));          // 연락처
 
   // ----------------------------------------------------------
   // System

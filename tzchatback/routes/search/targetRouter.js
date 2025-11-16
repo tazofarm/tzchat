@@ -79,9 +79,14 @@ router.post('/search/users', async (req, res, next) => {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ success: false, error: '로그인이 필요합니다.' });
 
+    // 나의 phoneHash / localContactHashes / 스위치 상태
     const me = await User.findById(myId)
       .select('phoneHash localContactHashes search_disconnectLocalContacts')
       .lean();
+
+    const myPhoneHash = me?.phoneHash || null;
+    const myDisconnectOn = String(me?.search_disconnectLocalContacts || '').toUpperCase() === 'ON';
+    const myContactHashes = Array.isArray(me?.localContactHashes) ? me.localContactHashes : [];
 
     const raw = Array.isArray(req.body?.regions) ? req.body.regions : [];
     const regions = raw
@@ -94,14 +99,32 @@ router.post('/search/users', async (req, res, next) => {
       regions.some((r) => r.region2 === '전체');
 
     const andFilters = [{ _id: { $ne: myId } }];
-    if (me?.phoneHash) andFilters.push({ phoneHash: { $ne: me.phoneHash } });
 
-    const disconnectOn = String(me?.search_disconnectLocalContacts || '').toUpperCase() === 'ON';
-    const contactHashes = Array.isArray(me?.localContactHashes) ? me.localContactHashes : [];
-    if (disconnectOn && contactHashes.length) {
-      andFilters.push({ phoneHash: { $nin: contactHashes } });
+    // 0) 동일 전화번호 유저 제외 (기본 보호)
+    if (myPhoneHash) {
+      andFilters.push({ phoneHash: { $ne: myPhoneHash } });
     }
 
+    // 1) "제외하기" — 내가 ON 이고, 내 연락처 해시 목록에 있는 사람들 숨기기
+    //    (내 localContactHashes 에 있는 phoneHash 를 가진 유저들)
+    if (myDisconnectOn && myContactHashes.length) {
+      andFilters.push({ phoneHash: { $nin: myContactHashes } });
+    }
+
+    // 2) "제외당하기" — 상대가 ON 이고, 상대 localContactHashes 에 내 phoneHash 가 있으면 서로 숨김
+    //    → 조회하는 입장에서는, 다음 조건을 만족하는 유저를 모두 제외:
+    //       other.search_disconnectLocalContacts === 'ON'
+    //       AND other.localContactHashes 에 myPhoneHash 포함
+    if (myPhoneHash) {
+      andFilters.push({
+        $or: [
+          { search_disconnectLocalContacts: { $ne: 'ON' } },
+          { localContactHashes: { $nin: [myPhoneHash] } },
+        ],
+      });
+    }
+
+    // 3) 지역 필터
     if (!isAll) {
       const orConditions = regions.map(({ region1, region2 }) =>
         !region2 || region2 === '전체' ? { region1 } : { region1, region2 }
@@ -117,6 +140,7 @@ router.post('/search/users', async (req, res, next) => {
     next(err);
   }
 });
+
 
 /* =========================
    2) 추천 후보(원천 리스트)
@@ -140,6 +164,7 @@ router.get('/search/targets', async (req, res, next) => {
     // 모델은 글로벌로 등록되어 있어야 함(models/index.js)
     const UserDailyScore = mongoose.model('UserDailyScore');
 
+    // 1단계: 점수 기반 후보 ID 수집
     const scoreDocs = await UserDailyScore.find({ ymd })
       .sort({ exposureScore: -1, updatedAt: -1 })
       .limit(limit * 3)
@@ -154,9 +179,45 @@ router.get('/search/targets', async (req, res, next) => {
       if (candidateIds.length >= limit * 2) break;
     }
 
-    const users = await User.find(
-      { _id: { $in: candidateIds }, isDeleted: { $ne: true }, isPrivate: { $ne: true } }
-    )
+    // 2단계: 내 연락처/스위치 정보 로딩
+    const me = await User.findById(viewerId)
+      .select('phoneHash localContactHashes search_disconnectLocalContacts')
+      .lean();
+
+    const myPhoneHash = me?.phoneHash || null;
+    const myDisconnectOn = String(me?.search_disconnectLocalContacts || '').toUpperCase() === 'ON';
+    const myContactHashes = Array.isArray(me?.localContactHashes) ? me.localContactHashes : [];
+
+    // 3단계: 추천 대상 쿼리 구성
+    const andFilters = [
+      { _id: { $in: candidateIds } },
+      { isDeleted: { $ne: true } },
+      { isPrivate: { $ne: true } },
+    ];
+
+    // 3-0) 동일 전화번호 유저 기본 보호
+    if (myPhoneHash) {
+      andFilters.push({ phoneHash: { $ne: myPhoneHash } });
+    }
+
+    // 3-1) "제외하기" — 내가 ON 이고, 내 연락처에 있는 사람 숨기기
+    if (myDisconnectOn && myContactHashes.length) {
+      andFilters.push({ phoneHash: { $nin: myContactHashes } });
+    }
+
+    // 3-2) "제외당하기" — 상대가 ON 이고, 상대 연락처에 내가 있으면 서로 숨김
+    if (myPhoneHash) {
+      andFilters.push({
+        $or: [
+          { search_disconnectLocalContacts: { $ne: 'ON' } },
+          { localContactHashes: { $nin: [myPhoneHash] } },
+        ],
+      });
+    }
+
+    const finalQuery = { $and: andFilters };
+
+    const users = await User.find(finalQuery)
       .select(
         '_id username nickname birthyear gender level region1 region2 ' +
         'profileMain profileImages profileImage avatar photo ' +
@@ -169,6 +230,7 @@ router.get('/search/targets', async (req, res, next) => {
     next(err);
   }
 });
+
 
 /* =========================
    파일 전용 에러 핸들러

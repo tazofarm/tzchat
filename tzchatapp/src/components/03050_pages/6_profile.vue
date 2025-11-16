@@ -842,8 +842,8 @@ function maskPhoneToXX00(raw = '') {
   if (!digits || digits.length < 7) return raw  // 최소 길이 체크
 
   const head = digits.slice(0, 3)        // 010
-  const midBlock = digits.slice(3, 7)    // 예: 6290
-  const tailBlock = digits.slice(7)      // 예: 1708
+  const midBlock = digits.slice(3, 7)    // 예: 1234
+  const tailBlock = digits.slice(7)      // 예: 1234
 
   const midLast2  = midBlock.slice(-2)   // 90
   const tailLast2 = tailBlock.slice(-2)  // 08

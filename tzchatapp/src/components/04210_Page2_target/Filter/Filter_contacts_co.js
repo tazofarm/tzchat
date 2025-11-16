@@ -1,16 +1,23 @@
 // frontend/04210_Page2_target/Filter_contacts_co.js
 // ------------------------------------------------------------
 // 연락처 기반 상호 배제 필터 (Disconnect Local Contacts)
-// 규칙:
-// 1) 내가 OFF → 모든 유저 통과 (연락처 기반 배제 없음)
-// 2) 내가 ON  → "내 연락처에 있는 사람"은 검색/노출 모두 제외
-// 3) 상호 노출: 상대도 ON 이고, 상대 연락처에 내가 있다면 서로에게 노출되지 않음
+//
+// 최종 규칙:
+//
+// 1) 내가 스위치 ON:
+//    - 내 연락처(localContactHashes)에 있는 사람은 내가 볼 수 없음 (제외하기)
+//
+// 2) 상대가 스위치 ON:
+//    - 상대 연락처(localContactHashes)에 내가 있으면
+//      → 나는 그 사람을 볼 수 없음 (제외당하기)
+//      → 상대 입장에서도 동일 규칙이 적용되므로 서로 숨김 효과
 //
 // 구현 메모:
 // - 프런트에 개인정보가 오지 않는 경우가 많으므로, 다음 우선순위로 판별:
 //   A) 서버가 내려준 플래그 사용: other.isInMyContacts, other.amInTheirContacts
-//   B) 해시 비교: my.localContactHashes vs other.phoneHash, other.localContactHashes vs my.phoneHash
-//   C) 위 정보가 없으면 최소한 "내 쪽" 배제만 적용
+//   B) 해시 비교: my.localContactHashes vs other.phoneHash,
+//                 other.localContactHashes vs my.phoneHash
+//   C) 정보가 부족하면 가능한 쪽만 적용
 // - 'ON'/'OFF'/boolean 모두 처리
 // ------------------------------------------------------------
 
@@ -29,7 +36,6 @@ function inSet(value, setLike) {
   if (!setLike) return false;
   if (Array.isArray(setLike)) return setLike.includes(value);
   try {
-    // Set 지원
     if (typeof setLike.has === 'function') return setLike.has(value);
   } catch (_) {}
   return false;
@@ -48,59 +54,58 @@ function inSet(value, setLike) {
  */
 export function filterByContactsCo(users, me, opt = {}) {
   const log = !!opt.log;
+  const list = Array.isArray(users) ? users : [];
 
   const myDisconnectOn = normalizeOn(me?.search_disconnectLocalContacts);
   const myHashes = Array.isArray(me?.localContactHashes) ? me.localContactHashes : [];
   const myPhoneHash = me?.phoneHash || null;
 
-  // 내가 OFF면 연락처 기반 배제는 적용하지 않음 → 그대로 반환
-  if (!myDisconnectOn) return Array.isArray(users) ? users : [];
-
-  // 내가 ON이면 "내 연락처에 있는 사람"을 제외 + 상호 배제 고려
-  return (Array.isArray(users) ? users : []).filter(other => {
+  return list.filter((other) => {
     const nickname = other?.nickname ?? '-';
 
-    // 1) 서버 제공 플래그가 있으면 우선 활용
-    // - other.isInMyContacts: 상대가 "내 연락처"에 속하는지 (내가 서버에 업로드한 해시 기준)
+    // 서버 제공 플래그
+    // - other.isInMyContacts: 상대가 "내 연락처"에 속하는지 (내가 업로드한 해시 기준)
     // - other.amInTheirContacts: 내가 "상대 연락처"에 있는지
-    const flag_isInMyContacts   = other?.isInMyContacts;
+    const flag_isInMyContacts = other?.isInMyContacts;
     const flag_amInTheirContacts = other?.amInTheirContacts;
 
-    // 2) 해시 비교로 보조 판단
+    // 해시 정보
     const otherPhoneHash = other?.phoneHash || null;
     const otherHashes = Array.isArray(other?.localContactHashes) ? other.localContactHashes : [];
 
-    // 내가 ON → 내 연락처에 있는 사람은 제외
-    let excludedByMine = false;
-    if (typeof flag_isInMyContacts === 'boolean') {
-      excludedByMine = flag_isInMyContacts;
-    } else {
-      // 해시가 있으면 비교
-      excludedByMine = inSet(otherPhoneHash, myHashes);
-    }
-
-    if (excludedByMine) {
-      if (log) console.log(`[연락처필터] ❌ 제외(내 연락처) → ${nickname}`);
-      return false;
-    }
-
-    // 상호 배제: 상대도 ON이고, 상대 연락처에 내가 있다면 서로 노출되지 않음
+    // 상대 스위치 상태
     const theirDisconnectOn = normalizeOn(other?.search_disconnectLocalContacts);
 
-    if (theirDisconnectOn) {
-      let iAmInTheirContacts = false;
-      if (typeof flag_amInTheirContacts === 'boolean') {
-        iAmInTheirContacts = flag_amInTheirContacts;
+    // 1) 제외하기 — 내가 ON 이고, 내 연락처에 있는 사람
+    let excludedByMe = false;
+    if (myDisconnectOn) {
+      if (typeof flag_isInMyContacts === 'boolean') {
+        excludedByMe = flag_isInMyContacts;
       } else {
-        // 상대가 내 해시를 알고 있을 가능성은 낮지만, 정보가 있으면 비교
-        iAmInTheirContacts = inSet(myPhoneHash, otherHashes);
+        excludedByMe = inSet(otherPhoneHash, myHashes);
       }
-
-      if (iAmInTheirContacts) {
-        if (log) console.log(`[연락처필터] ❌ 제외(상대 연락처 보유 & 상대 ON) → ${nickname}`);
-        return false;
+      if (excludedByMe && log) {
+        console.log(`[연락처필터] ❌ 제외(내 연락처, 내 스위치 ON) → ${nickname}`);
       }
     }
+
+    if (excludedByMe) return false;
+
+    // 2) 제외당하기 — 상대가 ON 이고, 상대 연락처에 내가 있는 경우
+    //    (내가 OFF여도 적용됨)
+    let excludedByThem = false;
+    if (theirDisconnectOn) {
+      if (typeof flag_amInTheirContacts === 'boolean') {
+        excludedByThem = flag_amInTheirContacts;
+      } else {
+        excludedByThem = inSet(myPhoneHash, otherHashes);
+      }
+      if (excludedByThem && log) {
+        console.log(`[연락처필터] ❌ 제외(상대 연락처 보유 & 상대 스위치 ON) → ${nickname}`);
+      }
+    }
+
+    if (excludedByThem) return false;
 
     // 통과
     if (log) console.log(`[연락처필터] ✅ 통과 → ${nickname}`);
@@ -115,6 +120,5 @@ import { filterByContactsCo } from '@/utils/Filter_contacts_co'
 
 // me: 로그인 유저 (search_disconnectLocalContacts, localContactHashes, phoneHash 포함 가능)
 const afterContacts = filterByContactsCo(users, me, { log: false })
-
 
 */
