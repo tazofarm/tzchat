@@ -839,14 +839,21 @@ function normalizePhoneForDisplay(raw = '') {
 
 function maskPhoneToXX00(raw = '') {
   const digits = normalizePhoneForDisplay(raw)
-  if (!digits || digits.length < 3) return raw
+  if (!digits || digits.length < 7) return raw  // 최소 길이 체크
 
-  const head = digits.slice(0, 3) // 010
-  const mid = 'xx00'
-  const tail = 'xx00'
+  const head = digits.slice(0, 3)        // 010
+  const midBlock = digits.slice(3, 7)    // 예: 6290
+  const tailBlock = digits.slice(7)      // 예: 1708
 
-  return `${head} ${mid} ${tail}`
+  const midLast2  = midBlock.slice(-2)   // 90
+  const tailLast2 = tailBlock.slice(-2)  // 08
+
+  const midMasked  = `xx${midLast2}`     // xx90
+  const tailMasked = `xx${tailLast2}`    // xx08
+
+  return `${head} ${midMasked} ${tailMasked}`
 }
+
 
 /* 연락처 수집 → 정규화 → 해시 */
 function normalizePhoneKR(raw=''){
