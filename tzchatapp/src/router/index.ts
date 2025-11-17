@@ -113,9 +113,12 @@ import HistoryPage from '@/components/05110_Membership/History.vue'
 // (문서 목록/단일)
 const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
 const LegalContainer = () => import('@/legalpage/LegalContainer.vue')
+// ✅ 관리자 약관 편집 페이지
+const TermsAdmin = () => import('@/legalpage/admin/TermsAdmin.vue')
 
 // ✅ 탈퇴신청 전용 페이지
 const DeletionPending = () => import('@/views/DeletionPending.vue')
+
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
@@ -142,6 +145,16 @@ const routes: RouteRecordRaw[] = [
     component: DeletionPending,
     meta: { requiresAuth: true },
   },
+
+  // ✅ 관리자 약관 편집 (마스터 전용)
+  {
+    path: '/admin/terms/:slug',
+    name: 'AdminTermsEdit',
+    component: TermsAdmin,
+    props: true,
+    meta: { requiresAuth: true, requiresMaster: true },
+  },
+
 
   {
     path: '/home',

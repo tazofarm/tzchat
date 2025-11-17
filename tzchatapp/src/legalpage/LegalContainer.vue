@@ -155,11 +155,13 @@ const goBack = () => {
   else router.replace(listPath.value)
 }
 const goUpdate = () => {
-  const inHome = route.path.startsWith('/home')
-  const base = inHome ? '/home/admin/terms' : '/admin/terms'
-  router.push({ path: `${base}/${slug.value}`, query: { title: displayTitle.value || '' } })
+  router.push({
+    path: `/admin/terms/${slug.value}`,
+    query: { title: displayTitle.value || '' },
+  })
 }
 
+ 
 function parseMePayload(raw: any) {
   const user =
     raw?.user ?? raw?.data?.user ??
