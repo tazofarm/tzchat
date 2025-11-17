@@ -111,7 +111,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
   try {
     const userDoc = await User.findById(userId)
       .select([
-        'username', 'nickname', 'birthyear', 'gender',
+        'username', 'role', 'roles', 'isAdmin', 'nickname', 'birthyear', 'gender',
         'region1', 'region2', 'preference', 'selfintro',
         'profileImages', 'profileMain', 'profileImage', 'last_login',
         'user_level', 'refundCountTotal',
@@ -129,6 +129,7 @@ router.get('/me', authFromJwtOrSession, async (req, res) => {
       ])
       .populate('friendlist', 'username nickname birthyear gender')
       .populate('blocklist', 'username nickname birthyear gender');
+
 
     if (!userDoc) {
       console.timeEnd('[API][TIMING] GET /api/me');

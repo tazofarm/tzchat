@@ -188,10 +188,14 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">휴대폰 내 번호 연결 끊기</strong>
-                  <button type="button" class="pf-switch" role="switch"
-                          :aria-checked="disconnectLocalContacts"
-                          :class="{ 'is-on': disconnectLocalContacts }"
-                          @click.stop="toggleDisconnectLocalContacts">
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="disconnectLocalContacts"
+                    :class="{ 'is-on': disconnectLocalContacts }"
+                    @click.stop="toggleDisconnectLocalContacts"
+                  >
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">{{ disconnectLocalContacts ? 'ON' : 'OFF' }}</span>
@@ -206,10 +210,14 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">친구 신청 받지 않기</strong>
-                  <button type="button" class="pf-switch" role="switch"
-                          :aria-checked="!allowFriendRequests"
-                          :class="{ 'is-on': !allowFriendRequests }"
-                          @click.stop="toggleAllowFriendRequests">
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="!allowFriendRequests"
+                    :class="{ 'is-on': !allowFriendRequests }"
+                    @click.stop="toggleAllowFriendRequests"
+                  >
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">{{ !allowFriendRequests ? 'ON' : 'OFF' }}</span>
@@ -224,10 +232,14 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">알림 받지 않기</strong>
-                  <button type="button" class="pf-switch" role="switch"
-                          :aria-checked="!allowNotifications"
-                          :class="{ 'is-on': !allowNotifications }"
-                          @click.stop="toggleAllowNotifications">
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    role="switch"
+                    :aria-checked="!allowNotifications"
+                    :class="{ 'is-on': !allowNotifications }"
+                    @click.stop="toggleAllowNotifications"
+                  >
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">{{ !allowNotifications ? 'ON' : 'OFF' }}</span>
@@ -283,12 +295,15 @@
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">사진 있는 사람만 연결하기</strong>
                    <span v-if="!canEditFieldLocal('onlyWithPhoto')" class="pf-lock-inline">🔒</span>
-                  <button type="button" class="pf-switch"
-                          :class="{ 'is-on': onlyWithPhoto, disabled: !canEditFieldLocal('onlyWithPhoto') }"
-                          role="switch"
-                          :aria-checked="onlyWithPhoto"
-                          :aria-disabled="!canEditFieldLocal('onlyWithPhoto')"
-                          @click.stop="onToggleOnlyWithPhoto">
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    :class="{ 'is-on': onlyWithPhoto, disabled: !canEditFieldLocal('onlyWithPhoto') }"
+                    role="switch"
+                    :aria-checked="onlyWithPhoto"
+                    :aria-disabled="!canEditFieldLocal('onlyWithPhoto')"
+                    @click.stop="onToggleOnlyWithPhoto"
+                  >
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">
@@ -306,12 +321,15 @@
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">Speed Matching 만 연결하기</strong>
                   <span v-if="!canEditFieldLocal('matchPremiumOnly')" class="pf-lock-inline">🔒</span>
-                  <button type="button" class="pf-switch"
-                          :class="{ 'is-on': matchPremiumOnly, disabled: !canEditFieldLocal('matchPremiumOnly') }"
-                          role="switch"
-                          :aria-checked="matchPremiumOnly"
-                          :aria-disabled="!canEditFieldLocal('matchPremiumOnly')"
-                          @click.stop="onToggleMatchPremiumOnly">
+                  <button
+                    type="button"
+                    class="pf-switch"
+                    :class="{ 'is-on': matchPremiumOnly, disabled: !canEditFieldLocal('matchPremiumOnly') }"
+                    role="switch"
+                    :aria-checked="matchPremiumOnly"
+                    :aria-disabled="!canEditFieldLocal('matchPremiumOnly')"
+                    @click.stop="onToggleMatchPremiumOnly"
+                  >
                     <span class="pf-switch__text pf-switch__text--left" aria-hidden="true">ON</span>
                     <span class="pf-switch__knob" />
                     <span class="pf-switch__label">
@@ -729,27 +747,49 @@ async function toggleDisconnectLocalContacts(){
       })).present()
     } catch (err) {
       console.error('연락처 저장 실패:', err)
+
       const raw =
         err?.response?.data?.error ||
         err?.message ||
         String(err || '')
 
+      // 디버깅용 raw는 콘솔에만
+      console.log('[contacts] raw error:', raw)
+
       let msg = '연락처 저장에 실패했습니다.'
+
+      // 1) 웹 구현만 있을 때 나는 에러
       if (/not implemented on web/i.test(raw)) {
         msg = '이 기능은 앱(안드로이드/iOS)에서만 사용할 수 있습니다.'
-      } else if (/(READ_CONTACTS|WRITE_CONTACTS)/i.test(raw)) {
+      }
+      // 2) 안드로이드에서 READ_CONTACTS / WRITE_CONTACTS 권한 문제
+      else if (/(READ_CONTACTS|WRITE_CONTACTS)/i.test(raw)) {
         msg = '연락처 권한이 부족합니다. 앱 설정에서 연락처 권한을 허용해 주세요.'
-      } else if (/연락처에서 전화번호를 찾지 못했습니다/.test(raw)) {
+      }
+      // 3) 연락처 목록에 전화번호 자체가 없을 때
+      else if (/연락처에서 전화번호를 찾지 못했습니다/.test(raw)) {
         msg = '연락처에서 전화번호를 찾지 못했습니다. 휴대폰에 저장된 연락처를 한번 확인해 주세요.'
-      } else if (err?.response?.data?.error) {
+      }
+      // 4) 플러그인이 네이티브에 안 붙어 있을 때 (plugin_not_installed 등)
+      else if (/plugin[_\s-]?not[_\s-]?installed|not implemented on (android|ios)/i.test(raw)) {
+        msg = '앱에 연락처 기능이 아직 올바르게 설치되지 않았습니다. 앱을 최신 버전으로 다시 설치하거나, 개발 중이라면 npx cap sync를 확인해 주세요.'
+      }
+      // 5) SHA-256(Web Crypto) 지원이 안 될 때 가능성
+      else if (/subtle.*digest/i.test(raw)) {
+        msg = '단말기에서 보안 해시 기능을 사용할 수 없습니다. 단말기/앱을 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.'
+      }
+      // 6) 서버가 에러 메시지를 내려준 경우 그대로 표시
+      else if (err?.response?.data?.error) {
         msg = err.response.data.error
       }
 
       ;(await toastController.create({
         message: msg,
-        duration: 2000,
+        duration: 3000,
         color: 'danger'
       })).present()
+
+      // 실패했으므로 스위치는 다시 OFF 상태로 롤백
       disconnectLocalContacts.value = false
     }
   } else {
@@ -890,26 +930,36 @@ async function sha256Hex(text){
 }
 
 async function getLocalContactPhoneNumbers() {
-  // 방어적으로 한 번 더: 웹이면 바로 에러
+  // 웹이면 바로 에러
   const platform = Capacitor.getPlatform ? Capacitor.getPlatform() : 'web'
   if (platform === 'web') {
     throw new Error('웹에서는 휴대폰 연락처를 읽을 수 없습니다.')
   }
 
+  // 권한 요청
   try {
-    if (typeof Contacts.requestPermissions === 'function') {
+    if (typeof Contacts.getPermissions === 'function') {
+      const perm = await Contacts.getPermissions()
+      if (!perm?.granted) {
+        throw new Error('연락처 권한이 부족합니다. 앱 설정에서 연락처 권한을 허용해 주세요.')
+      }
+    } else if (typeof Contacts.requestPermissions === 'function') {
       await Contacts.requestPermissions()
     }
-  } catch (_) {}
-  const supportsProjection = typeof Contacts.getContacts === 'function' && Contacts.getContacts.length > 0
-  let res
-  if (supportsProjection) {
-    res = await Contacts.getContacts({
-      projection: { phones: true, name: false, organization: false, postalAddresses: false }
-    })
-  } else {
-    res = await Contacts.getContacts()
+  } catch (e) {
+    console.warn('[contacts] permission error:', e)
   }
+
+  // ⭐ projection을 항상 넘겨서 Android 네이티브 쪽에서 null 접근하지 않도록
+  const res = await Contacts.getContacts({
+    projection: {
+      phones: true,
+      name: false,
+      organization: false,
+      postalAddresses: false,
+    },
+  })
+
   const list = Array.isArray(res?.contacts) ? res.contacts : []
   const numbers = []
   for (const c of list) {
@@ -919,9 +969,13 @@ async function getLocalContactPhoneNumbers() {
       if (v) numbers.push(v)
     }
   }
-  if (!numbers.length) throw new Error('연락처에서 전화번호를 찾지 못했습니다.')
+
+  if (!numbers.length) {
+    throw new Error('연락처에서 전화번호를 찾지 못했습니다.')
+  }
   return numbers
 }
+
 async function collectLocalContactHashes(){
   const phones = await getLocalContactPhoneNumbers()
   const normalized = Array.from(new Set(phones.map(normalizePhoneKR).filter(Boolean)))
