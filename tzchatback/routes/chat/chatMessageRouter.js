@@ -1,34 +1,38 @@
-// routes/chat/chatRoomRouter.js
+// routes/chat/chatMessageRouter.js
 // base: /api
 // -------------------------------------------------------------
-// 💬 채팅방 라우터 (목록/상세/생성/삭제/집계)
-// - GET    /chatrooms                   : 내 채팅방 목록(마지막 메시지+미읽음 수)
-// - GET    /chatrooms/unread-total      : 총 미읽음 합계(TopMenu 뱃지)
-// - GET    /chatrooms/partners          : 내가 대화한 상대 ID 목록
-// - GET    /chatrooms/:id               : 채팅방 상세(참가자+메시지 목록)
-// - POST   /chatrooms                   : 1:1 방 생성 또는 기존 방 반환
-// - DELETE /chatrooms/:id               : 방 삭제(메시지 포함 하드 삭제)
-// - ✅ 응답 시 미디어 URL 절대경로 정규화(혼합콘텐츠 방지)
+// 📨 채팅 메시지 라우터 (전송/읽음/이미지 업로드)
+// - POST /chatrooms/:id/message       : 텍스트/이미지 전송(+ lastMessage 갱신, 소켓, 푸시)
+// - PUT  /chatrooms/:id/read          : 읽음 처리(readBy 추가, 소켓)
+// - POST /chatrooms/:id/upload-image  : 이미지 업로드(1024px 리사이즈, 확장자/타입 정합성)
+// - ✅ 응답 시 이미지 URL 절대경로 정규화(혼합콘텐츠 방지)
+// - ✅ DB에는 uploads 경로를 "상대경로(/uploads/...)"로만 저장 (localhost 절대URL 저장 방지)
+// - 저장 경로: /uploads/chat/YYYY/MM/DD/<roomId>/<uuid>.(jpg|png|webp|gif)
 // -------------------------------------------------------------
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const sharp = require('sharp');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 
-// models
 const { ChatRoom, Message, User } = require('@/models');
-
-// 인증 미들웨어
 const requireLogin = require('@/middlewares/authMiddleware');
 const blockIfPendingDeletion = require('@/middlewares/blockIfPendingDeletion');
+const { sendPushToUser } = require('@/push/sender');
 
 const router = express.Router();
 router.use(requireLogin, blockIfPendingDeletion);
 
 // ===== 공통 헬퍼 =====
-const log = (...args) => console.log('[chatRoomsRouter]', ...args);
+const log = (...args) => console.log('[chatMessageRouter]', ...args);
+const getEmit = (req) => { try { return req.app.get('emit'); } catch { return null; } };
 const getIO   = (req) => { try { return req.app.get('io'); }   catch { return null; } };
 function getMyId(req) { return req?.user?._id || req?.session?.user?._id || null; }
+function genId() { return crypto.randomBytes(16).toString('hex'); }
 
-// ----- URL 정규화 유틸 -----
+// ----- URL 정규화 유틸(roomsRouter와 동일 규칙) -----
 function stripTrailingSlashes(u) { return (u || '').replace(/\/+$/, ''); }
 function firstHeaderVal(h) { return (h || '').split(',')[0].trim(); }
 function parseForwarded(forwarded) {
@@ -49,22 +53,27 @@ function isLocalhostUrl(u) {
   }
 }
 function getPublicBaseUrl(req) {
+  // 1) forwarded 기반 후보
   const fwd = parseForwarded(req.headers['forwarded']);
   let fProto = fwd.proto || firstHeaderVal(req.headers['x-forwarded-proto']) || '';
   let fHost  = fwd.host  || firstHeaderVal(req.headers['x-forwarded-host'])  || '';
   const xfPort = firstHeaderVal(req.headers['x-forwarded-port']);
   if (xfPort && fHost && !/:\d+$/.test(fHost)) fHost = `${fHost}:${xfPort}`;
 
+  // 2) ENV 후보(있으면 쓰되, localhost면 무시하고 forwarded를 우선)
   const envBase = process.env.PUBLIC_BASE_URL || process.env.FILE_BASE_URL || process.env.API_BASE_URL || '';
   if (envBase) {
     const envIsLocal = isLocalhostUrl(envBase);
     const fBare = (fHost || '').replace(/:\d+$/, '');
     const fIsValidPublic = !!fHost && !/^localhost$|^127\.0\.0\.1$/i.test(fBare);
+
+    // ENV가 localhost인데, 요청이 프록시를 통해 공인 도메인으로 들어오면 ENV를 무시
     if (!(envIsLocal && fIsValidPublic)) {
       return stripTrailingSlashes(envBase);
     }
   }
 
+  // 3) forwarded/req 기반
   let proto = fProto || req.protocol || 'https';
   let host  = fHost  || req.get('host') || '';
 
@@ -79,6 +88,7 @@ function toAbsoluteMediaUrl(u, req) {
   if (!u) return u;
   const base = getPublicBaseUrl(req);
 
+  // 절대 URL이면, uploads 경로는 베이스 도메인/프로토콜로 교체
   if (/^https?:\/\//i.test(u)) {
     try {
       const url = new URL(u);
@@ -95,244 +105,273 @@ function toAbsoluteMediaUrl(u, req) {
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;
 }
-function normalizeUserPhotos(user, req) {
-  if (!user || typeof user !== 'object') return user;
-  const out = { ...user };
-  if (out.profile && typeof out.profile === 'object') {
-    if (out.profile.mainUrl) out.profile.mainUrl = toAbsoluteMediaUrl(out.profile.mainUrl, req);
+
+// ✅ 이미지 메시지 저장값을 항상 상대경로(/uploads/...)로 정규화
+function normalizeUploadPathForDb(input) {
+  if (!input) return '';
+  const s = String(input).trim();
+
+  // 절대 URL이면 /uploads/... 부분만 떼서 저장
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const url = new URL(s);
+      if (url.pathname.startsWith('/uploads/')) return url.pathname;
+      return s; // uploads가 아니면 그대로 (원치 않으면 ''로 바꿔도 됨)
+    } catch {
+      // 실패 시 아래로
+    }
   }
-  if (out.profilePhotoUrl) out.profilePhotoUrl = toAbsoluteMediaUrl(out.profilePhotoUrl, req);
-  if (out.photoUrl) out.photoUrl = toAbsoluteMediaUrl(out.photoUrl, req);
-  if (Array.isArray(out.photos)) {
-    out.photos = out.photos.map(p => {
-      if (!p || typeof p !== 'object') return p;
-      const np = { ...p };
-      if (np.url) np.url = toAbsoluteMediaUrl(np.url, req);
-      if (np.src) np.src = toAbsoluteMediaUrl(np.src, req);
-      return np;
-    });
-  }
-  return out;
+
+  // 상대경로 업로드
+  if (s.startsWith('/uploads/')) return s;
+  if (s.startsWith('uploads/')) return `/${s}`;
+  return s;
 }
 
 /* ===========================================
- * [1] 채팅방 목록
+ * 업로드 경로 유틸
  * =========================================== */
-router.get('/chatrooms', async (req, res) => {
-  console.time('[GET]/chatrooms');
-  try {
-    const myId = getMyId(req);
-    if (!myId) { console.timeEnd('[GET]/chatrooms'); return res.status(401).json([]); }
+const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads');
+const CHAT_ROOT = path.join(UPLOAD_ROOT, 'chat');
+function ensureDirSync(dir) { try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) { console.error('[upload] mkdir failed:', dir, e); } }
+ensureDirSync(UPLOAD_ROOT); ensureDirSync(CHAT_ROOT);
 
-    const myObjId = new mongoose.Types.ObjectId(String(myId));
-    const rooms = await ChatRoom.find({ participants: myObjId })
-      .select('_id participants lastMessage updatedAt createdAt')
-      .populate('participants', 'nickname gender profilePhotoUrl photoUrl profile.mainUrl photos.url photos.isMain')
-      .sort({ updatedAt: -1 })
-      .lean();
-
-    const roomIds = rooms.map(r => r._id);
-    const pipeline = [
-      { $match: { chatRoom: { $in: roomIds } } },
-      { $sort: { createdAt: -1 } },
-      { $group: {
-          _id: '$chatRoom',
-          last: { $first: '$$ROOT' },
-          unreadCount: {
-            $sum: {
-              $cond: [
-                { $and: [
-                    { $ne: ['$sender', myObjId] },
-                    { $not: [{ $in: [myObjId, { $ifNull: ['$readBy', []] }] }] }
-                  ]},
-                1, 0
-              ]
-            }
-          }
-      }}
-    ];
-    const agg = roomIds.length ? await Message.aggregate(pipeline) : [];
-    const byRoomId = new Map(agg.map(x => [String(x._id), x]));
-
-    const result = rooms.map(r => {
-      const extra = byRoomId.get(String(r._id));
-      const lastDoc = extra?.last;
-      const normalizedParticipants = Array.isArray(r.participants)
-        ? r.participants.map(p => normalizeUserPhotos(p, req))
-        : r.participants;
-
-      const lastMessage = lastDoc
-        ? {
-            _id: lastDoc._id,
-            content: lastDoc.content || '',
-            imageUrl: toAbsoluteMediaUrl(lastDoc.imageUrl || '', req),
-            sender: lastDoc.sender,
-            createdAt: lastDoc.createdAt
-          }
-        : (r.lastMessage
-            ? { ...r.lastMessage, imageUrl: toAbsoluteMediaUrl(r.lastMessage.imageUrl || '', req) }
-            : null);
-
-      return {
-        _id: r._id,
-        participants: normalizedParticipants,
-        lastMessage,
-        unreadCount: extra?.unreadCount || 0,
-        updatedAt: r.updatedAt,
-        createdAt: r.createdAt
-      };
-    });
-
-    console.timeEnd('[GET]/chatrooms');
-    return res.json(result);
-  } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/chatrooms', err?.message);
-    console.timeEnd('[GET]/chatrooms');
-    return res.status(500).json({ message: '채팅방 불러오기 실패' });
-  }
-});
+function getChatDest(req) {
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const roomId = String(req.params.id || req.body.roomId || 'misc');
+  const dest = path.join(CHAT_ROOT, yyyy, mm, dd, roomId);
+  ensureDirSync(dest);
+  return { dest, yyyy, mm, dd, roomId };
+}
 
 /* ===========================================
- * [1-1] 총 미읽음 합계
+ * Multer 설정
  * =========================================== */
-router.get('/chatrooms/unread-total', async (req, res) => {
-  try {
-    const myId = getMyId(req);
-    if (!myId) return res.status(200).json({ total: 0 });
-    const myObjId = new mongoose.Types.ObjectId(String(myId));
-    const roomIds = await ChatRoom.find({ participants: myObjId }).distinct('_id');
-    if (!roomIds.length) return res.json({ total: 0 });
-    const total = await Message.countDocuments({
-      chatRoom: { $in: roomIds },
-      sender: { $ne: myObjId },
-      readBy: { $ne: myObjId }
-    });
-    return res.json({ total });
-  } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/unread-total', err?.message);
-    return res.status(500).json({ total: 0 });
-  }
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    try { const { dest } = getChatDest(req); cb(null, dest); } catch (e) { cb(e); }
+  },
+  filename: (req, file, cb) => { const ext = (path.extname(file.originalname) || '').toLowerCase(); cb(null, `${genId()}${ext || ''}`); }
 });
+const fileFilter = (req, file, cb) => {
+  if (!file.mimetype || !file.mimetype.startsWith('image/')) return cb(new Error('이미지 파일만 업로드할 수 있습니다.'), false);
+  cb(null, true);
+};
+const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
 /* ===========================================
- * [1-2] 내가 대화한 상대 ID 목록
+ * [1] 메시지 전송 (텍스트/이미지)
  * =========================================== */
-router.get('/chatrooms/partners', async (req, res) => {
+router.post('/chatrooms/:id/message', async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
-    const myObjId = new mongoose.Types.ObjectId(String(myId));
-    const rooms = await ChatRoom.find({ participants: myObjId }).select('participants').lean();
-    const ids = [
-      ...new Set(
-        (rooms || [])
-          .flatMap(r => Array.isArray(r.participants) ? r.participants : [])
-          .map(p => String(p))
-          .filter(pid => pid !== String(myId))
-      )
-    ];
-    return res.json({ ids });
-  } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/partners', err?.message);
-    return res.status(500).json({ message: '채팅 상대 조회 실패' });
-  }
-});
 
-/* ===========================================
- * [2] 채팅방 상세(메시지 포함)
- * =========================================== */
-router.get('/chatrooms/:id', async (req, res) => {
-  try {
-    const myId = getMyId(req);
-    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
     const myObjId = new mongoose.Types.ObjectId(String(myId));
     const { id } = req.params;
+    const { content, type } = req.body;
 
-    const chatRoom = await ChatRoom.findById(id)
-      .populate('participants', 'nickname gender profilePhotoUrl photoUrl profile.mainUrl photos.url photos.isMain')
-      .lean();
-
-    const isMember = chatRoom?.participants?.some(p => String(p._id || p) === String(myId));
-    if (!chatRoom || !isMember) return res.status(403).json({ message: '접근 권한 없음' });
-
-    const normalizedParticipants = Array.isArray(chatRoom.participants)
-      ? chatRoom.participants.map(p => normalizeUserPhotos(p, req))
-      : chatRoom.participants;
-
-    let messages = await Message.find({ chatRoom: id })
-      .sort({ createdAt: 1 })
-      .populate('sender', 'nickname')
-      .lean();
-
-    messages = messages.map(m => ({ ...m, imageUrl: toAbsoluteMediaUrl(m.imageUrl || '', req) }));
-
-    return res.json({ myId: String(myObjId), participants: normalizedParticipants, messages });
-  } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/:id', err?.message);
-    return res.status(500).json({ message: '서버 오류' });
-  }
-});
-
-/* ===========================================
- * [3] 채팅방 생성 or 조회 (두 명 DM)
- * =========================================== */
-router.post('/chatrooms', async (req, res) => {
-  try {
-    const myId = getMyId(req);
-    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
-    const { userId } = req.body;
-
-    const myObjId = new mongoose.Types.ObjectId(String(myId));
-    const otherObjId = new mongoose.Types.ObjectId(String(userId));
-
-    let chatRoom = await ChatRoom.findOne({
-      participants: { $all: [myObjId, otherObjId], $size: 2 }
-    });
-
-    if (!chatRoom) {
-      chatRoom = new ChatRoom({ participants: [myObjId, otherObjId], messages: [] });
-      await chatRoom.save();
-      log('✅ created room=', chatRoom._id.toString());
-    } else {
-      log('found room=', chatRoom._id.toString());
+    if (type !== 'image' && (!content || !content.trim())) {
+      return res.status(400).json({ message: '메시지 내용이 비어 있습니다' });
     }
-    return res.json(chatRoom);
+
+    const chatRoom = await ChatRoom.findById(id);
+    const isMember = chatRoom?.participants?.some(p => String(p) === String(myId));
+    if (!chatRoom || !isMember) return res.status(403).json({ message: '채팅방 접근 권한 없음' });
+
+    const messageData = {
+      chatRoom: id, sender: myObjId, type: type || 'text',
+      readBy: [myObjId], content: '', imageUrl: ''
+    };
+
+    if (type === 'image') {
+      // ✅ DB에는 /uploads/... 상대경로만 저장
+      messageData.imageUrl = normalizeUploadPathForDb(content);
+    } else {
+      messageData.content = content;
+    }
+
+    let message = await Message.create(messageData);
+    chatRoom.messages.push(message._id);
+
+    if (typeof chatRoom.setLastMessageAndTouch === 'function') {
+      chatRoom.setLastMessageAndTouch({
+        content: message.content || '',
+        imageUrl: message.imageUrl || '',
+        sender: message.sender,
+        createdAt: message.createdAt
+      });
+    } else {
+      chatRoom.lastMessage = {
+        content: message.content || '',
+        imageUrl: message.imageUrl || '',
+        sender: message.sender,
+        createdAt: message.createdAt
+      };
+      chatRoom.updatedAt = new Date();
+    }
+    await chatRoom.save();
+
+    message = await Message.findById(message._id).populate('sender', 'nickname').lean();
+
+    // ✅ 응답/소켓에는 절대 URL로 정규화(https + 도메인 강제)
+    message.imageUrl = toAbsoluteMediaUrl(message.imageUrl || '', req);
+
+    const emit = getEmit(req);
+    if (emit && typeof emit.chatMessageNew === 'function') {
+      await emit.chatMessageNew(String(chatRoom._id), message);
+    } else {
+      const io = getIO(req);
+      if (io && Array.isArray(chatRoom.participants)) {
+        chatRoom.participants.forEach((uid) => {
+          const roomName = `user:${String(uid)}`;
+          io.to(roomName).emit('chatrooms:badge', { changedRoomId: String(chatRoom._id) });
+          io.to(roomName).emit('chatrooms:updated', {
+            changedRoomId: String(chatRoom._id),
+            lastMessage: {
+              _id: message?._id,
+              content: message?.content || '',
+              imageUrl: message?.imageUrl || '',
+              sender: message?.sender || null,
+              createdAt: message?.createdAt || new Date(),
+            }
+          });
+        });
+      }
+    }
+
+    // 푸시
+    try {
+      const me = await User.findById(myId, { nickname: 1 }).lean();
+      const myNick = me?.nickname || '상대방';
+      const preview = (message.content && message.content.trim())
+        ? message.content
+        : (message.imageUrl ? '📷 사진' : '새 메시지');
+
+      const targetUserIds = (chatRoom.participants || [])
+        .map(String)
+        .filter(uid => uid !== String(myId));
+
+      for (const uid of targetUserIds) {
+        await sendPushToUser(uid, {
+          title: '새 메시지',
+          body: `${myNick}: ${preview}`,
+          type: 'chat',
+          roomId: String(chatRoom._id),
+          fromUserId: String(myId),
+        });
+      }
+    } catch (pushErr) {
+      console.error('[PUSH][ERR]', pushErr?.message);
+    }
+
+    return res.json(message);
   } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/create', err?.message);
+    console.error('[chatMessageRouter][ERR]/message', err?.message);
     return res.status(500).json({ message: '서버 오류' });
   }
 });
 
 /* ===========================================
- * [4] 채팅방 삭제(메시지 포함)
+ * [2] 읽음 처리
  * =========================================== */
-router.delete('/chatrooms/:id', async (req, res) => {
+router.put('/chatrooms/:id/read', async (req, res) => {
   try {
     const myId = getMyId(req);
     if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+    const myObjId = new mongoose.Types.ObjectId(String(myId));
     const { id: roomId } = req.params;
 
     const room = await ChatRoom.findById(roomId).select('_id participants');
-    if (!room) return res.status(404).json({ message: '채팅방이 존재하지 않습니다.' });
-    const isParticipant = (room.participants || []).some(p => String(p) === String(myId));
-    if (!isParticipant) return res.status(403).json({ message: '삭제 권한이 없습니다.' });
+    const isMember = room?.participants?.some(p => String(p) === String(myId));
+    if (!room || !isMember) return res.status(403).json({ message: '채팅방 접근 권한 없음' });
 
-    await Message.deleteMany({ chatRoom: roomId });
-    await ChatRoom.deleteOne({ _id: roomId });
+    const filter = { chatRoom: roomId, sender: { $ne: myObjId }, readBy: { $ne: myObjId } };
+    const targets = await Message.find(filter, { _id: 1 }).lean();
+    const ids = targets.map(t => t._id);
 
-    const io = getIO(req);
-    if (io) {
-      (room.participants || []).forEach((uid) => {
-        const ch = `user:${String(uid)}`;
-        io.to(ch).emit('chatrooms:badge',   { changedRoomId: String(roomId) });
-        io.to(ch).emit('chatrooms:updated', { deletedRoomId: String(roomId) });
-        io.to(ch).emit('chatrooms:deleted', { roomId: String(roomId) });
-      });
+    if (ids.length) {
+      await Message.updateMany({ _id: { $in: ids } }, { $addToSet: { readBy: myObjId } });
     }
-    return res.json({ message: '채팅방 삭제 완료', roomId });
+
+    const emit = getEmit(req);
+    if (emit && typeof emit.chatMessagesRead === 'function') {
+      await emit.chatMessagesRead(String(roomId), String(myId), ids.map(String));
+    } else {
+      const io = getIO(req);
+      if (io) io.to(`user:${String(myId)}`).emit('chatrooms:badge', { changedRoomId: String(roomId) });
+    }
+
+    return res.json({ updatedMessageIds: ids });
   } catch (err) {
-    console.error('[chatRoomsRouter][ERR]/delete', err?.message);
-    return res.status(500).json({ message: '채팅방 삭제 실패' });
+    console.error('[chatMessageRouter][ERR]/read', err?.message);
+    return res.status(500).json({ message: '읽음 처리 실패' });
+  }
+});
+
+/* ===========================================
+ * [3] 이미지 업로드
+ * =========================================== */
+router.post('/chatrooms/:id/upload-image', upload.single('image'), async (req, res) => {
+  try {
+    const myId = getMyId(req);
+    if (!myId) return res.status(401).json({ message: '로그인이 필요합니다.' });
+
+    const { id: roomId } = req.params;
+    const room = await ChatRoom.findById(roomId).select('_id participants');
+    const isMember = room?.participants?.some(p => String(p) === String(myId));
+    if (!room || !isMember) return res.status(403).json({ message: '채팅방 접근 권한 없음' });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: '파일이 존재하지 않습니다.' });
+
+    const originalPath = file.path;
+    const origExt = (path.extname(file.originalname) || '').toLowerCase();
+    const mime = (file.mimetype || '').toLowerCase();
+
+    const { yyyy, mm, dd } = getChatDest(req);
+    const destDir = path.dirname(originalPath);
+    const idPart = genId();
+
+    let targetFormat = 'jpeg';
+    if (mime.includes('png') || origExt === '.png') targetFormat = 'png';
+    if (mime.includes('webp') || origExt === '.webp') targetFormat = 'webp';
+    const isGif = mime.includes('gif') || origExt === '.gif';
+
+    let finalFilename; let finalAbsPath;
+
+    if (isGif) {
+      finalFilename = `${idPart}.gif`;
+      finalAbsPath = path.join(destDir, finalFilename);
+      fs.copyFileSync(originalPath, finalAbsPath);
+      fs.unlinkSync(originalPath);
+    } else {
+      const ext = targetFormat === 'jpeg' ? '.jpg' : `.${targetFormat}`;
+      finalFilename = `${idPart}${ext}`;
+      finalAbsPath = path.join(destDir, finalFilename);
+
+      let pipeline = sharp(originalPath).resize({ width: 1024, withoutEnlargement: true }).rotate();
+      if (targetFormat === 'jpeg') pipeline = pipeline.jpeg({ quality: 70, mozjpeg: true });
+      if (targetFormat === 'png')  pipeline = pipeline.png({ compressionLevel: 8 });
+      if (targetFormat === 'webp') pipeline = pipeline.webp({ quality: 75 });
+
+      await pipeline.toFile(finalAbsPath);
+      fs.unlinkSync(originalPath);
+    }
+
+    const relativePath = `/uploads/chat/${yyyy}/${mm}/${dd}/${roomId}/${finalFilename}`;
+
+    // 응답은 절대 URL도 내려주되, 프론트는 relativePath를 쓰는 게 정석
+    const imageUrl = toAbsoluteMediaUrl(relativePath, req);
+
+    log('✅ [upload-image] saved:', relativePath, '⇒', imageUrl, '| mime=', mime);
+    return res.json({ imageUrl, relativePath });
+  } catch (err) {
+    console.error('[chatMessageRouter][ERR]/upload-image', err?.message);
+    return res.status(500).json({ message: '이미지 업로드 실패' });
   }
 });
 
