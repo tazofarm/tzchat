@@ -258,13 +258,38 @@ const displayItems = computed(() => {
 // 이미지/모달
 const openImage = (url)=>{ enlargedImage.value=url; requestAnimationFrame(()=>document.querySelector('.image-modal')?.focus()) }
 const closeImageModal = ()=>{ enlargedImage.value='' }
-const getImageUrl = (path)=>{
-  if(!path) return ''
-  if(/^https?:\/\//.test(path)) return path
-  const base=window.location.origin.replace(/\/+$/,'')
-  const p=String(path).startsWith('/')?path:`/${path}`
-  return `${base}${p}`
+const getImageUrl = (path) => {
+  if (!path) return ''
+  const s = String(path).trim()
+
+  const isProdHttps = window.location.protocol === 'https:'
+  const isLocalFront =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1'
+
+  // ✅ 로컬에서 업로드/이미지는 백엔드(2000)에서 서빙됨
+  const devMediaBase = 'http://localhost:2000'
+  // ✅ 운영에선 현재 origin(https://tzchat.tazocode.com)
+  const prodMediaBase = window.location.origin
+
+  const mediaBase = isLocalFront ? devMediaBase : prodMediaBase
+
+  // 1) 절대 URL이면
+  if (/^https?:\/\//i.test(s)) {
+    // 운영(https)에서 localhost:2000/uploads가 섞이면 → 운영 도메인으로 교체
+    if (isProdHttps && /^http:\/\/localhost:2000\/uploads\//i.test(s)) {
+      return s.replace(/^http:\/\/localhost:2000/i, prodMediaBase)
+    }
+    // 로컬이면 절대 URL 그대로 사용(문제 없음)
+    return s
+  }
+
+  // 2) 상대경로(/uploads/...)면 mediaBase를 붙인다
+  const p = s.startsWith('/') ? s : `/${s}`
+  return `${mediaBase}${p}`
 }
+
+
 
 // 데이터 로딩
 const loadMessages = async ()=>{
