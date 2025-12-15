@@ -9,10 +9,8 @@
 // - POST   /chatrooms                   : 1:1 방 생성 또는 기존 방 반환
 // - DELETE /chatrooms/:id               : 방 삭제(메시지 포함 하드 삭제)
 // - ✅ 응답 시 미디어 URL 절대경로 정규화(혼합콘텐츠 방지)
-// ------------------------------------------------------------- 
+// -------------------------------------------------------------
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
 const mongoose = require('mongoose');
 
 // models
@@ -27,7 +25,6 @@ router.use(requireLogin, blockIfPendingDeletion);
 
 // ===== 공통 헬퍼 =====
 const log = (...args) => console.log('[chatRoomsRouter]', ...args);
-const getEmit = (req) => { try { return req.app.get('emit'); } catch { return null; } };
 const getIO   = (req) => { try { return req.app.get('io'); }   catch { return null; } };
 function getMyId(req) { return req?.user?._id || req?.session?.user?._id || null; }
 
@@ -43,34 +40,58 @@ function parseForwarded(forwarded) {
   }
   return out;
 }
+function isLocalhostUrl(u) {
+  try {
+    const url = new URL(u);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
 function getPublicBaseUrl(req) {
-  const envBase = process.env.PUBLIC_BASE_URL || process.env.FILE_BASE_URL || process.env.API_BASE_URL || '';
-  if (envBase) return stripTrailingSlashes(envBase);
   const fwd = parseForwarded(req.headers['forwarded']);
-  let proto = fwd.proto || firstHeaderVal(req.headers['x-forwarded-proto']) || req.protocol || 'https';
-  let host  = fwd.host  || firstHeaderVal(req.headers['x-forwarded-host'])  || req.get('host') || '';
+  let fProto = fwd.proto || firstHeaderVal(req.headers['x-forwarded-proto']) || '';
+  let fHost  = fwd.host  || firstHeaderVal(req.headers['x-forwarded-host'])  || '';
   const xfPort = firstHeaderVal(req.headers['x-forwarded-port']);
-  if (xfPort && host && !/:\d+$/.test(host)) host = `${host}:${xfPort}`;
-  const bare = host.replace(/:\d+$/, '');
+  if (xfPort && fHost && !/:\d+$/.test(fHost)) fHost = `${fHost}:${xfPort}`;
+
+  const envBase = process.env.PUBLIC_BASE_URL || process.env.FILE_BASE_URL || process.env.API_BASE_URL || '';
+  if (envBase) {
+    const envIsLocal = isLocalhostUrl(envBase);
+    const fBare = (fHost || '').replace(/:\d+$/, '');
+    const fIsValidPublic = !!fHost && !/^localhost$|^127\.0\.0\.1$/i.test(fBare);
+    if (!(envIsLocal && fIsValidPublic)) {
+      return stripTrailingSlashes(envBase);
+    }
+  }
+
+  let proto = fProto || req.protocol || 'https';
+  let host  = fHost  || req.get('host') || '';
+
+  const bare = (host || '').replace(/:\d+$/, '');
   if (/^tzchat\.tazocode\.com$/i.test(bare)) proto = 'https';
   if (!/^https?$/i.test(proto)) proto = 'https';
   if (!host) { host = 'tzchat.tazocode.com'; proto = 'https'; }
+
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 function toAbsoluteMediaUrl(u, req) {
   if (!u) return u;
   const base = getPublicBaseUrl(req);
+
   if (/^https?:\/\//i.test(u)) {
     try {
       const url = new URL(u);
       if (url.pathname.startsWith('/uploads/')) {
         const absBase = new URL(base);
-        url.protocol = absBase.protocol; url.host = absBase.host;
+        url.protocol = absBase.protocol;
+        url.host = absBase.host;
         return url.toString();
       }
       return u;
     } catch { /* fallthrough */ }
   }
+
   const rel = u.startsWith('/') ? u : `/${u}`;
   return `${base}${rel}`;
 }
