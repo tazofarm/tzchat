@@ -37,8 +37,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // ✅ 스토어 업로드 핵심: 업로드할 때마다 versionCode는 1,2,3… 증가
-        versionCode 38
-        versionName "0.2.04"
+        versionCode 39
+        versionName "0.2.05"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -118,6 +118,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-messaging'   // 푸시 알림(FCM)
     // implementation 'com.google.firebase:firebase-auth'     // (선택) 전화번호/구글 로그인 등 Auth 사용 시
     // implementation 'com.google.firebase:firebase-crashlytics' // (선택) 크래시 리포트
+    implementation 'com.google.android.play:app-update:2.1.0'
 }
 
 apply from: 'capacitor.build.gradle'

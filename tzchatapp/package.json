@@ -40,6 +40,7 @@
     "@ionic/pwa-elements": "^3.3.0",
     "@ionic/vue": "^8.6.5",
     "@ionic/vue-router": "^8.6.4",
+    "@portone/browser-sdk": "^0.1.1",
     "@vueuse/core": "^13.6.0",
     "axios": "^1.10.0",
     "cordova-plugin-email-composer": "^0.10.1",

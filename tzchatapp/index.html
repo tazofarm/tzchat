@@ -49,7 +49,8 @@
         배경이 흰색으로 번쩍하지 않도록 다크톤으로 고정.
         App.vue의 theme-gold 및 theme CSS 로드 후에는 해당 토큰이 덮어씁니다.
       */
-      html, body {
+      html,
+      body {
         color: #f5f5f5;            /* theme-gold의 텍스트 톤과 일치 */
         background-color: #121212; /* theme-gold의 배경 톤과 일치 */
         overscroll-behavior: none;
@@ -59,9 +60,18 @@
         -webkit-text-size-adjust: 100%;
       }
       /* 데스크톱 보조용 스크롤바(다크톤) */
-      * { scrollbar-width: thin; scrollbar-color: #666 transparent; }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #666 transparent;
+      }
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #666;
+        border-radius: 4px;
+      }
     </style>
 
     <!-- ✅ 빌드/배포 버전 태그(로그 분석/버전 식별용) -->
@@ -73,6 +83,11 @@
 
     <div id="app"></div>
 
+    <!-- ✅ PortOne V2 Browser SDK (CDN)
+         - PassPortal.vue에서 window.PortOne 사용
+         - main.ts보다 먼저 로드되어야 합니다 -->
+    <script src="https://cdn.portone.io/v2/browser-sdk.js"></script>
+
     <!-- 개발 모드에서는 /src/main.ts, 빌드 후에는 Vite가 dist/index.html에 해시된 자산을 주입 -->
     <script type="module" src="/src/main.ts"></script>
 
@@ -80,20 +95,31 @@
     <script>
       (function () {
         try {
-          const ver = document.querySelector('meta[name="app-version"]')?.content || '(no-version)';
+          const ver =
+            document.querySelector('meta[name="app-version"]')?.content || '(no-version)';
           console.log('%c🧭 tzchat index.html loaded', 'font-weight:bold');
           console.log('📌 app-version(meta):', ver);
           console.log('🌐 location:', window.location.href);
 
           // link/script 로드 목록(빌드 후 dist에서는 해시된 /assets/* 가 보이는지 체크)
-          const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(l => l.href);
-          const scripts = Array.from(document.querySelectorAll('script')).map(s => s.src || '(inline/module)');
+          const links = Array.from(
+            document.querySelectorAll('link[rel="stylesheet"]')
+          ).map((l) => l.href);
+          const scripts = Array.from(document.querySelectorAll('script')).map(
+            (s) => s.src || '(inline/module)'
+          );
           console.log('📄 stylesheets (index.html scope):', links);
           console.log('📜 scripts (index.html scope):', scripts);
 
+          // PortOne SDK 로드 여부 확인
+          console.log('✅ PortOne SDK loaded:', !!window.PortOne);
+
           // color-scheme / iOS 상태바 스타일 확인
-          const colorScheme = document.querySelector('meta[name="color-scheme"]')?.content;
-          const iosBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content;
+          const colorScheme =
+            document.querySelector('meta[name="color-scheme"]')?.content;
+          const iosBar =
+            document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+              ?.content;
           console.log('🌓 color-scheme:', colorScheme);
           console.log('📱 iOS status bar style:', iosBar);
 

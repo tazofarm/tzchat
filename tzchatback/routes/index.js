@@ -16,7 +16,7 @@ module.exports = (app) => {
   app.use('/api/auth/pass', require('./pass/passResultRouter')); // PASS (정상 공급사 연동)
   app.use('/api/auth/pass', require('./pass/passResultCallbackRouter')); // PASS call back
   app.use('/api/auth/pass', require('./pass/tempLoginRouter')); //temp login
-
+  app.use('/api/auth/pass/portone', require('./pass/portoneCallbackRouter')); // portone call back
   
   app.use('/api/auth/passmanual', require('./pass/passManualRouter'));// PASS Manual (로컬/특수 상황용 수동 입력 전용) 
   
