@@ -46,7 +46,11 @@
 
                   <div class="bubble my-bubble">
                     <template v-if="item.imageUrl">
-                      <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                      <img
+                        :src="getImageUrl(item.imageUrl)"
+                        class="chat-image"
+                        @click="openImage(getImageUrl(item.imageUrl))"
+                      />
                     </template>
                     <template v-else>
                       {{ item.content }}
@@ -83,7 +87,11 @@
                   <div class="bubble-row">
                     <div class="bubble other-bubble">
                       <template v-if="item.imageUrl">
-                        <img :src="getImageUrl(item.imageUrl)" class="chat-image" @click="openImage(getImageUrl(item.imageUrl))" />
+                        <img
+                          :src="getImageUrl(item.imageUrl)"
+                          class="chat-image"
+                          @click="openImage(getImageUrl(item.imageUrl))"
+                        />
                       </template>
                       <template v-else>
                         {{ item.content }}
@@ -258,29 +266,25 @@ const displayItems = computed(() => {
 // 이미지/모달
 const openImage = (url)=>{ enlargedImage.value=url; requestAnimationFrame(()=>document.querySelector('.image-modal')?.focus()) }
 const closeImageModal = ()=>{ enlargedImage.value='' }
+
+// ✅ 앱(WebView)에서도 항상 “서버(API) 기준”으로 이미지 URL을 만든다.
 const getImageUrl = (path) => {
   if (!path) return ''
   const s = String(path).trim()
 
-  const isProdHttps = window.location.protocol === 'https:'
-  const isLocalFront =
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1'
+  const apiBase =
+    (axios?.defaults?.baseURL ? String(axios.defaults.baseURL) : '') ||
+    (import.meta?.env?.VITE_API_URL ? String(import.meta.env.VITE_API_URL) : '') ||
+    'https://tzchat.tazocode.com'
 
-  // ✅ 로컬에서 업로드/이미지는 백엔드(2000)에서 서빙됨
-  const devMediaBase = 'http://localhost:2000'
-  // ✅ 운영에선 현재 origin(https://tzchat.tazocode.com)
-  const prodMediaBase = window.location.origin
+  const mediaBase = apiBase.replace(/\/+$/, '')
 
-  const mediaBase = isLocalFront ? devMediaBase : prodMediaBase
-
-  // 1) 절대 URL이면
+  // 1) 절대 URL이면 그대로 사용하되,
+  //    http://localhost:2000/uploads/... 같은 개발용 주소가 섞여 있으면 운영 주소로 치환
   if (/^https?:\/\//i.test(s)) {
-    // 운영(https)에서 localhost:2000/uploads가 섞이면 → 운영 도메인으로 교체
-    if (isProdHttps && /^http:\/\/localhost:2000\/uploads\//i.test(s)) {
-      return s.replace(/^http:\/\/localhost:2000/i, prodMediaBase)
+    if (/^http:\/\/localhost:2000\/uploads\//i.test(s)) {
+      return s.replace(/^http:\/\/localhost:2000/i, mediaBase)
     }
-    // 로컬이면 절대 URL 그대로 사용(문제 없음)
     return s
   }
 
@@ -288,8 +292,6 @@ const getImageUrl = (path) => {
   const p = s.startsWith('/') ? s : `/${s}`
   return `${mediaBase}${p}`
 }
-
-
 
 // 데이터 로딩
 const loadMessages = async ()=>{
@@ -536,7 +538,6 @@ onUnmounted(() => {
   setCssVar('--homebar-pad','80px') // ⬅️ 리셋(선택)
 })
 
-
 watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
 watch(showEmoji, async ()=>{ await nextTick(); updateComposerHeight() })
 
@@ -549,9 +550,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 /* 상단 여백 강제 제거: 헤더를 최상단으로 붙임 */
 :deep(ion-header){ padding-top:0 !important; --ion-safe-area-top:0px; }
 :deep(ion-toolbar){ --padding-top:0 !important; --min-height:44px; }
-
-
-
 
 /* ion-content 내부 여백 제거 & 키보드 리사이즈 반영 */
 .chat-content {
@@ -696,7 +694,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   padding:8px var(--gap-md);              /* ⬅️ 내부 여백 소폭 ↑ */
   background:var(--page-bg); box-sizing:border-box;
 }
-
 
 .chat-input ion-button.icon-btn{ --padding-start:4px; --padding-end:4px; width:34px; min-width:34px; font-size:16px; --border-color:var(--gold-500); --background:transparent; --background-hover:#1a1a1a; }
 .chat-input ion-button[fill="outline"]{ --border-color:var(--gold-500); --color:#fff; --background:transparent; --background-hover:#1a1a1a; --border-radius:9px; min-height:26px; font-size:13px; border:1px solid var(--gold-500); }
