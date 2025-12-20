@@ -3,10 +3,10 @@
 // - GET /complete?identityVerificationId=...
 
 const express = require('express');
-const axios = require('axios');
 const router = express.Router();
 
 const { PassResult } = require('@/models');
+const { getIdentityVerification } = require('@/lib/pass/portoneClient');
 
 function json(res, status, body) {
   res.set({
@@ -39,36 +39,50 @@ function maskRaw(raw) {
   return raw;
 }
 
+function safeOneLine(v) {
+  try {
+    if (v == null) return '';
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    return s.replace(/\s+/g, ' ').slice(0, 300);
+  } catch {
+    return '';
+  }
+}
+
 /**
- * PortOne V2 API 호출
- * - base: https://api.portone.io (기본)
- * - Authorization: PortOne {V2_API_SECRET}
+ * PortOne 조회 retry
+ * - 404: 생성 직후 조회 타이밍/PG 지연으로 간헐 발생 가능
+ * - 429, 5xx: 일시 오류
  */
-async function fetchIdentityVerification(identityVerificationId) {
-  const secret = process.env.PORTONE_V2_API_SECRET || '';
-  if (!secret) {
-    const err = new Error('PORTONE_V2_API_SECRET is missing');
-    err.code = 'ENV_MISSING';
-    throw err;
+async function fetchIdentityVerificationWithRetry(identityVerificationId) {
+  const maxTries = Number(process.env.PORTONE_IV_FETCH_TRIES || 6);
+  const delayMs = Number(process.env.PORTONE_IV_FETCH_DELAY_MS || 350);
+  const storeId = safeString(process.env.PORTONE_STORE_ID).trim();
+
+  let last = { status: 0, data: null };
+
+  for (let i = 0; i < maxTries; i++) {
+    const r = await getIdentityVerification(identityVerificationId, storeId ? { storeId } : undefined);
+    last = { status: r.status, data: r.data };
+
+    // 성공
+    if (r.status >= 200 && r.status < 300) return last;
+
+    const retryable =
+      (r.status === 404) ||
+      (r.status === 429) ||
+      (r.status >= 500 && r.status <= 599);
+
+    const isLast = i === maxTries - 1;
+    if (!retryable || isLast) return last;
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  const base = (process.env.PORTONE_API_BASE || 'https://api.portone.io').replace(/\/+$/, '');
-  const url = `${base}/v2/identity-verifications/${encodeURIComponent(identityVerificationId)}`;
-
-  const r = await axios.get(url, {
-    headers: {
-      Authorization: `PortOne ${secret}`,
-    },
-    timeout: 10000,
-    validateStatus: () => true, // axios가 4xx/5xx에서도 throw 안 하게
-  });
-
-  return { status: r.status, data: r.data };
+  return last;
 }
 
 function pickBirthYear(iv) {
-  // ⚠️ Node에서 ?? 와 || 를 섞어 쓰면 괄호 없을 때 SyntaxError가 날 수 있어서
-  //     연도 추출은 if/return 방식으로 안전하게 처리합니다.
   const candidates = [
     safeGet(iv, 'birthyear', null),
     safeGet(iv, 'birthYear', null),
@@ -82,13 +96,11 @@ function pickBirthYear(iv) {
   for (const c of candidates) {
     if (c === undefined || c === null) continue;
 
-    // 숫자면 그대로
     if (typeof c === 'number') {
       if (Number.isFinite(c) && c > 1900) return c;
       continue;
     }
 
-    // 문자열이면 앞 4자리로 연도 시도
     const s = safeString(c).trim();
     if (!s) continue;
 
@@ -101,20 +113,30 @@ function pickBirthYear(iv) {
 
 router.get('/complete', async (req, res) => {
   try {
-    const identityVerificationId = safeString(req.query.identityVerificationId || '');
+    const identityVerificationId = safeString(req.query.identityVerificationId || '').trim();
     if (!identityVerificationId) {
       return json(res, 400, { ok: false, code: 'NO_IDENTITY_VERIFICATION_ID' });
     }
 
-    // 1) PortOne V2 API로 조회
-    const { status, data } = await fetchIdentityVerification(identityVerificationId);
+    // ✅ 한 줄 로그(요청)
+    console.log(
+      `[PASS][portone][complete] id=${identityVerificationId} ua=${safeString(req.headers['user-agent']).slice(0, 80)}`
+    );
+
+    // 1) PortOne V2 API로 조회 (portoneClient로 통일 + retry)
+    const { status, data } = await fetchIdentityVerificationWithRetry(identityVerificationId);
+
+    // ✅ 한 줄 로그(PortOne 응답)
+    console.log(
+      `[PASS][portone][complete] id=${identityVerificationId} portoneStatus=${status} body=${safeOneLine(data)}`
+    );
 
     if (status === 401 || status === 403) {
-      // 인증키 문제(대부분)
       return json(res, 500, {
         ok: false,
         code: 'PORTONE_UNAUTHORIZED',
         message: `PortOne 인증 실패(HTTP ${status}) - V2 API Secret 확인`,
+        httpStatus: status,
         detail: data,
       });
     }
@@ -124,6 +146,7 @@ router.get('/complete', async (req, res) => {
         ok: false,
         code: 'PORTONE_API_ERROR',
         message: `PortOne API error: HTTP ${status}`,
+        httpStatus: status,
         detail: data,
       });
     }
@@ -133,7 +156,6 @@ router.get('/complete', async (req, res) => {
     const ivStatus = safeString(iv?.status || data?.status || '');
 
     // 3) 성공 판정(상태 문자열 다양성 대비)
-    // - PortOne 문서 상 VERIFIED 인 경우가 많지만, 확장 대비
     const isVerified = /verified|success|completed|succeeded/i.test(ivStatus);
 
     const txId = identityVerificationId;
@@ -171,7 +193,6 @@ router.get('/complete', async (req, res) => {
           safeGet(iv, 'verifiedCustomer.carrier', '')
       ),
 
-      // 들어오면 저장, 없으면 빈 문자열
       ciHash: safeString(iv?.ciHash || iv?.ci || ''),
       diHash: safeString(iv?.diHash || iv?.di || ''),
 
@@ -194,8 +215,7 @@ router.get('/complete', async (req, res) => {
       { upsert: true }
     );
 
-    // ✅ 프론트 finalizeByIdentityVerificationId가 ok=true일 때만 proceed 하므로,
-    //    성공일 때만 ok:true를 반환합니다.
+    // ✅ 성공일 때만 ok:true
     if (!isVerified) {
       return json(res, 200, {
         ok: false,

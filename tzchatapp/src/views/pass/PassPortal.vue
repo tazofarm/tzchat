@@ -108,8 +108,8 @@ const router = useRouter();
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`;
 
-const STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID || '';
-const CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY || '';
+const STORE_ID = (import.meta.env.VITE_PORTONE_STORE_ID || '').trim();
+const CHANNEL_KEY = (import.meta.env.VITE_PORTONE_CHANNEL_KEY || '').trim();
 
 const busy = ref(false);
 const lastFailCode = ref('');
@@ -117,6 +117,15 @@ const lastFailDetail = ref(null);
 
 const txIdRef = ref(''); // identityVerificationId를 txId처럼 사용
 const popupWin = ref(null);
+
+// polling
+let pollingAbort = false;
+let pollingPromise = null;
+let pollingResolve = null;
+let pollingReject = null;
+
+const POLL_INTERVAL_MS = 900;
+const POLL_TIMEOUT_MS = 90_000; // 90초 (PASS 완료 + PG 반영 지연까지 감안)
 
 // PassResult 디버그
 const passResult = ref(null);
@@ -157,15 +166,21 @@ const isNative = Capacitor.isNativePlatform();
 
 // PortOne SDK는 index.html CDN 로드 (window.PortOne)
 function getPortOne() {
-  // eslint-disable-next-line no-undef
   return window?.PortOne;
+}
+
+function makeIdentityVerificationId() {
+  // ✅ 콘솔에서 앱 건을 쉽게 구분하도록 prefix 고정
+  const ts = Date.now();
+  const rnd = Math.random().toString(16).slice(2);
+  return `app_iv_${ts}_${rnd}`;
 }
 
 /* ──────────────── 네이티브 복귀: 딥링크 수신 ──────────────── */
 let appUrlOpenSub = null;
 let browserFinishedSub = null;
 
-function handleAppUrlOpen(data) {
+async function handleAppUrlOpen(data) {
   try {
     const rawUrl = String(data?.url || '');
     const url = new URL(rawUrl);
@@ -173,24 +188,23 @@ function handleAppUrlOpen(data) {
     const ivId = url.searchParams.get('identityVerificationId') || '';
     if (ivId) {
       txIdRef.value = ivId;
-      Browser.close().catch(() => {});
-      finalizeByIdentityVerificationId(ivId);
+      await closeExternal();
+      await finalizeByIdentityVerificationId(ivId);
       return;
     }
 
-    // 호환: txId로 들어온 경우도 처리
     const txId = url.searchParams.get('txId') || '';
     if (txId) {
       txIdRef.value = txId;
-      Browser.close().catch(() => {});
-      proceedRouteByTx(txId);
+      await closeExternal();
+      await proceedRouteByTx(txId);
       return;
     }
 
     lastFailCode.value = 'NO_ID';
     mode.value = 'fail';
     busy.value = false;
-    Browser.close().catch(() => {});
+    await closeExternal();
   } catch {}
 }
 
@@ -237,7 +251,15 @@ function popupBlockedFail() {
   busy.value = false;
 }
 
+function stopPolling() {
+  pollingAbort = true;
+  pollingPromise = null;
+  pollingResolve = null;
+  pollingReject = null;
+}
+
 async function closeExternal() {
+  stopPolling();
   if (isNative) {
     try { await Browser.close(); } catch {}
   }
@@ -247,33 +269,97 @@ async function closeExternal() {
   popupWin.value = null;
 }
 
-/* ──────────────── 포트원 결과 확정(서버 조회/저장) ──────────────── */
-async function finalizeByIdentityVerificationId(identityVerificationId) {
-  try {
-    const res = await fetch(
-      api(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(identityVerificationId)}`),
-      { credentials: 'include' }
-    );
-    const txt = await res.text();
-    let j;
-    try { j = JSON.parse(txt); } catch { throw new Error('COMPLETE_NON_JSON'); }
+/* ──────────────── complete 폴링 ──────────────── */
+function shouldKeepPolling(respJson) {
+  const code = String(respJson?.code || '');
+  const ivStatus = String(respJson?.ivStatus || respJson?.status || '');
+  const httpStatus = Number(respJson?.httpStatus || 0);
 
-    if (!res.ok || !j?.ok) {
-      lastFailCode.value = j?.code || 'COMPLETE_ERROR';
-      lastFailDetail.value = j;
-      mode.value = 'fail';
-      busy.value = false;
-      await closeExternal();
+  if (code === 'PORTONE_API_ERROR') {
+    if (httpStatus === 404 || httpStatus === 429 || (httpStatus >= 500 && httpStatus <= 599) || httpStatus === 0) return true;
+    return false;
+  }
+
+  if (code === 'NOT_VERIFIED') {
+    if (/pending|processing|requested|ready|started|init/i.test(ivStatus)) return true;
+    return false;
+  }
+
+  return false;
+}
+
+function startPollingComplete(identityVerificationId) {
+  // ✅ 이미 돌고 있으면 재사용
+  if (pollingPromise) return pollingPromise;
+
+  pollingAbort = false;
+
+  pollingPromise = new Promise((resolve, reject) => {
+    pollingResolve = resolve;
+    pollingReject = reject;
+  });
+
+  const startedAt = Date.now();
+
+  const loop = async () => {
+    if (pollingAbort) return;
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > POLL_TIMEOUT_MS) {
+      stopPolling();
+      pollingReject?.(new Error('COMPLETE_TIMEOUT'));
       return;
     }
 
-    const txId = j.txId || identityVerificationId;
+    try {
+      const res = await fetch(
+        api(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(identityVerificationId)}`),
+        { credentials: 'include' }
+      );
+      const txt = await res.text();
+      let j;
+      try { j = JSON.parse(txt); } catch { j = { ok: false, code: 'COMPLETE_NON_JSON', raw: txt }; }
+
+      if (res.ok && j?.ok) {
+        stopPolling();
+        pollingResolve?.(j);
+        return;
+      }
+
+      // 계속 폴링
+      if (shouldKeepPolling(j)) {
+        setTimeout(loop, POLL_INTERVAL_MS);
+        return;
+      }
+
+      // 명확 실패
+      stopPolling();
+      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j }));
+    } catch {
+      // 네트워크 일시 오류면 계속
+      setTimeout(loop, POLL_INTERVAL_MS);
+    }
+  };
+
+  // 즉시 1회 실행
+  void loop();
+
+  return pollingPromise;
+}
+
+/* ──────────────── 포트원 결과 확정(서버 조회/저장) ──────────────── */
+async function finalizeByIdentityVerificationId(identityVerificationId) {
+  try {
+    const j = await startPollingComplete(identityVerificationId);
+
+    const txId = j?.txId || identityVerificationId;
     txIdRef.value = txId;
 
     await proceedRouteByTx(txId);
   } catch (e) {
-    lastFailCode.value = e?.message || 'COMPLETE_ERROR';
-    lastFailDetail.value = { message: e?.message || '', stackTop: String(e?.stack || '').split('\n')[0] };
+    const payload = e?.payload || null;
+    lastFailCode.value = payload?.code || e?.message || 'COMPLETE_ERROR';
+    lastFailDetail.value = payload || { message: e?.message || '', stackTop: String(e?.stack || '').split('\n')[0] };
     mode.value = 'fail';
     busy.value = false;
     await closeExternal();
@@ -369,6 +455,7 @@ async function proceedRouteByTx(txId) {
 async function onClickPass() {
   lastFailCode.value = '';
   lastFailDetail.value = null;
+  stopPolling();
   if (busy.value) return;
 
   if (!STORE_ID || !CHANNEL_KEY) {
@@ -402,17 +489,12 @@ async function onClickPass() {
       }
     }
 
-    const identityVerificationId =
-      `iv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
+    const identityVerificationId = makeIdentityVerificationId();
     txIdRef.value = identityVerificationId;
 
-    /**
-     * ✅ 중요
-     * - 웹: location.origin 사용 가능
-     * - 앱(캡/안드): location.origin이 capacitor://localhost 같은 값이 될 수 있어 외부 인증사가 복귀 못할 수 있음
-     *   그래서 "서비스 도메인"으로 복귀 URL을 고정하는 것을 권장
-     */
+    // ✅ 복귀가 오든 말든 complete로 “반드시” 확정
+    void finalizeByIdentityVerificationId(identityVerificationId);
+
     const serviceOrigin = 'https://tzchat.tazocode.com';
     const redirectUrl =
       `${serviceOrigin}/app/pass-result?identityVerificationId=${encodeURIComponent(identityVerificationId)}`;
@@ -424,8 +506,8 @@ async function onClickPass() {
       redirectUrl,
     });
 
-    // 즉시 실패로 반환되는 케이스 방어
     if (resp?.code) {
+      stopPolling();
       lastFailCode.value = resp.code || 'PORTONE_FAIL';
       lastFailDetail.value = resp;
       mode.value = 'fail';
@@ -434,16 +516,9 @@ async function onClickPass() {
       return;
     }
 
-    // 일부 환경에서는 즉시 id가 반환될 수 있음
-    if (resp?.identityVerificationId) {
-      await finalizeByIdentityVerificationId(resp.identityVerificationId);
-      return;
-    }
-
-    // 리디렉션/외부 UI로 진행되면 여기서 끝(복귀에서 처리)
-    busy.value = false;
-    mode.value = 'idle';
+    // 리디렉션/외부 UI 진행: busy는 그대로 유지(폴링이 성공/실패로 끝날 때 해제)
   } catch (e) {
+    stopPolling();
     lastFailCode.value = e?.message || 'PORTONE_START_ERROR';
     lastFailDetail.value = { message: String(e?.message || e) };
     mode.value = 'fail';
@@ -457,12 +532,12 @@ onMounted(async () => {
   if (isNative) {
     appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen);
     browserFinishedSub = Browser.addListener('browserFinished', () => {
+      // 사용자가 닫았을 수도 있으니 UI만 idle로(폴링은 계속될 수 있음)
       busy.value = false;
       mode.value = 'idle';
     });
   }
 
-  // (웹) 복귀: /pass?identityVerificationId=... (혹시 이 라우트로도 복귀시키는 경우 대비)
   const ivId = route.query.identityVerificationId ? String(route.query.identityVerificationId) : '';
   if (ivId) {
     txIdRef.value = ivId;
@@ -472,7 +547,6 @@ onMounted(async () => {
     return;
   }
 
-  // (호환) /pass?txId=...
   const qTx = route.query.txId ? String(route.query.txId) : '';
   if (qTx) {
     txIdRef.value = qTx;

@@ -22,8 +22,6 @@ import SignupPage from '@/views/pass/SignupPage.vue'
 import TempLogin from '@/views/pass/TempLogin.vue'
 import PhoneUpdate from '@/views/pass/Phoneupdated.vue'
 
-
-
 //삭제예정
 import Page0 from '@/components/03050_pages/del/0_emergency.vue'
 import Page1 from '@/components/03050_pages/1_alluser.vue'
@@ -108,7 +106,7 @@ const AgreementPage = () => import('@/legalpage/AgreementPage.vue')
 // ✅ 멤버십 구매(남/녀 자동 분기 단일 페이지)
 import BuyPage from '@/components/05110_Membership/Buy.vue'
 // ✅ 결제 이력 페이지
-import HistoryPage from '@/components/05110_Membership/History.vue' 
+import HistoryPage from '@/components/05110_Membership/History.vue'
 
 // (문서 목록/단일)
 const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
@@ -119,19 +117,23 @@ const TermsAdmin = () => import('@/legalpage/admin/TermsAdmin.vue')
 // ✅ 탈퇴신청 전용 페이지
 const DeletionPending = () => import('@/views/DeletionPending.vue')
 
-
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
 
   // 🔐 PASS 관련(인증 없이 접근 가능)
   { path: '/pass', name: 'PassPortal', component: PassPortal, meta: { public: true } },
+
+  // ✅ [ADD] PortOne redirectUrl 복귀 전용 라우트
+  // - redirectUrl: https://tzchat.tazocode.com/app/pass-result?identityVerificationId=...
+  // - 별도 PassResult.vue 없이 PassPortal이 그대로 받아서 finalize/polling 처리
+  { path: '/app/pass-result', name: 'PassResult', component: PassPortal, meta: { public: true } },
+
   { path: '/pass/manual', name: 'PassManual', component: PassManual, meta: { public: true, layout: 'blank' } },
 
   // 🔐 회원가입/임시로그인도 공개
   { path: '/signup', name: 'Signup', component: SignupPage, meta: { public: true } },
   { path: '/templogin', name: 'TempLogin', component: TempLogin, meta: { public: true } },
-
 
   // ✅ 외부 공개 라우트(로그인 불필요)
   { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage, meta: { public: true } },
@@ -154,7 +156,6 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, requiresMaster: true },
   },
-
 
   {
     path: '/home',

@@ -6,13 +6,12 @@ VITE_APP_FLAVOR=app
 # REST API 베이스(★ /api 없음)
 VITE_API_BASE_URL=https://tzchat.tazocode.com
 
-#VITE_WS_BASE=https://tzchat.tazocode.com
 VITE_WS_BASE=wss://tzchat.tazocode.com
 
 VITE_AUTH_MODE=jwt
 
-
-VITE_PASS_MODE=provider
+# ✅ 앱은 PortOne 콘솔 내역이 목적이므로 portone 고정
+VITE_PASS_MODE=portone
 VITE_PASS_POPUP_WIDTH=460
 VITE_PASS_POPUP_HEIGHT=680
 
