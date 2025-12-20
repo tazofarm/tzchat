@@ -29,6 +29,47 @@
             </div>
           </div>
 
+          <!-- ✅ PASS 읽기전용 표시: 가입 화면에서 “PASS로 받은 정보”를 무조건 보여주기 -->
+          <div class="form-row readonly-info" v-if="txId && (passStatus !== 'none')">
+            <label>PASS 인증 정보</label>
+            <div class="ro-box">
+              <div class="ro-line">
+                <span class="k">txId</span>
+                <span class="v mono">{{ txId }}</span>
+              </div>
+
+              <div class="ro-line" v-if="passSuccess">
+                <span class="k">이름</span>
+                <span class="v">{{ passResult?.name || '—' }}</span>
+              </div>
+
+              <div class="ro-line" v-if="passSuccess">
+                <span class="k">출생년도 · 성별</span>
+                <span class="v">{{ readonlyBirthGender || '—' }}</span>
+              </div>
+
+              <div class="ro-line" v-if="passSuccess">
+                <span class="k">휴대폰</span>
+                <span class="v">{{ passResult?.phone || '—' }}</span>
+              </div>
+
+              <div class="ro-line" v-if="passSuccess">
+                <span class="k">통신사</span>
+                <span class="v">{{ passResult?.carrier || '—' }}</span>
+              </div>
+
+              <div class="ro-line" v-if="passStatus === 'pending'">
+                <span class="k">상태</span>
+                <span class="v">인증 확인 중…</span>
+              </div>
+
+              <div class="ro-line" v-if="passStatus === 'fail'">
+                <span class="k">상태</span>
+                <span class="v" style="color:#c0392b;">실패</span>
+              </div>
+            </div>
+          </div>
+
           <!-- 기본 정보 -->
           <div class="form-row">
             <label for="username">아이디</label>
@@ -53,12 +94,6 @@
             <label for="nickname">닉네임</label>
             <input id="nickname" name="nickname" type="text" v-model.trim="form.nickname"
                    placeholder="닉네임" required />
-          </div>
-
-          <!-- 출생년도/성별: PASS 결과로 자동 채움 (입력 UI 제거) -->
-          <div class="form-row readonly-info" v-if="passSuccess">
-            <label>출생년도 · 성별</label>
-            <div class="ro-box">{{ readonlyBirthGender }}</div>
           </div>
 
           <!-- 미성년자 안내 -->
@@ -95,41 +130,6 @@
           <p v-if="errorMsg" class="hint error">{{ errorMsg }}</p>
           <p v-if="successMsg" class="hint success">{{ successMsg }}</p>
 
-          <!-- ⬇️ 개발용 디버그 패널(운영 시 숨김)
-          <div class="pass-debug" v-if="txId || passStatus !== 'none'">
-            <div class="panel-head">
-              <h3>PASS 디버그(개발용)</h3>
-              <small class="muted">가입 전 확인용 · 운영 시 숨김</small>
-            </div>
-            <ul class="kv">
-              <li v-if="txId"><span class="k">txId</span><span class="v mono">{{ txId }}</span></li>
-              <li><span class="k">status</span><span class="v">{{ passStatus }}</span></li>
-              <li v-if="passError"><span class="k">error</span><span class="v">{{ passError }}</span></li>
-              <li v-if="passResult?.name"><span class="k">name(masked)</span><span class="v">{{ passResult?.name }}</span></li>
-              <li v-if="passResult?.birthyear"><span class="k">birthyear</span><span class="v">{{ passResult?.birthyear }}</span></li>
-              <li v-if="passResult?.gender"><span class="k">gender</span><span class="v">{{ passResult?.gender }}</span></li>
-              <li v-if="passResult?.phone"><span class="k">phone</span><span class="v">{{ passResult?.phone }}</span></li>
-              <li v-if="passResult?.carrier"><span class="k">carrier</span><span class="v">{{ passResult?.carrier }}</span></li>
-              <li v-if="passResult?.ciHash || passResult?.ciHashPreview">
-                <span class="k">ciHash</span>
-                <span class="v mono">{{ passResult?.ciHashPreview || preview(passResult?.ciHash) }}</span>
-              </li>
-              <li v-if="passResult?.diHash || passResult?.diHashPreview">
-                <span class="k">diHash</span>
-                <span class="v mono">{{ passResult?.diHashPreview || preview(passResult?.diHash) }}</span>
-              </li>
-              <li v-if="isMinor !== null">
-                <span class="k">adultCheck</span>
-                <span class="v">{{ isMinor === true ? 'minor (blocked)' : (isMinor === false ? 'adult' : 'unknown') }}</span>
-              </li>
-            </ul>
-            <details v-if="passResult">
-              <summary>result 전체 보기</summary>
-              <pre class="raw">{{ pretty(passResult) }}</pre>
-            </details>
-          </div>
-          -->
-
         </form>
       </div>
     </ion-content>
@@ -147,7 +147,6 @@ import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
 const router = useRouter()
 const route = useRoute()
 
-// ✅ PASS 보조 유틸: 스토리지 키 정리
 function clearPassKeys() {
   try {
     sessionStorage.removeItem('passTxId')
@@ -159,8 +158,7 @@ function clearPassKeys() {
     localStorage.removeItem('PASS_FAIL_DETAIL')
   } catch {}
 }
- 
-// ✅ 전역 헬퍼: JSON pretty 출력
+
 function pretty(obj: any) {
   try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
 }
@@ -170,13 +168,35 @@ function preview(hash?: string | null) {
   return s.length > 8 ? (s.slice(0, 8) + '…') : s
 }
 
+// ✅ gender/birthyear 정규화(PortOne/기존 PASS 혼재 대비)
+type GenderNorm = 'man' | 'woman' | ''
+function normalizeGender(v: any): GenderNorm {
+  const s = String(v ?? '').trim().toLowerCase()
+  if (!s) return ''
+  // 흔한 패턴들 흡수
+  if (s === 'm' || s === 'male' || s === 'man' || s === '남' || s === '남자') return 'man'
+  if (s === 'f' || s === 'female' || s === 'woman' || s === '여' || s === '여자') return 'woman'
+  // 공급사/라이브러리에서 올 수 있는 값들 방어
+  if (s.includes('male')) return 'man'
+  if (s.includes('female')) return 'woman'
+  return ''
+}
+function normalizeBirthyear(v: any): number | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number' && Number.isFinite(v) && v > 1900) return v
+  const s = String(v).trim()
+  if (!s) return null
+  // "1999-01-01" 같은 경우도 대비 → 앞 4자리만
+  const y = Number(s.slice(0, 4))
+  return Number.isFinite(y) && y > 1900 ? y : null
+}
+
 // ✅ PASS txId: 쿼리 'txId' 우선, 없으면 'passTxId', 없으면 세션스토리지 폴백
 function readInitialTxId(): string {
   const q1 = typeof route.query.txId === 'string' ? route.query.txId : ''
   const q2 = typeof route.query.passTxId === 'string' ? route.query.passTxId : ''
   if (q1 || q2) return q1 || q2
 
-  // 라우터가 쿼리를 잃어버린 경우를 대비해 실제 URL 파싱
   try {
     const sp = new URLSearchParams(window.location.search)
     const s1 = sp.get('txId') || ''
@@ -187,7 +207,6 @@ function readInitialTxId(): string {
   const s = sessionStorage.getItem('passTxId') || ''
   if (s) return s
 
-  // 팝업 폴백
   const l = localStorage.getItem('PASS_RESULT_TX') || ''
   return l
 }
@@ -197,18 +216,19 @@ const txId = ref(readInitialTxId())
 const loadingPass = ref(false)
 const passStatus = ref<'none'|'pending'|'success'|'fail'>(txId.value ? 'pending' : 'none')
 const passError = ref('')
+
 type PassResultT = {
   birthyear?: number|null
-  gender?: 'man'|'woman'|''
+  gender?: GenderNorm
   phone?: string
   carrier?: string
   name?: string
-  // 디버그/선택: 서버가 제공하면 표시
   ciHash?: string
   diHash?: string
   ciHashPreview?: string
   diHashPreview?: string
 } | null
+
 const passResult = ref<PassResultT>(null)
 
 // 🔁 PASS 상태 폴링 (보정)
@@ -231,6 +251,7 @@ function stopPolling() {
 }
 
 const passSuccess = computed(() => passStatus.value === 'success')
+
 const passStatusLabel = computed(() => {
   if (!txId.value) return 'PASS 미사용'
   if (passStatus.value === 'pending') return 'PASS 인증 확인 중…'
@@ -238,14 +259,19 @@ const passStatusLabel = computed(() => {
   if (passStatus.value === 'fail') return 'PASS 인증 실패'
   return 'PASS 미사용'
 })
+
 const passBrief = computed(() => {
   if (!passSuccess.value || !passResult.value) return ''
   const y = passResult.value.birthyear ? `${passResult.value.birthyear}년생` : ''
   const g = passResult.value.gender === 'man' ? '남' : (passResult.value.gender === 'woman' ? '여' : '')
   const p = passResult.value.phone ? passResult.value.phone : ''
   const c = passResult.value.carrier ? passResult.value.carrier : ''
-  return [y, g, p, c].filter(Boolean).join(' · ')
+  const n = passResult.value.name ? passResult.value.name : ''
+  // 이름은 너무 길면 앞만
+  const nameShort = n ? (n.length > 10 ? n.slice(0, 10) + '…' : n) : ''
+  return [nameShort, y, g, p, c].filter(Boolean).join(' · ')
 })
+
 const passBannerClass = computed(() => ({
   ok: passSuccess.value,
   fail: passStatus.value === 'fail',
@@ -256,6 +282,7 @@ const passDotClass = computed(() => ({
   fail: passStatus.value === 'fail',
   pending: passStatus.value === 'pending'
 }))
+
 const readonlyBirthGender = computed(() => {
   if (!passResult.value) return ''
   const y = passResult.value.birthyear ? `${passResult.value.birthyear}년생` : '출생년도 없음'
@@ -285,9 +312,9 @@ const region2Options = computed<string[]>(() => {
 })
 watch(() => form.value.region1, () => { form.value.region2 = '' })
 
-// 미성년자 판정 (매년 "올해" 기준)
+// 미성년자 판정
 const CURRENT_YEAR = new Date().getFullYear()
-const ADULT_AGE = 19 // 만 19세 미만 가입 불가
+const ADULT_AGE = 19
 const isMinor = computed<boolean|null>(() => {
   const y = passResult.value?.birthyear
   if (!y || typeof y !== 'number') return null
@@ -304,7 +331,7 @@ const isValid = computed(
   () =>
     !!txId.value &&
     passSuccess.value &&
-    isMinor.value !== true &&        // ⬅️ 미성년자면 비활성화
+    isMinor.value !== true &&
     !!form.value.username &&
     !!form.value.password &&
     !!form.value.password2 &&
@@ -316,7 +343,9 @@ const isValid = computed(
 
 // 로그인 후 이동 목적지
 function resolveReturn() {
-  return (typeof route.query.redirect === 'string' && route.query.redirect) ? (route.query.redirect as string) : '/home/6page'
+  return (typeof route.query.redirect === 'string' && route.query.redirect)
+    ? (route.query.redirect as string)
+    : '/home/6page'
 }
 function redirectAfterLogin() {
   clearPassKeys()
@@ -331,13 +360,14 @@ async function fetchPassStatus() {
     stopPolling()
     return
   }
+
   loadingPass.value = true
   passError.value = ''
-  passStatus.value = 'pending'
+
   try {
     const res = await api.get(`/api/auth/pass/status`, {
       params: { txId: txId.value },
-      withCredentials: true, // ✅ 쿠키(세션/보안쿠키) 동반
+      withCredentials: true,
     })
 
     const j = res.data
@@ -345,37 +375,53 @@ async function fetchPassStatus() {
 
     if (j.status === 'success') {
       passStatus.value = 'success'
-      // 서버가 제공하는 필드는 최대한 반영(미제공이면 undefined 처리)
+
+      // ✅ 어떤 공급사든 화면에 안정적으로 표시되도록 정규화
+      const by = normalizeBirthyear(j?.result?.birthyear ?? null)
+      const gd = normalizeGender(j?.result?.gender ?? '')
+
       passResult.value = {
-        birthyear: j?.result?.birthyear ?? null,
-        gender: j?.result?.gender ?? '',
-        phone: j?.result?.phone ?? '',
-        carrier: j?.result?.carrier ?? '',
-        name: j?.result?.name ?? '',
+        birthyear: by,
+        gender: gd,
+        phone: String(j?.result?.phone ?? ''),
+        carrier: String(j?.result?.carrier ?? ''),
+        name: String(j?.result?.name ?? ''),
         ciHash: j?.result?.ciHash ?? undefined,
         diHash: j?.result?.diHash ?? undefined,
         ciHashPreview: j?.result?.ciHashPreview ?? undefined,
         diHashPreview: j?.result?.diHashPreview ?? undefined,
       }
-      // 필요 시 txId 보존
+
+      // ✅ 닉네임이 비어있으면 PASS 이름으로 1회 자동 채우기(원치 않으면 삭제 가능)
+      if (!form.value.nickname && passResult.value?.name) {
+        form.value.nickname = passResult.value.name
+      }
+
       try { sessionStorage.setItem('passTxId', txId.value) } catch {}
       stopPolling()
-    } else if (j.status === 'fail') {
+      return
+    }
+
+    if (j.status === 'fail') {
       passStatus.value = 'fail'
       passResult.value = null
       passError.value = (j?.result && j.result.failCode) ? `실패코드: ${j.result.failCode}` : '인증 실패'
       stopPolling()
-    } else if (j.status === 'consumed') {
-      // ⬅️ 서버가 이미 소모된 PASS 토큰으로 응답
+      return
+    }
+
+    if (j.status === 'consumed') {
       passStatus.value = 'fail'
       passResult.value = null
       passError.value = '이미 사용된 PASS 토큰입니다. 다시 인증해 주세요.'
       clearPassKeys()
       stopPolling()
-    } else {
-      passStatus.value = 'pending'
-      passResult.value = null
+      return
     }
+
+    // pending
+    passStatus.value = 'pending'
+    passResult.value = null
   } catch (e: any) {
     passStatus.value = 'fail'
     passResult.value = null
@@ -384,9 +430,6 @@ async function fetchPassStatus() {
   } finally {
     loadingPass.value = false
   }
-}
-async function refetchPass() {
-  await fetchPassStatus()
 }
 
 // 자동: 페이지 로드시 PASS 결과 확인
@@ -410,6 +453,8 @@ onMounted(async () => {
   if (txId.value) {
     try { sessionStorage.setItem('passTxId', txId.value) } catch {}
   }
+
+  passStatus.value = txId.value ? 'pending' : 'none'
   await fetchPassStatus()
   if (passStatus.value === 'pending' && txId.value) startPolling()
 })
@@ -419,6 +464,7 @@ watch(() => route.query, () => {
   const next = readInitialTxId()
   if (next && next !== txId.value) {
     txId.value = next
+    passStatus.value = 'pending'
     fetchPassStatus().then(() => {
       if (passStatus.value === 'pending') startPolling()
     })
@@ -437,6 +483,7 @@ async function onSubmit() {
     }
     return
   }
+
   submitting.value = true
   errorMsg.value = ''
   successMsg.value = ''
@@ -447,8 +494,10 @@ async function onSubmit() {
     nickname: form.value.nickname,
     region1: form.value.region1,
     region2: form.value.region2,
-    // 서버는 passTxId로 최종 검증/반영
+
+    // ✅ 서버는 passTxId로 최종 검증/반영
     passTxId: txId.value,
+
     // 참고용 프리필(서버에서는 passTxId 기준으로만 확정 저장 권장)
     birthyear: passResult.value?.birthyear ?? null,
     gender: passResult.value?.gender ?? '',
@@ -461,7 +510,7 @@ async function onSubmit() {
     const res = await api.post('/api/signup', payload)
     successMsg.value = '회원가입이 완료되었습니다.'
 
-    // ✅ 회원가입 성공 직후, PASS 관련 스토리지 즉시 정리
+    // ✅ 회원가입 성공 직후, PASS 관련 스토리지 정리
     clearPassKeys()
 
     // 2) 자동 로그인
@@ -488,7 +537,6 @@ async function onSubmit() {
         const status = await api.get('/api/terms/agreements/status')
         const pending = status?.data?.pending || status?.data?.data?.pending || []
         if (Array.isArray(pending) && pending.length > 0) {
-          // 이동 전에도 한 번 더 정리(안전)
           clearPassKeys()
           router.replace({ name: 'AgreementPagePublic', query: { return: resolveReturn() } })
         } else {
@@ -523,10 +571,6 @@ ion-title { font-size: 16px; font-weight: 600; color: #fcfafa; }
 .form-row input::placeholder { color: #999; }
 .form-row input:focus-visible, .form-row select:focus-visible { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.22); border-radius: 10px; }
 .form-row input:-webkit-autofill, .form-row input:-webkit-autofill:hover, .form-row input:-webkit-autofill:focus { -webkit-text-fill-color: #111; transition: background-color 5000s; box-shadow: 0 0 0 1000px #fff inset; }
-.radio-group { display: flex; gap: 14px; align-items: center; padding-top: 2px; flex-wrap: wrap; }
-.radio { display: inline-flex; align-items: center; gap: 6px; }
-.radio input[type='radio'] { width: 18px; height: 14px; accent-color: #3b82f6; }
-.radio span { font-size: 14px; line-height: 1.25; color: #fcfafa; }
 .region-row { display: flex; gap: 8px; flex-wrap: nowrap; align-items: end; margin-top: 2px; }
 .region-row .col { flex: 1 1 0; min-width: 0; }
 .button-col { display: grid; row-gap: 4px; margin-top: 0px; }
@@ -535,7 +579,6 @@ ion-title { font-size: 16px; font-weight: 600; color: #fcfafa; }
 .btn.primary { background: #3b82f6; color: #fff; border-color: #2e6bd1; }
 .btn.primary:disabled { opacity: .6; cursor: not-allowed; }
 .btn.ghost { background: #fff; color: #111; border-color: #dcdcdc; }
-.btn.ghost.sm { height: 32px; font-size: 11px; padding: 0 10px; }
 
 .hint { margin: 2px 2px 0; font-size: 10px; line-height: 1.4; }
 .hint.error { color: #c0392b; }
@@ -566,27 +609,35 @@ ion-title { font-size: 16px; font-weight: 600; color: #fcfafa; }
 .pass-title { font-weight: 700; font-size: 12px; color: #111; }
 .pass-brief { font-size: 10px; color: #555; margin-top: 2px; }
 .pass-brief.error { color: #c0392b; }
-.pass-actions { display: flex; gap: 6px; }
 
-/* 읽기전용 표시 박스 */
+/* ✅ 읽기전용 표시 박스 */
 .readonly-info .ro-box {
   font-size: 12px;
   background: #f8f8f8;
   border: 1px solid #e6e6e6;
   color: #333;
-  padding: 6px 10px;
+  padding: 8px 10px;
   border-radius: 8px;
+  display: grid;
+  row-gap: 6px;
 }
-
-/* ⬇️ PASS 디버그 패널 (하단) */
-.pass-debug { margin-top: 8px; padding: 10px; border-radius: 10px; background: rgba(0,128,255,.06); border: 1px solid rgba(0,128,255,.25); }
-.pass-debug .panel-head { display:flex; align-items: baseline; gap:8px; margin-bottom:4px; }
-.pass-debug h3 { margin:0; font-size:12px; color:#0b6aa4; }
-.pass-debug .muted { opacity:.7; font-size:10px; }
-.kv { list-style: none; padding: 0; margin: 6px 0; }
-.kv li { display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 2px 0; }
-.kv .k { font-size: 11px; color:#0b6aa4; }
-.kv .v { font-size: 11px; color:#0e2233; word-break: break-all; }
-.kv .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-.raw { margin: 8px 0 0; max-height: 220px; overflow: auto; background: rgba(255,255,255,.6); color:#0e2233; padding: 8px; border-radius: 8px; border:1px solid rgba(0,0,0,.08); }
+.ro-line{
+  display:flex;
+  gap:10px;
+  align-items:baseline;
+}
+.ro-line .k{
+  width: 92px;
+  opacity:.75;
+  font-weight:700;
+  font-size:11px;
+}
+.ro-line .v{
+  flex:1;
+  font-size:11px;
+  word-break:break-all;
+}
+.ro-line .mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
 </style>
