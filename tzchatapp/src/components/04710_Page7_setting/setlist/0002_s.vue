@@ -6,14 +6,17 @@
     <!-- ✅ 상단 헤더 -->
     <ion-header>
       <ion-toolbar>
-        <!-- 뒤로가기 버튼 -->
-        <ion-buttons slot="start">
-          <ion-button class="back-btn" @click="goBack" aria-label="뒤로가기">←</ion-button>
-        </ion-buttons>
+
 
         <!-- 가운데 제목 -->
         <ion-title>간단 페이지</ion-title>
+        <!-- 뒤로가기 버튼 -->
+        <ion-buttons slot="end">
+          <ion-button @click="goBack">뒤로가기</ion-button>
+        </ion-buttons>
+        
       </ion-toolbar>
+      
     </ion-header>
 
     <!-- ✅ 본문 -->

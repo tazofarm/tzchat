@@ -33,13 +33,13 @@
             </p>
 
             <div class="status">
-              <!-- ✅ busy는 "클릭/요청 처리중" -->
-              <div v-if="busy" class="row">
+              <!-- ✅ busy는 "commit(변경 반영)" 에만 사용 -->
+              <div v-if="busy && phase === 'commit'" class="row">
                 <ion-spinner name="dots" class="mr-2" />
-                <span>{{ phase === 'commit' ? '변경 반영 중…' : '요청 처리중…' }}</span>
+                <span>변경 반영 중…</span>
               </div>
 
-              <!-- ✅ verifying는 "PASS 인증 결과(complete) 대기중" -->
+              <!-- ✅ PASS 인증 결과 확인은 verifying로만 표시 -->
               <div v-else-if="verifying" class="row pending">
                 <ion-spinner name="dots" class="mr-2" />
                 <span>PASS 인증 결과 확인 중…</span>
@@ -64,7 +64,6 @@
                 :disabled="busy || verifying || certified"
                 @click="onStartPass"
               >
-                <ion-spinner v-if="busy && phase === 'start'" name="dots" class="mr-2" />
                 <span>{{ startBtnText }}</span>
               </ion-button>
 
@@ -143,7 +142,7 @@ function makeIdentityVerificationId() {
   return `app_iv_${ts}_${rnd}`
 }
 
-// ====== AUTH HEADER(기존 유지) ======
+// ====== AUTH HEADER ======
 function buildAuthHeaders() {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   try {
@@ -173,8 +172,7 @@ function clearPassStorage() {
 // ====== UI STATE ======
 const me = ref<any>(null)
 
-// ✅ busy: 버튼 클릭/요청 처리중(짧은 구간)
-// ✅ verifying: PASS 인증 결과(complete) 기다리는 중(길 수 있음)
+// ✅ busy는 commit에만 사용
 const busy = ref(false)
 const verifying = ref(false)
 
@@ -184,11 +182,9 @@ const success = ref(false)
 const updatedFields = ref<string[]>([])
 const phase = ref<'idle' | 'start' | 'commit'>('idle')
 
-// 인증/트랜잭션 상태
 const certified = ref(false)
 const txId = ref('')
 
-// 상세 로그(디버그)
 const lastFailCode = ref('')
 const lastFailDetail = ref<any>(null)
 const detail = computed(() => lastFailDetail.value || {})
@@ -214,13 +210,13 @@ const secondaryBtnText = computed(() => (errorCode.value === 'CI_MISMATCH' ? '�
 function resetPassState() {
   txId.value = ''
   certified.value = false
+  verifying.value = false
   error.value = ''
   errorCode.value = ''
   success.value = false
   updatedFields.value = []
   lastFailCode.value = ''
   lastFailDetail.value = null
-  verifying.value = false
 }
 
 function onSecondaryAction() {
@@ -259,14 +255,10 @@ const POLL_TIMEOUT_MS = 90_000
 
 let pollingAbort = false
 let pollingPromise: Promise<any> | null = null
-let pollingResolve: ((v: any) => void) | null = null
-let pollingReject: ((e: any) => void) | null = null
 
 function stopPolling() {
   pollingAbort = true
   pollingPromise = null
-  pollingResolve = null
-  pollingReject = null
   verifying.value = false
 }
 
@@ -279,75 +271,72 @@ function shouldKeepPolling(respJson: any) {
     if (httpStatus === 404 || httpStatus === 429 || (httpStatus >= 500 && httpStatus <= 599) || httpStatus === 0) return true
     return false
   }
-
   if (code === 'NOT_VERIFIED') {
     if (/pending|processing|requested|ready|started|init/i.test(ivStatus)) return true
     return false
   }
-
   return false
 }
 
-function startPollingComplete(identityVerificationId: string) {
+async function startPollingComplete(identityVerificationId: string) {
   if (pollingPromise) return pollingPromise
 
   pollingAbort = false
-  pollingPromise = new Promise((resolve, reject) => {
-    pollingResolve = resolve
-    pollingReject = reject
+  verifying.value = true
+
+  pollingPromise = new Promise(async (resolve, reject) => {
+    const startedAt = Date.now()
+
+    const loop = async () => {
+      if (pollingAbort) return
+
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        stopPolling()
+        reject(new Error('COMPLETE_TIMEOUT'))
+        return
+      }
+
+      try {
+        const res = await fetchWithTimeout(
+          apiUrl(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(identityVerificationId)}`),
+          { credentials: 'include' },
+          15000
+        )
+
+        const txt = await res.text()
+        let j: any
+        try { j = JSON.parse(txt) } catch { j = { ok: false, code: 'COMPLETE_NON_JSON', raw: txt } }
+
+        lastFailDetail.value = {
+          stage: 'complete',
+          code: j?.code || null,
+          ivStatus: j?.ivStatus || j?.status || null,
+          httpStatus: res.status,
+          message: j?.message || null,
+          raw: j,
+        }
+
+        if (res.ok && j?.ok) {
+          stopPolling()
+          resolve(j)
+          return
+        }
+
+        if (shouldKeepPolling(j)) {
+          setTimeout(loop, POLL_INTERVAL_MS)
+          return
+        }
+
+        stopPolling()
+        reject(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
+      } catch {
+        setTimeout(loop, POLL_INTERVAL_MS)
+      }
+    }
+
+    void loop()
   })
 
-  const startedAt = Date.now()
-
-  const loop = async () => {
-    if (pollingAbort) return
-
-    const elapsed = Date.now() - startedAt
-    if (elapsed > POLL_TIMEOUT_MS) {
-      stopPolling()
-      pollingReject?.(new Error('COMPLETE_TIMEOUT'))
-      return
-    }
-
-    try {
-      const res = await fetchWithTimeout(
-        apiUrl(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(identityVerificationId)}`),
-        { credentials: 'include' },
-        15000
-      )
-
-      const txt = await res.text()
-      let j: any
-      try { j = JSON.parse(txt) } catch { j = { ok: false, code: 'COMPLETE_NON_JSON', raw: txt } }
-
-      lastFailDetail.value = {
-        stage: 'complete',
-        code: j?.code || null,
-        ivStatus: j?.ivStatus || j?.status || null,
-        httpStatus: res.status,
-        message: j?.message || null,
-        raw: j,
-      }
-
-      if (res.ok && j?.ok) {
-        stopPolling()
-        pollingResolve?.(j)
-        return
-      }
-
-      if (shouldKeepPolling(j)) {
-        setTimeout(loop, POLL_INTERVAL_MS)
-        return
-      }
-
-      stopPolling()
-      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
-    } catch {
-      setTimeout(loop, POLL_INTERVAL_MS)
-    }
-  }
-
-  void loop()
   return pollingPromise
 }
 
@@ -359,8 +348,6 @@ async function finalizeByIdentityVerificationId(identityVerificationId: string) 
     txId.value = String(nextTxId)
     certified.value = true
     verifying.value = false
-    busy.value = false
-    phase.value = 'idle'
 
     lastFailDetail.value = {
       stage: 'complete:ok',
@@ -380,12 +367,10 @@ async function finalizeByIdentityVerificationId(identityVerificationId: string) 
     error.value = '인증 확인 실패'
     errorCode.value = lastFailCode.value || 'COMPLETE_ERROR'
     verifying.value = false
-    busy.value = false
-    phase.value = 'idle'
   }
 }
 
-// ====== message / deep link handlers ======
+// ====== message / deep link ======
 function handleWindowMessage(ev: MessageEvent) {
   try {
     const data: any = (ev as any)?.data || {}
@@ -407,7 +392,6 @@ function handleWindowMessage(ev: MessageEvent) {
       txId.value = tx
       certified.value = true
       verifying.value = false
-      return
     }
   } catch {}
 }
@@ -438,7 +422,41 @@ async function handleAppUrlOpen(data: any) {
   } catch {}
 }
 
-// ====== start pass ======
+// ✅ 핵심: PortOne 호출을 await 하지 않음(여기서 UI stuck 방지)
+function firePortOne(identityVerificationId: string, redirectUrl: string) {
+  try {
+    const PortOne = getPortOne()
+    const p = PortOne?.requestIdentityVerification?.({
+      storeId: STORE_ID,
+      channelKey: CHANNEL_KEY,
+      identityVerificationId,
+      redirectUrl,
+    })
+
+    // 혹시 resp가 즉시 에러로 오는 케이스만 처리
+    Promise.resolve(p).then((resp: any) => {
+      if (resp?.code) {
+        stopPolling()
+        verifying.value = false
+        error.value = resp?.message || '인증 시작 실패'
+        errorCode.value = String(resp.code || 'PORTONE_FAIL')
+        lastFailDetail.value = { stage: 'start:resp', raw: resp }
+      }
+    }).catch((e: any) => {
+      stopPolling()
+      verifying.value = false
+      error.value = e?.message || '인증 시작 실패'
+      errorCode.value = 'PORTONE_START_ERROR'
+      lastFailDetail.value = { stage: 'start:exception', message: String(e?.message || e) }
+    })
+  } catch (e: any) {
+    stopPolling()
+    verifying.value = false
+    error.value = e?.message || '인증 시작 실패'
+    errorCode.value = 'PORTONE_START_ERROR'
+  }
+}
+
 async function onStartPass() {
   if (certified.value) return
 
@@ -458,51 +476,27 @@ async function onStartPass() {
     return
   }
 
-  busy.value = true
   phase.value = 'start'
+  error.value = ''
+  errorCode.value = ''
 
-  try {
-    const identityVerificationId = makeIdentityVerificationId()
-    txId.value = identityVerificationId
+  const identityVerificationId = makeIdentityVerificationId()
+  txId.value = identityVerificationId
 
-    const redirectUrl =
-      `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
+  const redirectUrl =
+    `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
 
-    // ✅ 이제부터는 busy가 아니라 verifying로 "대기" 표시
-    verifying.value = true
+  // ✅ UI는 verifying만 켠다(“처리중” 고착 제거)
+  verifying.value = true
 
-    // ✅ complete 폴링 시작
-    void finalizeByIdentityVerificationId(identityVerificationId)
+  // ✅ complete 폴링 시작
+  void finalizeByIdentityVerificationId(identityVerificationId)
 
-    // ✅ PortOne 시작(사용자 인증 끝날 때까지 오래 걸릴 수 있음)
-    const resp = await PortOne.requestIdentityVerification({
-      storeId: STORE_ID,
-      channelKey: CHANNEL_KEY,
-      identityVerificationId,
-      redirectUrl,
-    })
+  // ✅ PortOne 시작(await 금지)
+  firePortOne(identityVerificationId, redirectUrl)
 
-    // PortOne이 반환을 늦게 해도 stuck 안 되도록 여기서 busy는 내려줌
-    busy.value = false
-    phase.value = 'idle'
-
-    if (resp?.code) {
-      stopPolling()
-      verifying.value = false
-      error.value = resp?.message || '인증 시작 실패'
-      errorCode.value = String(resp.code || 'PORTONE_FAIL')
-      lastFailDetail.value = { stage: 'start:resp', raw: resp }
-      return
-    }
-  } catch (e: any) {
-    stopPolling()
-    verifying.value = false
-    busy.value = false
-    phase.value = 'idle'
-    error.value = e?.message || '인증 시작 실패'
-    errorCode.value = 'PORTONE_START_ERROR'
-    lastFailDetail.value = { stage: 'start:exception', message: String(e?.message || e) }
-  }
+  // ✅ start 단계에서는 busy를 쓰지 않는다
+  phase.value = 'idle'
 }
 
 // ====== commit ======
@@ -611,9 +605,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('message', handleWindowMessage)
 })
 
-const goBack = () => {
-  router.back()
-}
+const goBack = () => router.back()
 </script>
 
 <style scoped>

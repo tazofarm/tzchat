@@ -6,7 +6,7 @@
       <ion-icon :icon="icons.happyOutline" class="icon-left" aria-hidden="true" />
       <span class="welcome-text">{{ nickname }}님 반갑습니다.</span>
     </div>
-
+    <ion-button @click="goBack">뒤로가기</ion-button>
     <div class="top-center">
       <ion-button
         v-if="meRole === 'master'"
@@ -130,6 +130,10 @@ async function openSupportMail() {
   ].join('\n')
   const href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   window.location.href = href
+}
+
+const goBack = () => {
+  router.back()
 }
 </script>
 
