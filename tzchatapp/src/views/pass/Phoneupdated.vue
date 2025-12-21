@@ -4,6 +4,9 @@
     <ion-header>
       <ion-toolbar>
         <ion-title>전화번호 변경(PASS)</ion-title>
+                <ion-buttons slot="start">
+          <ion-button class="back-btn" @click="goBack" aria-label="뒤로가기">←</ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
@@ -21,18 +24,11 @@
                 <span class="label">현재 번호</span>
                 <span class="value">{{ maskedPhone || '미등록' }}</span>
               </div>
-
-              <!--
-              <div class="row">
-                <span class="label">통신사</span>
-                <span class="value">{{ me?.carrier || '—' }}</span>
-              </div>
-              -->
             </div>
 
             <p class="desc">
               로그인된 계정에서 PASS 인증을 다시 수행해 <b>최신 전화번호/통신사</b>를 반영합니다.<br />
-              인증은 <b>팝업</b>으로 열리고, 완료 시 팝업이 자동으로 닫힙니다.<br />
+              인증은 외부(브라우저/앱)에서 진행되며, 완료되면 자동으로 결과를 처리합니다.<br />
               <small>※ 보안상, PASS 결과의 CI가 현재 계정과 다르면 반영하지 않습니다.</small>
             </p>
 
@@ -56,35 +52,41 @@
             </div>
 
             <div class="actions">
-              <ion-button
-                expand="block"
-                :disabled="busy || certified"
-                @click="onStartPass"
-              >
-                <ion-spinner v-if="busy && phase==='start'" name="dots" class="mr-2" />
+              <ion-button expand="block" :disabled="busy || certified" @click="onStartPass">
+                <ion-spinner v-if="busy && phase === 'start'" name="dots" class="mr-2" />
                 <span>{{ startBtnText }}</span>
               </ion-button>
 
               <ion-button
                 expand="block"
                 fill="outline"
-                :disabled="busy || (!txId && errorCode!=='CI_MISMATCH')"
+                :disabled="busy || (!txId && errorCode !== 'CI_MISMATCH')"
                 @click="onSecondaryAction"
               >
-                <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
+                <ion-spinner v-if="busy && phase === 'commit'" name="dots" class="mr-2" />
                 <span>{{ secondaryBtnText }}</span>
               </ion-button>
 
-              <!--
-              <ion-button
-                expand="block"
-                fill="clear"
-                :disabled="busy"
-                @click="reloadMe"
-              >
-                내 정보 새로고침
-              </ion-button>
-              -->
+              <div v-if="lastFailCode" class="fail-code">
+                코드: <code>{{ lastFailCode }}</code>
+              </div>
+
+              <div v-if="hasDetail" class="fail-detail">
+                <h3>실패/상태 상세</h3>
+                <ul class="kv">
+                  <li v-if="detail.stage"><span class="k">stage</span><span class="v">{{ detail.stage }}</span></li>
+                  <li v-if="detail.code"><span class="k">code</span><span class="v">{{ detail.code }}</span></li>
+                  <li v-if="detail.message"><span class="k">message</span><span class="v">{{ detail.message }}</span></li>
+                  <li v-if="detail.ivStatus"><span class="k">ivStatus</span><span class="v">{{ detail.ivStatus }}</span></li>
+                  <li v-if="detail.httpStatus"><span class="k">httpStatus</span><span class="v">{{ detail.httpStatus }}</span></li>
+                  <li v-if="detail.stackTop"><span class="k">stackTop</span><span class="v">{{ detail.stackTop }}</span></li>
+                </ul>
+
+                <details v-if="detail.raw">
+                  <summary>원시 응답 보기</summary>
+                  <pre class="raw">{{ pretty(detail.raw) }}</pre>
+                </details>
+              </div>
             </div>
           </ion-card-content>
         </ion-card>
@@ -93,31 +95,49 @@
   </ion-page>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonButton, IonSpinner, IonCard, IonCardHeader, IonCardTitle, IonCardSubtitle, IonCardContent
 } from '@ionic/vue'
 import { Capacitor } from '@capacitor/core'
+import { App } from '@capacitor/app'
+import { Browser } from '@capacitor/browser'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import api from '@/lib/api'
-import { startPass } from '@/lib/pass'
 
 const router = useRouter()
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
-const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
+const route = useRoute()
+
+// ====== ENV ======
+const API_BASE = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const SERVICE_ORIGIN = String(import.meta.env.VITE_APP_WEB_ORIGIN || 'https://tzchat.tazocode.com').replace(/\/+$/, '')
+const STORE_ID = String(import.meta.env.VITE_PORTONE_STORE_ID || '').trim()
+const CHANNEL_KEY = String(import.meta.env.VITE_PORTONE_CHANNEL_KEY || '').trim()
 
 const isNative = Capacitor.isNativePlatform()
-const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
+const apiUrl = (p: string) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 
-function isPortOneTxId(id = '') {
-  return /^app_iv_/i.test(String(id || ''))
+function getPortOne(): any { return (window as any)?.PortOne }
+
+function pretty(obj: any) {
+  try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
 }
 
-// 🔐 Authorization 헤더
+function makeIdentityVerificationId() {
+  const ts = Date.now()
+  const rnd = Math.random().toString(16).slice(2)
+  return `app_iv_${ts}_${rnd}`
+}
+
+function isPortOneTxId(id: any): boolean {
+  return typeof id === 'string' && /^app_iv_/i.test(id)
+}
+
+// ====== AUTH HEADER(기존 유지) ======
 function buildAuthHeaders() {
-  const headers = { 'Content-Type': 'application/json' }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   try {
     const token =
       localStorage.getItem('TZCHAT_AUTH_TOKEN') ||
@@ -128,7 +148,6 @@ function buildAuthHeaders() {
   return headers
 }
 
-// ✅ PASS 관련 로컬 저장소 키 정리
 function clearPassStorage() {
   try {
     localStorage.removeItem('PASS_RESULT_TX')
@@ -137,143 +156,32 @@ function clearPassStorage() {
     localStorage.removeItem('PASS_TX')
     localStorage.removeItem('PASS_STATE')
   } catch {}
-}
-
-// ─────────────────────────────
-// 팝업 유틸 (PassPortal과 동일 정책)
-// - 현재 탭 이동 금지
-// - noopener/noreferrer 금지(opener 필요)
-// - 동일 이름 재사용해 중복 생성 방지
-// ─────────────────────────────
-const popupWin = ref(null)
-
-function openPopup(features = '') {
-  const baseFeatures = [
-    'popup=yes',
-    'width=480',
-    'height=720',
-    'menubar=no',
-    'toolbar=no',
-    'location=no',
-    'status=no',
-    'resizable=yes',
-    'scrollbars=yes',
-  ].join(',')
-  const final = features ? `${baseFeatures},${features}` : baseFeatures
-
-  const w = window.open('', 'passPopup', final)
-  if (!w) return null
-
-  // 로딩 안내 화면 즉시 렌더
   try {
-    w.document.open('text/html', 'replace')
-    w.document.write(`
-      <!doctype html>
-      <meta charset="utf-8">
-      <title>PASS 인증 준비중…</title>
-      <style>
-        html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Pretendard,sans-serif}
-        .wrap{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
-        .small{opacity:.7;font-size:12px}
-      </style>
-      <div class="wrap">
-        <div>PASS 인증 창을 여는 중…</div>
-        <div class="small">인증이 끝나면 이 창은 자동으로 닫힙니다.</div>
-      </div>
-    `)
-    w.document.close()
-    try { w.focus() } catch {}
+    sessionStorage.removeItem('passTxId')
+    sessionStorage.removeItem('pass.txId')
   } catch {}
-
-  popupWin.value = w
-  return w
 }
 
-function popupBlockedFail() {
-  error.value = '팝업이 차단되었습니다. 브라우저에서 팝업을 허용하고 다시 시도하세요.'
-  errorCode.value = 'POPUP_BLOCKED'
-  busy.value = false
-  phase.value = 'idle'
-}
-
-// 외부 URL을 팝업에서만 열기(현재 탭 이동 금지)
-async function openExternal(url) {
-  if (isNative) {
-    try {
-      const { Browser } = await import('@capacitor/browser')
-      await Browser.open({ url })
-      return
-    } catch {
-      error.value = '네이티브 브라우저를 열 수 없습니다.'
-      errorCode.value = 'NATIVE_BROWSER_OPEN_FAIL'
-      busy.value = false
-      phase.value = 'idle'
-      return
-    }
-  }
-  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup()
-  if (!w) { popupBlockedFail(); return }
-  try { w.location.replace(url) } catch { /* 현재 탭 이동 금지 */ }
-}
-
-// formHtml을 팝업 문서로만 주입
-async function openExternalFormHtml(html) {
-  if (isNative) {
-    error.value = '네이티브에선 URL 방식이 필요합니다.'
-    errorCode.value = 'NATIVE_NEEDS_URL'
-    busy.value = false
-    phase.value = 'idle'
-    return
-  }
-  const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup()
-  if (!w) { popupBlockedFail(); return }
-
-  try {
-    w.document.open('text/html', 'replace')
-    w.document.write(html) // auto-submit form 가정
-    w.document.close()
-  } catch (e) {
-    error.value = '팝업 문서 주입에 실패했습니다.'
-    errorCode.value = 'POPUP_WRITE_FAIL'
-    busy.value = false
-    phase.value = 'idle'
-  }
-}
-
-async function closeExternal() {
-  if (isNative) {
-    try {
-      const { Browser } = await import('@capacitor/browser')
-      await Browser.close()
-    } catch {}
-  }
-  try {
-    if (popupWin.value && !popupWin.value.closed) popupWin.value.close()
-  } catch {}
-  popupWin.value = null
-}
-
-// ─────────────────────────────
-
-const me = ref(null)
+// ====== UI STATE ======
+const me = ref<any>(null)
 const busy = ref(false)
 const error = ref('')
 const errorCode = ref('')
 const success = ref(false)
-const updatedFields = ref([])
-const phase = ref('idle')
+const updatedFields = ref<string[]>([])
+const phase = ref<'idle' | 'start' | 'commit'>('idle')
 
 // 인증/트랜잭션 상태
 const certified = ref(false)
 const txId = ref('')
 
-// 상태 폴링
-const statusPoller = ref(null)
-const endpointCommit = '/api/user/pass-phone/commit'
+// 상세 로그(디버그)
+const lastFailCode = ref('')
+const lastFailDetail = ref<any>(null)
+const detail = computed(() => lastFailDetail.value || {})
+const hasDetail = computed(() => !!lastFailDetail.value)
 
-// ✅ PortOne pending 고착 방지: /status가 계속 pending이면 /portone/complete를 한번 찔러서 PassResult 생성 유도
-const portoneCompleteTriggered = ref(false)
-const pollTryCount = ref(0)
+const endpointCommit = '/api/user/pass-phone/commit'
 
 const maskedPhone = computed(() => {
   const m = me.value?.phoneMasked || ''
@@ -282,12 +190,26 @@ const maskedPhone = computed(() => {
   if (f) return f
   const p = me.value?.phone || ''
   if (!p) return ''
-  return p.replace(/(\+\d{1,3})?(\d+)(\d{4})$/, (_, c = '', mid, last) => `${c}${'*'.repeat((mid||'').length)}${last}`)
+  return p.replace(/(\+\d{1,3})?(\d+)(\d{4})$/, (_: any, c = '', mid: string, last: string) =>
+    `${c}${'*'.repeat((mid || '').length)}${last}`
+  )
 })
 
 const startBtnText = computed(() => (certified.value ? '인증완료' : '휴대전화 인증 시작'))
 const secondaryBtnText = computed(() => (errorCode.value === 'CI_MISMATCH' ? '인증 실패 · 다시 인증' : '변경 반영하기'))
 
+function resetPassState() {
+  txId.value = ''
+  certified.value = false
+  error.value = ''
+  errorCode.value = ''
+  success.value = false
+  updatedFields.value = []
+  lastFailCode.value = ''
+  lastFailDetail.value = null
+}
+
+// ====== overlay action ======
 function onSecondaryAction() {
   if (errorCode.value === 'CI_MISMATCH') {
     resetPassState()
@@ -297,136 +219,7 @@ function onSecondaryAction() {
   }
 }
 
-// ✅ 상태 폴링 (postMessage/로컬스토리지가 먼저 오면 곧바로 중단)
-function stopStatusPolling() {
-  if (statusPoller.value) {
-    clearInterval(statusPoller.value)
-    statusPoller.value = null
-  }
-}
-
-async function triggerPortoneCompleteOnce(currentTxId) {
-  if (!currentTxId || !isPortOneTxId(currentTxId)) return
-  if (portoneCompleteTriggered.value) return
-  portoneCompleteTriggered.value = true
-
-  try {
-    const url = apiUrl(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(currentTxId)}`)
-    const res = await fetch(url, { credentials: 'include' })
-    const txt = await res.text()
-    let j = null
-    try { j = JSON.parse(txt) } catch { j = null }
-
-    // complete가 ok:true면 "인증 완료"로 보고 팝업 닫기 (이후 commit에서 최종 검증/반영)
-    if (j?.ok === true) {
-      certified.value = true
-      await closeExternal()
-      stopStatusPolling()
-      return
-    }
-
-    // NOT_VERIFIED면 실패로 전환
-    if (j?.ok === false) {
-      error.value = j?.message || '인증 확인 실패'
-      errorCode.value = j?.code || 'NOT_VERIFIED'
-      await closeExternal()
-      stopStatusPolling()
-    }
-  } catch {
-    // 조용히 무시(다음 /status 폴링에서 다시 판단)
-  }
-}
-
-function startStatusPolling(currentTxId) {
-  stopStatusPolling()
-  if (!currentTxId) return
-
-  pollTryCount.value = 0
-  portoneCompleteTriggered.value = false
-
-  statusPoller.value = setInterval(async () => {
-    try {
-      pollTryCount.value += 1
-
-      const res = await fetch(apiUrl(`/api/auth/pass/status?txId=${encodeURIComponent(currentTxId)}`), {
-        credentials: 'include'
-      })
-      const txt = await res.text()
-      let j = null
-      try { j = JSON.parse(txt) } catch { return }
-      if (!j?.ok) return
-
-      if (j.status === 'success') {
-        certified.value = true
-        stopStatusPolling()
-        await closeExternal()
-        return
-      }
-
-      if (j.status === 'fail') {
-        error.value = j?.result?.failMessage || '인증 실패'
-        errorCode.value = j?.result?.failCode || 'FAIL'
-        stopStatusPolling()
-        await closeExternal()
-        return
-      }
-
-      if (j.status === 'consumed') {
-        error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
-        errorCode.value = 'CONSUMED'
-        stopStatusPolling()
-        await closeExternal()
-        return
-      }
-
-      // pending
-      // ✅ PortOne(app_iv_...)에서 PassResult 생성/저장이 늦거나 누락되면 pending 고착 → complete로 한번 보정
-      if (isPortOneTxId(currentTxId) && pollTryCount.value >= 3) {
-        await triggerPortoneCompleteOnce(currentTxId)
-      }
-    } catch {}
-  }, 1200)
-}
-
-// postMessage & storage 핸들러 (팝업 → 본창)
-function onMessage(ev) {
-  try {
-    const data = ev?.data || {}
-    if (data?.type === 'PASS_RESULT' && data?.txId) {
-      txId.value = String(data.txId)
-      certified.value = true
-      stopStatusPolling()
-      void closeExternal()
-    } else if (data?.type === 'PASS_FAIL') {
-      error.value = data?.detail?.message || String(data?.reason || 'FAIL')
-      errorCode.value = data?.reason || 'FAIL'
-      stopStatusPolling()
-      void closeExternal()
-    }
-  } catch {}
-}
-function onStorage(ev) {
-  try {
-    if (ev.key === 'PASS_RESULT_TX' && ev.newValue) {
-      txId.value = String(ev.newValue)
-      certified.value = true
-      stopStatusPolling()
-      void closeExternal()
-    }
-  } catch {}
-}
-
-function resetPassState() {
-  txId.value = ''
-  certified.value = false
-  error.value = ''
-  errorCode.value = ''
-  updatedFields.value = []
-  portoneCompleteTriggered.value = false
-  pollTryCount.value = 0
-  stopStatusPolling()
-}
-
+// ====== me ======
 async function reloadMe() {
   try {
     const res = await api.get('/api/me', { withCredentials: true })
@@ -436,69 +229,265 @@ async function reloadMe() {
   }
 }
 
-async function onStartPass() {
-  if (certified.value) return
-  error.value = ''
-  errorCode.value = ''
-  success.value = false
-  updatedFields.value = []
-  txId.value = ''
-  phase.value = 'start'
-  busy.value = true
-  portoneCompleteTriggered.value = false
-  pollTryCount.value = 0
-
+// ====== fetch timeout ======
+async function fetchWithTimeout(url: string, opts: any = {}, timeoutMs = 15000) {
+  const controller = new AbortController()
+  const t = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    if (isLocal) {
-      // 팝업 선오픈(차단 회피 & opener 확보)
-      if (!popupWin.value || popupWin.value.closed) {
-        const w = openPopup()
-        if (!w) { popupBlockedFail(); return }
-      }
-      // 수동 입력 화면을 팝업에서 열기
-      const url = router.resolve({ name: 'PassManual' }).href
-      await openExternal(`${location.origin}${url}`)
-      return
-    }
-
-    // 서버에서 { ok, txId, startUrl?, formHtml? } 수신
-    const result = await startPass('phone_update', { preferUrl: true })
-    if (!result.ok) throw new Error(result.message || '시작 실패')
-
-    if (result.manual) {
-      if (!popupWin.value || popupWin.value.closed) {
-        const w = openPopup()
-        if (!w) { popupBlockedFail(); return }
-      }
-      const url = router.resolve({ name: 'PassManual' }).href
-      await openExternal(`${location.origin}${url}`)
-      return
-    }
-
-    if (result.txId) {
-      txId.value = String(result.txId)
-      startStatusPolling(txId.value)
-    }
-
-    // 팝업에서 PASS 진행
-    if (result.startUrl) {
-      await openExternal(result.startUrl)
-    } else if (result.formHtml) {
-      await openExternalFormHtml(result.formHtml)
-    } else {
-      throw new Error('유효한 PASS 시작 엔트리가 없습니다.')
-    }
-  } catch (e) {
-    console.error('[PhoneUpdate][start] error', e)
-    error.value = e?.message || '시작 실패'
-    if (e?.message?.includes('로그인이 필요')) setTimeout(() => router.replace('/login'), 600)
-    await closeExternal()
+    const res = await fetch(url, { ...opts, signal: controller.signal })
+    return res
   } finally {
+    clearTimeout(t)
+  }
+}
+
+// ====== PortOne complete polling (PassPortal과 동일) ======
+const POLL_INTERVAL_MS = 900
+const POLL_TIMEOUT_MS = 90_000
+
+let pollingAbort = false
+let pollingPromise: Promise<any> | null = null
+let pollingResolve: ((v: any) => void) | null = null
+let pollingReject: ((e: any) => void) | null = null
+
+function stopPolling() {
+  pollingAbort = true
+  pollingPromise = null
+  pollingResolve = null
+  pollingReject = null
+}
+
+function shouldKeepPolling(respJson: any) {
+  const code = String(respJson?.code || '')
+  const ivStatus = String(respJson?.ivStatus || respJson?.status || '')
+  const httpStatus = Number(respJson?.httpStatus || 0)
+
+  if (code === 'PORTONE_API_ERROR') {
+    if (httpStatus === 404 || httpStatus === 429 || (httpStatus >= 500 && httpStatus <= 599) || httpStatus === 0) return true
+    return false
+  }
+
+  if (code === 'NOT_VERIFIED') {
+    if (/pending|processing|requested|ready|started|init/i.test(ivStatus)) return true
+    return false
+  }
+
+  return false
+}
+
+function startPollingComplete(identityVerificationId: string) {
+  if (pollingPromise) return pollingPromise
+
+  pollingAbort = false
+  pollingPromise = new Promise((resolve, reject) => {
+    pollingResolve = resolve
+    pollingReject = reject
+  })
+
+  const startedAt = Date.now()
+
+  const loop = async () => {
+    if (pollingAbort) return
+
+    const elapsed = Date.now() - startedAt
+    if (elapsed > POLL_TIMEOUT_MS) {
+      stopPolling()
+      pollingReject?.(new Error('COMPLETE_TIMEOUT'))
+      return
+    }
+
+    try {
+      const res = await fetchWithTimeout(
+        apiUrl(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(identityVerificationId)}`),
+        { credentials: 'include' },
+        15000
+      )
+
+      const txt = await res.text()
+      let j: any
+      try { j = JSON.parse(txt) } catch { j = { ok: false, code: 'COMPLETE_NON_JSON', raw: txt } }
+
+      lastFailDetail.value = {
+        stage: 'complete',
+        code: j?.code || null,
+        ivStatus: j?.ivStatus || j?.status || null,
+        httpStatus: res.status,
+        message: j?.message || null,
+        raw: j,
+      }
+
+      if (res.ok && j?.ok) {
+        stopPolling()
+        pollingResolve?.(j)
+        return
+      }
+
+      if (shouldKeepPolling(j)) {
+        setTimeout(loop, POLL_INTERVAL_MS)
+        return
+      }
+
+      stopPolling()
+      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
+    } catch {
+      setTimeout(loop, POLL_INTERVAL_MS)
+    }
+  }
+
+  void loop()
+  return pollingPromise
+}
+
+async function finalizeByIdentityVerificationId(identityVerificationId: string) {
+  try {
+    const j = await startPollingComplete(identityVerificationId)
+    const nextTxId = j?.txId || identityVerificationId
+
+    txId.value = String(nextTxId)
+    certified.value = true
+    busy.value = false
+    phase.value = 'idle'
+
+    lastFailDetail.value = {
+      stage: 'complete:ok',
+      httpStatus: 200,
+      ivStatus: j?.ivStatus || null,
+      raw: j,
+    }
+  } catch (e: any) {
+    const payload = e?.payload || null
+    lastFailCode.value = payload?.code || e?.message || 'COMPLETE_ERROR'
+    lastFailDetail.value = payload || {
+      stage: 'complete:exception',
+      message: e?.message || '',
+      stackTop: String(e?.stack || '').split('\n')[0],
+      raw: { identityVerificationId },
+    }
+    error.value = '인증 확인 실패'
+    errorCode.value = lastFailCode.value || 'COMPLETE_ERROR'
     busy.value = false
     phase.value = 'idle'
   }
 }
 
+// ====== message / deep link handlers ======
+function handleWindowMessage(ev: MessageEvent) {
+  try {
+    const data: any = (ev as any)?.data || {}
+    if (!data || typeof data !== 'object') return
+    if (data.type !== 'PASS_RESULT') return
+
+    const ivId = data.identityVerificationId ? String(data.identityVerificationId) : ''
+    const tx = data.txId ? String(data.txId) : ''
+
+    if (ivId) {
+      busy.value = true
+      phase.value = 'start'
+      certified.value = false
+      txId.value = ivId
+      void finalizeByIdentityVerificationId(ivId)
+      return
+    }
+
+    if (tx) {
+      txId.value = tx
+      certified.value = true
+      return
+    }
+  } catch {}
+}
+
+async function handleAppUrlOpen(data: any) {
+  try {
+    const rawUrl = String(data?.url || '')
+    const url = new URL(rawUrl)
+
+    const ivId = url.searchParams.get('identityVerificationId') || ''
+    if (ivId) {
+      busy.value = true
+      phase.value = 'start'
+      certified.value = false
+      txId.value = ivId
+      try { await Browser.close() } catch {}
+      await finalizeByIdentityVerificationId(ivId)
+      return
+    }
+
+    const tx = url.searchParams.get('txId') || ''
+    if (tx) {
+      txId.value = tx
+      certified.value = true
+      try { await Browser.close() } catch {}
+      return
+    }
+  } catch {}
+}
+
+// ====== start pass (최신 PortOne 직접 호출) ======
+async function onStartPass() {
+  if (certified.value) return
+
+  resetPassState()
+  clearPassStorage()
+
+  if (!STORE_ID || !CHANNEL_KEY) {
+    error.value = '환경변수(VITE_PORTONE_STORE_ID / VITE_PORTONE_CHANNEL_KEY)가 비어있습니다.'
+    errorCode.value = 'ENV_MISSING'
+    return
+  }
+
+  const PortOne = getPortOne()
+  if (!PortOne?.requestIdentityVerification) {
+    error.value = 'PortOne 브라우저 SDK가 로드되지 않았습니다. index.html CDN script를 확인하세요.'
+    errorCode.value = 'SDK_NOT_LOADED'
+    return
+  }
+
+  busy.value = true
+  phase.value = 'start'
+
+  try {
+    const identityVerificationId = makeIdentityVerificationId()
+    txId.value = identityVerificationId
+
+    // ✅ redirectUrl을 relay로 통일 (신규 파이프라인)
+    const redirectUrl =
+      `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
+
+    // ✅ complete 폴링 먼저 시작(인증 완료 시 PassResult 생성 보장)
+    void finalizeByIdentityVerificationId(identityVerificationId)
+
+    // ✅ PortOne 시작
+    const resp = await PortOne.requestIdentityVerification({
+      storeId: STORE_ID,
+      channelKey: CHANNEL_KEY,
+      identityVerificationId,
+      redirectUrl,
+    })
+
+    if (resp?.code) {
+      stopPolling()
+      busy.value = false
+      phase.value = 'idle'
+      error.value = resp?.message || '인증 시작 실패'
+      errorCode.value = String(resp.code || 'PORTONE_FAIL')
+      lastFailDetail.value = { stage: 'start:resp', raw: resp }
+      return
+    }
+
+    // native일 경우 외부 열림은 SDK/환경에 따라 다르므로 별도 처리 없음.
+    // (relay/appUrlOpen/message로 복귀 시 finalize가 알아서 진행)
+  } catch (e: any) {
+    stopPolling()
+    busy.value = false
+    phase.value = 'idle'
+    error.value = e?.message || '인증 시작 실패'
+    errorCode.value = 'PORTONE_START_ERROR'
+    lastFailDetail.value = { stage: 'start:exception', message: String(e?.message || e) }
+  }
+}
+
+// ====== commit ======
 async function commitUpdate() {
   if (!txId.value) {
     error.value = 'txId가 없습니다. PASS 인증부터 진행하세요.'
@@ -506,8 +495,6 @@ async function commitUpdate() {
     return
   }
 
-  // ✅ PortOne txId인데 certified가 false로 남아있어도, commit이 최종검증/반영을 하므로 진행 가능
-  // (서버에서 CI/전화 변경 여부를 최종 판단)
   error.value = ''
   errorCode.value = ''
   success.value = false
@@ -520,11 +507,11 @@ async function commitUpdate() {
       method: 'POST',
       headers: buildAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ txId: txId.value })
+      body: JSON.stringify({ txId: txId.value }),
     })
 
     const text = await res.text()
-    let json = null
+    let json: any = null
     try { json = JSON.parse(text) } catch { throw new Error('COMMIT_NON_JSON') }
 
     if (!res.ok || !json?.ok) {
@@ -543,21 +530,17 @@ async function commitUpdate() {
         return
       }
 
-      // CI 불일치: "사용자가 다릅니다" → 확인 후 /home/6page
       if (json?.code === 'CI_MISMATCH' || res.status === 403) {
         error.value = '인증한 정보가 로그인한 회원정보와 다릅니다.'
         errorCode.value = 'CI_MISMATCH'
-        await closeExternal()
         window.alert('인증한 정보가 로그인한 회원정보와 다릅니다.')
         router.replace('/home/6page')
         return
       }
 
-      // 전화번호 동일: "기존의 전화번호와 같습니다." → 확인 후 /home/6page
       if (json?.code === 'PHONE_NOT_CHANGED') {
         error.value = '기존의 전화번호와 같습니다.'
         errorCode.value = 'PHONE_NOT_CHANGED'
-        await closeExternal()
         window.alert('기존의 전화번호와 같습니다.')
         router.replace('/home/6page')
         return
@@ -572,32 +555,49 @@ async function commitUpdate() {
     success.value = true
     clearPassStorage()
     await reloadMe()
-    await closeExternal()
-    setTimeout(() => { router.replace('/home/6page') }, 650)
-  } catch (e) {
-    console.error('[PhoneUpdate][commit] error', e)
+    setTimeout(() => router.replace('/home/6page'), 650)
+  } catch (e: any) {
     error.value = e?.message || '반영 실패'
     errorCode.value = 'COMMIT_EXCEPTION'
-    await closeExternal()
   } finally {
     busy.value = false
     phase.value = 'idle'
   }
 }
 
+// ====== lifecycle ======
+let appUrlOpenSub: any = null
+
 onMounted(async () => {
   clearPassStorage()
-  window.addEventListener('message', onMessage)
-  window.addEventListener('storage', onStorage)
   await reloadMe()
+
+  if (isNative) {
+    appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen)
+  } else {
+    window.addEventListener('message', handleWindowMessage)
+  }
+
+  // 혹시 URL로 identityVerificationId가 들어온 경우(예외 대응)
+  const ivId = typeof route.query.identityVerificationId === 'string' ? route.query.identityVerificationId : ''
+  if (ivId) {
+    busy.value = true
+    phase.value = 'start'
+    txId.value = ivId
+    certified.value = false
+    await finalizeByIdentityVerificationId(ivId)
+  }
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('message', onMessage)
-  window.removeEventListener('storage', onStorage)
-  stopStatusPolling()
-  void closeExternal()
+  stopPolling()
+  if (appUrlOpenSub) appUrlOpenSub.remove?.()
+  window.removeEventListener('message', handleWindowMessage)
 })
+const goBack = () => {
+  console.log('[phoneupdate] 뒤로가기 클릭')
+  router.back()
+}
 </script>
 
 <style scoped>
@@ -615,4 +615,27 @@ onBeforeUnmount(() => {
 .mr-2 { margin-right: 8px; }
 .actions { display: grid; gap: 8px; margin: 8px 0 10px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+/* debug box */
+.fail-code { margin-top: 12px; color: var(--ion-color-danger); }
+.fail-detail {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 0, 0, 0.06);
+  border: 1px solid rgba(255, 0, 0, 0.2);
+}
+.fail-detail h3 { margin: 0 0 8px; font-size: 1rem; }
+.kv { list-style: none; padding: 0; margin: 0 0 8px; }
+.kv li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 4px 0; }
+.kv .k { opacity: 0.7; }
+.kv .v { word-break: break-all; }
+.raw {
+  margin: 8px 0 0;
+  max-height: 260px;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 8px;
+  border-radius: 8px;
+}
 </style>
