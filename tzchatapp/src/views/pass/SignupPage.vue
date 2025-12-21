@@ -73,27 +73,54 @@
           <!-- 기본 정보 -->
           <div class="form-row">
             <label for="username">아이디</label>
-            <input id="username" name="username" type="text" v-model.trim="form.username"
-                   placeholder="아이디" autocomplete="username" required />
+            <input
+              id="username"
+              name="username"
+              type="text"
+              v-model.trim="form.username"
+              placeholder="아이디"
+              autocomplete="username"
+              required
+            />
           </div>
 
           <div class="form-row">
             <label for="password">비밀번호</label>
-            <input id="password" name="password" type="password" v-model="form.password"
-                   placeholder="비밀번호" autocomplete="new-password" required />
+            <input
+              id="password"
+              name="password"
+              type="password"
+              v-model="form.password"
+              placeholder="비밀번호"
+              autocomplete="new-password"
+              required
+            />
           </div>
 
           <div class="form-row">
             <label for="password2">비밀번호 확인</label>
-            <input id="password2" name="password2" type="password" v-model="form.password2"
-                   placeholder="비밀번호 확인" autocomplete="new-password" required />
+            <input
+              id="password2"
+              name="password2"
+              type="password"
+              v-model="form.password2"
+              placeholder="비밀번호 확인"
+              autocomplete="new-password"
+              required
+            />
             <p v-if="passwordMismatch" class="hint error">⚠ 비밀번호가 일치하지 않습니다.</p>
           </div>
 
           <div class="form-row">
             <label for="nickname">닉네임</label>
-            <input id="nickname" name="nickname" type="text" v-model.trim="form.nickname"
-                   placeholder="닉네임" required />
+            <input
+              id="nickname"
+              name="nickname"
+              type="text"
+              v-model.trim="form.nickname"
+              placeholder="닉네임"
+              required
+            />
           </div>
 
           <!-- 미성년자 안내 -->
@@ -168,6 +195,11 @@ function preview(hash?: string | null) {
   return s.length > 8 ? (s.slice(0, 8) + '…') : s
 }
 
+/** ✅ PortOne txId(app_iv_...) 판별 */
+function isPortOneTxId(id: any): boolean {
+  return typeof id === 'string' && /^app_iv_/i.test(id)
+}
+
 // ✅ gender/birthyear 정규화(PortOne/기존 PASS 혼재 대비)
 type GenderNorm = 'man' | 'woman' | ''
 function normalizeGender(v: any): GenderNorm {
@@ -231,11 +263,26 @@ type PassResultT = {
 
 const passResult = ref<PassResultT>(null)
 
-// 🔁 PASS 상태 폴링 (보정)
+// 🔁 PASS 상태 폴링 (보정 + 타임아웃)
 const poller = ref<ReturnType<typeof setInterval> | null>(null)
+const pollCount = ref(0)
+const POLL_MAX_COUNT = 30 // 30 * 1.2s = 36초
+
 function startPolling() {
   stopPolling()
+  pollCount.value = 0
   poller.value = setInterval(() => {
+    pollCount.value++
+
+    // ✅ 멈춤 방지: 일정 시간 넘으면 fail 처리(사용자 재시도 유도)
+    if (pollCount.value > POLL_MAX_COUNT) {
+      stopPolling()
+      passStatus.value = 'fail'
+      passResult.value = null
+      passError.value = '인증 확인 시간이 초과되었습니다. 다시 시도해 주세요.'
+      return
+    }
+
     if (passStatus.value === 'pending' && txId.value) {
       fetchPassStatus()
     } else {
@@ -352,6 +399,43 @@ function redirectAfterLogin() {
   router.replace(resolveReturn())
 }
 
+/**
+ * ✅ PortOne(app_iv_...) + status=pending 고착 방지
+ * - /status 는 pending 이어도 /route는 이미 signup 결정이 가능할 수 있음
+ * - /route가 ok:true, route:'signup' 이면 화면은 PASS 성공으로 간주하여 진행 가능하게 함
+ */
+async function tryPortOneRouteFallback(id: string): Promise<boolean> {
+  if (!isPortOneTxId(id)) return false
+  try {
+    const r = await api.get('/api/auth/pass/route', {
+      params: { txId: id },
+      withCredentials: true,
+    })
+    const j = r.data
+    if (j?.ok && (j.route === 'signup' || j.route === 'templogin')) {
+      // signup 화면에서는 "PASS 통과"로만 취급(정보는 추후 백엔드 확장 시 채워짐)
+      passStatus.value = 'success'
+      passResult.value = passResult.value || {
+        // PortOne에서 PassResult 저장이 안 되면 표시값은 비어있을 수 있음
+        name: '',
+        phone: '',
+        carrier: '',
+        birthyear: null,
+        gender: '',
+      }
+      // 닉네임이 비어있고 이름이 있으면 채움(현재는 이름이 비어있을 가능성이 큼)
+      if (!form.value.nickname && passResult.value?.name) {
+        form.value.nickname = String(passResult.value.name || '')
+      }
+      stopPolling()
+      return true
+    }
+  } catch {
+    // ignore
+  }
+  return false
+}
+
 // PASS 상태 조회
 async function fetchPassStatus() {
   if (!txId.value) {
@@ -394,7 +478,7 @@ async function fetchPassStatus() {
 
       // ✅ 닉네임이 비어있으면 PASS 이름으로 1회 자동 채우기(원치 않으면 삭제 가능)
       if (!form.value.nickname && passResult.value?.name) {
-        form.value.nickname = passResult.value.name
+        form.value.nickname = String(passResult.value.name || '')
       }
 
       try { sessionStorage.setItem('passTxId', txId.value) } catch {}
@@ -422,6 +506,9 @@ async function fetchPassStatus() {
     // pending
     passStatus.value = 'pending'
     passResult.value = null
+
+    // ✅ 핵심: PortOne(app_iv_...) pending 고착 방지 → /route로 한번 판단
+    await tryPortOneRouteFallback(String(txId.value))
   } catch (e: any) {
     passStatus.value = 'fail'
     passResult.value = null
@@ -507,7 +594,7 @@ async function onSubmit() {
 
   try {
     // 1) 회원가입
-    const res = await api.post('/api/signup', payload)
+    await api.post('/api/signup', payload)
     successMsg.value = '회원가입이 완료되었습니다.'
 
     // ✅ 회원가입 성공 직후, PASS 관련 스토리지 정리

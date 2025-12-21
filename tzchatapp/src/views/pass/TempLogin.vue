@@ -19,8 +19,10 @@
             <p class="desc">
               PASS 포털에서 전달된 <b>txId</b>로 임시로그인을 진행합니다.<br />
               <b>아래 버튼을 눌러</b> 임시로그인을 시도하세요.<br />
-              <small>※ 안전을 위해 <b>로그인 후 반드시 비밀번호를 변경</b>해 주세요.
-                (마이페이지 &gt; 보안 &gt; 비밀번호 변경)</small>
+              <small>
+                ※ 안전을 위해 <b>로그인 후 반드시 비밀번호를 변경</b>해 주세요.
+                (마이페이지 &gt; 보안 &gt; 비밀번호 변경)
+              </small>
             </p>
 
             <div class="status">
@@ -80,7 +82,7 @@
               </div>
             </div>
 
-            <!-- 🔎 디버그 패널: PASS 결과 + 매칭된 유저 정보 (나중에 주석처리 예정) -->
+            <!-- 🔎 디버그 패널: PASS 결과 + 매칭된 유저 정보 -->
             <div v-if="passResult || debugUser" class="debug-panel">
               <h3>PASS 결과 (PassResult)</h3>
 
@@ -204,6 +206,10 @@ const LS_KEYS = {
   TX_OLD: 'passTxId'
 }
 
+function isPortOneTxId(txId: string) {
+  return /^app_iv_/i.test(String(txId || ''))
+}
+
 // ✅ txId: 쿼리 'txId' 우선 → session/localStorage('pass.txId') → 구키('passTxId')
 function readInitialTxId (): string {
   const q = route.query?.txId ? String(route.query.txId) : ''
@@ -265,12 +271,28 @@ const pretty = (obj: any) => {
   }
 }
 
-// ❌ 자동 시도 없음: 사용자가 명시적으로 버튼을 눌러 진행
-onMounted(async () => {
-  // 안내 + 디버그용 데이터 로딩
+async function toast (
+  message: string,
+  color: 'primary' | 'success' | 'warning' | 'danger' = 'primary'
+) {
+  const t = await toastController.create({
+    message,
+    color,
+    duration: 1800,
+    position: 'bottom'
+  })
+  await t.present()
+}
+
+/**
+ * ✅ PortOne(app_iv_...)가 /status에서 계속 pending일 수 있음
+ * - 이 화면에서는 "임시로그인"만 되면 됨
+ * - 따라서 /result가 pending이어도 /route가 templogin이면 정상 흐름으로 인정
+ */
+async function fetchDebugInfo () {
   if (!txId.value) return
 
-  // PASS 결과
+  // PASS 결과(디버그)
   try {
     const res = await fetch(
       api(`/api/auth/pass/result/${encodeURIComponent(txId.value)}`),
@@ -288,7 +310,7 @@ onMounted(async () => {
     passResult.value = { ok: false, error: String(e?.message || e) }
   }
 
-  // route + 디버그 유저
+  // route + 디버그 유저(중요)
   try {
     const res = await fetch(
       api(`/api/auth/pass/route?txId=${encodeURIComponent(txId.value)}&debug=1`),
@@ -302,42 +324,64 @@ onMounted(async () => {
       json = { ok: false, raw: text }
     }
 
-    if (json?.debugUser) {
-      debugUser.value = json.debugUser
-    }
-    if (typeof json?.route === 'string') {
-      routeName.value = json.route
-    }
-    if (typeof json?.userExists === 'boolean') {
-      userExists.value = json.userExists
-    }
-  } catch (e: any) {
-    // 디버그용이므로 실패해도 치명적이지 않음
+    if (json?.debugUser) debugUser.value = json.debugUser
+    if (typeof json?.route === 'string') routeName.value = json.route
+    if (typeof json?.userExists === 'boolean') userExists.value = json.userExists
+  } catch {
+    // 디버그용이므로 무시
+  }
+}
+
+// ❌ 자동 시도 없음: 사용자가 명시적으로 버튼을 눌러 진행
+onMounted(async () => {
+  if (!txId.value) return
+
+  // txId 보관(다른 페이지/리다이렉트 대비)
+  try { sessionStorage.setItem(LS_KEYS.TX, txId.value) } catch {}
+  try { localStorage.setItem(LS_KEYS.TX, txId.value) } catch {}
+
+  await fetchDebugInfo()
+
+  // ✅ PortOne인데 route가 signup이면 "임시로그인 화면이 아니라 가입 화면"이 맞음 → 안내
+  if (isPortOneTxId(txId.value) && routeName.value === 'signup') {
+    await toast('기존 회원이 아니어서 임시로그인이 아니라 회원가입으로 진행해야 합니다.', 'warning')
   }
 })
-
-async function toast (
-  message: string,
-  color: 'primary' | 'success' | 'warning' | 'danger' = 'primary'
-) {
-  const t = await toastController.create({
-    message,
-    color,
-    duration: 1800,
-    position: 'bottom'
-  })
-  await t.present()
-}
 
 async function tryTempLogin () {
   error.value = ''
   success.value = false
   endpointTried.value = ''
+
   if (!txId.value) {
     error.value = 'txId가 없습니다. PASS 인증부터 진행하세요.'
     await toast(error.value, 'warning')
     return
   }
+
+  // ✅ 한번 더 route 조회 (서버/DB 타이밍 이슈 보정)
+  try {
+    const rr = await fetch(
+      api(`/api/auth/pass/route?txId=${encodeURIComponent(txId.value)}`),
+      { credentials: 'include' }
+    )
+    const txt = await rr.text()
+    let j: any
+    try { j = JSON.parse(txt) } catch { j = null }
+    if (j?.route) routeName.value = j.route
+    if (typeof j?.userExists === 'boolean') userExists.value = j.userExists
+
+    // templogin이 아니면, 여기서 막아주는 게 UX가 좋음
+    if (j?.ok && j.route && j.route !== 'templogin') {
+      const msg = '기존 회원이 아니어서 임시로그인이 불가합니다. 회원가입으로 이동합니다.'
+      await toast(msg, 'warning')
+      router.replace({ name: 'SignupPage', query: { txId: txId.value } })
+      return
+    }
+  } catch {
+    // route 확인 실패해도 아래 임시로그인 시도는 진행(백엔드가 최종 판단)
+  }
+
   busy.value = true
 
   // ✅ 백엔드 고정 경로: /api/auth/pass/temp-login
@@ -401,16 +445,32 @@ async function tryTempLogin () {
   } catch (e: any) {
     console.error('[TempLogin] error', e)
     const raw = String(e?.message || '알 수 없는 오류')
+
     if (/410|consumed/i.test(raw)) {
       error.value = '이미 사용된 인증입니다. PASS를 다시 인증해 주세요.'
     } else if (/UNHANDLED_ERROR/i.test(raw)) {
       error.value = '서버 내부 오류(UNHANDLED_ERROR). 잠시 후 다시 시도해 주세요.'
     } else if (/NOT_SUCCESS|NO_TX|NO_ROUTE|NO_RESULT/i.test(raw)) {
       error.value = '유효하지 않은 인증 결과입니다. PASS를 다시 진행해 주세요.'
+    } else if (/PASS_TX_NOT_FOUND/i.test(raw)) {
+      // ✅ 멈춤 방지: PortOne txId면 가입으로 유도
+      if (isPortOneTxId(txId.value)) {
+        error.value = '인증 결과가 아직 저장되지 않았습니다. 회원가입 화면에서 계속 진행하거나 PASS를 재시도해 주세요.'
+      } else {
+        error.value = raw
+      }
     } else {
       error.value = raw
     }
+
     await toast(error.value, 'danger')
+
+    // ✅ PortOne이면 가입으로 빠르게 유도(사용자 "무한 대기" 방지)
+    if (isPortOneTxId(txId.value)) {
+      setTimeout(() => {
+        router.replace({ name: 'SignupPage', query: { txId: txId.value } })
+      }, 500)
+    }
   } finally {
     busy.value = false
   }

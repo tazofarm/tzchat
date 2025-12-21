@@ -27,7 +27,6 @@
                 <span class="label">통신사</span>
                 <span class="value">{{ me?.carrier || '—' }}</span>
               </div>
-
               -->
             </div>
 
@@ -75,6 +74,7 @@
                 <ion-spinner v-if="busy && phase==='commit'" name="dots" class="mr-2" />
                 <span>{{ secondaryBtnText }}</span>
               </ion-button>
+
               <!--
               <ion-button
                 expand="block"
@@ -84,7 +84,7 @@
               >
                 내 정보 새로고침
               </ion-button>
-              -->   
+              -->
             </div>
           </ion-card-content>
         </ion-card>
@@ -110,6 +110,10 @@ const apiUrl = (p) => `${API_BASE}${p.startsWith('/') ? p : `/${p}`}`
 
 const isNative = Capacitor.isNativePlatform()
 const isLocal = !isNative && ['localhost', '127.0.0.1'].includes(location.hostname)
+
+function isPortOneTxId(id = '') {
+  return /^app_iv_/i.test(String(id || ''))
+}
 
 // 🔐 Authorization 헤더
 function buildAuthHeaders() {
@@ -209,7 +213,7 @@ async function openExternal(url) {
   }
   const w = popupWin.value && !popupWin.value.closed ? popupWin.value : openPopup()
   if (!w) { popupBlockedFail(); return }
-  try { w.location.replace(url) } catch { /* 현재 탭 이동 금지: 아무것도 하지 않음 */ }
+  try { w.location.replace(url) } catch { /* 현재 탭 이동 금지 */ }
 }
 
 // formHtml을 팝업 문서로만 주입
@@ -267,6 +271,10 @@ const txId = ref('')
 const statusPoller = ref(null)
 const endpointCommit = '/api/user/pass-phone/commit'
 
+// ✅ PortOne pending 고착 방지: /status가 계속 pending이면 /portone/complete를 한번 찔러서 PassResult 생성 유도
+const portoneCompleteTriggered = ref(false)
+const pollTryCount = ref(0)
+
 const maskedPhone = computed(() => {
   const m = me.value?.phoneMasked || ''
   const f = me.value?.phoneFormatted || ''
@@ -296,32 +304,85 @@ function stopStatusPolling() {
     statusPoller.value = null
   }
 }
+
+async function triggerPortoneCompleteOnce(currentTxId) {
+  if (!currentTxId || !isPortOneTxId(currentTxId)) return
+  if (portoneCompleteTriggered.value) return
+  portoneCompleteTriggered.value = true
+
+  try {
+    const url = apiUrl(`/api/auth/pass/portone/complete?identityVerificationId=${encodeURIComponent(currentTxId)}`)
+    const res = await fetch(url, { credentials: 'include' })
+    const txt = await res.text()
+    let j = null
+    try { j = JSON.parse(txt) } catch { j = null }
+
+    // complete가 ok:true면 "인증 완료"로 보고 팝업 닫기 (이후 commit에서 최종 검증/반영)
+    if (j?.ok === true) {
+      certified.value = true
+      await closeExternal()
+      stopStatusPolling()
+      return
+    }
+
+    // NOT_VERIFIED면 실패로 전환
+    if (j?.ok === false) {
+      error.value = j?.message || '인증 확인 실패'
+      errorCode.value = j?.code || 'NOT_VERIFIED'
+      await closeExternal()
+      stopStatusPolling()
+    }
+  } catch {
+    // 조용히 무시(다음 /status 폴링에서 다시 판단)
+  }
+}
+
 function startStatusPolling(currentTxId) {
   stopStatusPolling()
   if (!currentTxId) return
+
+  pollTryCount.value = 0
+  portoneCompleteTriggered.value = false
+
   statusPoller.value = setInterval(async () => {
     try {
+      pollTryCount.value += 1
+
       const res = await fetch(apiUrl(`/api/auth/pass/status?txId=${encodeURIComponent(currentTxId)}`), {
         credentials: 'include'
       })
       const txt = await res.text()
-      let j = null; try { j = JSON.parse(txt) } catch { return }
+      let j = null
+      try { j = JSON.parse(txt) } catch { return }
       if (!j?.ok) return
 
       if (j.status === 'success') {
         certified.value = true
         stopStatusPolling()
         await closeExternal()
-      } else if (j.status === 'fail') {
+        return
+      }
+
+      if (j.status === 'fail') {
         error.value = j?.result?.failMessage || '인증 실패'
         errorCode.value = j?.result?.failCode || 'FAIL'
         stopStatusPolling()
         await closeExternal()
-      } else if (j.status === 'consumed') {
+        return
+      }
+
+      if (j.status === 'consumed') {
         error.value = '이미 사용된 인증입니다. 다시 인증을 진행해주세요.'
         errorCode.value = 'CONSUMED'
         stopStatusPolling()
         await closeExternal()
+        return
+      }
+
+      // pending
+      // ✅ PortOne(app_iv_...)에서 PassResult 생성/저장이 늦거나 누락되면 pending 고착 → complete로 한번 보정
+      if (isPortOneTxId(currentTxId) && pollTryCount.value >= 3) {
+        await triggerPortoneCompleteOnce(currentTxId)
       }
     } catch {}
   }, 1200)
@@ -361,6 +422,8 @@ function resetPassState() {
   error.value = ''
   errorCode.value = ''
   updatedFields.value = []
+  portoneCompleteTriggered.value = false
+  pollTryCount.value = 0
   stopStatusPolling()
 }
 
@@ -382,6 +445,8 @@ async function onStartPass() {
   txId.value = ''
   phase.value = 'start'
   busy.value = true
+  portoneCompleteTriggered.value = false
+  pollTryCount.value = 0
 
   try {
     if (isLocal) {
@@ -440,12 +505,16 @@ async function commitUpdate() {
     errorCode.value = 'NO_TXID'
     return
   }
+
+  // ✅ PortOne txId인데 certified가 false로 남아있어도, commit이 최종검증/반영을 하므로 진행 가능
+  // (서버에서 CI/전화 변경 여부를 최종 판단)
   error.value = ''
   errorCode.value = ''
   success.value = false
   updatedFields.value = []
   phase.value = 'commit'
   busy.value = true
+
   try {
     const res = await fetch(apiUrl(endpointCommit), {
       method: 'POST',
@@ -453,6 +522,7 @@ async function commitUpdate() {
       credentials: 'include',
       body: JSON.stringify({ txId: txId.value })
     })
+
     const text = await res.text()
     let json = null
     try { json = JSON.parse(text) } catch { throw new Error('COMMIT_NON_JSON') }
@@ -494,7 +564,7 @@ async function commitUpdate() {
       }
 
       error.value = json?.message || `반영 실패 (HTTP ${res.status})`
-      errorCode.value = 'COMMIT_ERROR'
+      errorCode.value = json?.code || 'COMMIT_ERROR'
       return
     }
 
@@ -521,6 +591,7 @@ onMounted(async () => {
   window.addEventListener('storage', onStorage)
   await reloadMe()
 })
+
 onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage)
   window.removeEventListener('storage', onStorage)
