@@ -28,7 +28,6 @@
             <span>{{ buttonText }}</span>
           </ion-button>
 
-          <!-- ✅ 진행중인데 멈췄을 때 사용자 강제 초기화 -->
           <ion-button
             v-if="mode === 'running'"
             expand="block"
@@ -44,12 +43,13 @@
           </div>
 
           <div v-if="hasDetail" class="fail-detail">
-            <h3>실패 상세</h3>
+            <h3>실패/상태 상세</h3>
             <ul class="kv">
               <li v-if="detail.code"><span class="k">code</span><span class="v">{{ detail.code }}</span></li>
               <li v-if="detail.stage"><span class="k">stage</span><span class="v">{{ detail.stage }}</span></li>
               <li v-if="detail.message"><span class="k">message</span><span class="v">{{ detail.message }}</span></li>
-              <li v-if="detail.returnMsg"><span class="k">returnMsg</span><span class="v">{{ detail.returnMsg }}</span></li>
+              <li v-if="detail.ivStatus"><span class="k">ivStatus</span><span class="v">{{ detail.ivStatus }}</span></li>
+              <li v-if="detail.httpStatus"><span class="k">httpStatus</span><span class="v">{{ detail.httpStatus }}</span></li>
               <li v-if="detail.stackTop"><span class="k">stackTop</span><span class="v">{{ detail.stackTop }}</span></li>
             </ul>
             <details v-if="detail.raw">
@@ -124,6 +124,10 @@ const router = useRouter()
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`
 
+// ✅ 서비스 오리진(외부 브라우저가 접근 가능한 웹 주소)
+// - 가능하면 .env에 VITE_APP_WEB_ORIGIN=https://tzchat.tazocode.com 추가 권장
+const SERVICE_ORIGIN = (import.meta.env.VITE_APP_WEB_ORIGIN || 'https://tzchat.tazocode.com').replace(/\/+$/, '')
+
 const STORE_ID = (import.meta.env.VITE_PORTONE_STORE_ID || '').trim()
 const CHANNEL_KEY = (import.meta.env.VITE_PORTONE_CHANNEL_KEY || '').trim()
 
@@ -142,7 +146,6 @@ let pollingReject = null
 const POLL_INTERVAL_MS = 900
 const POLL_TIMEOUT_MS = 90_000
 
-// ✅ 진행중 상태를 저장해서 “멈춤/재진입”에서도 회복 가능하게
 const RUN_STORE_KEY = 'PASS_PORTAL_RUNNING' // JSON: { startedAt, identityVerificationId }
 
 // PassResult debug
@@ -192,7 +195,7 @@ function makeIdentityVerificationId() {
   return `app_iv_${ts}_${rnd}`
 }
 
-/* ──────────────── clean/reset helpers ──────────────── */
+/* ──────────────── clean/reset ──────────────── */
 function stopPolling() {
   pollingAbort = true
   pollingPromise = null
@@ -232,13 +235,14 @@ function readRunningStore() {
   }
 }
 
-// ✅ “멈춤 방지” 강제 초기화
 async function forceReset() {
   lastFailCode.value = ''
   lastFailDetail.value = null
   mode.value = 'idle'
   busy.value = false
   txIdRef.value = ''
+  passResult.value = null
+  passResultRaw.value = null
   clearRunningStore()
   await closeExternal()
 }
@@ -285,14 +289,18 @@ function handleWindowMessage(ev) {
     const ivId = data.identityVerificationId ? String(data.identityVerificationId) : ''
     const txId = data.txId ? String(data.txId) : ''
 
-    // identityVerificationId 우선
     if (ivId) {
       txIdRef.value = ivId
+      mode.value = 'running'
+      busy.value = true
+      saveRunningStore(ivId)
       void finalizeByIdentityVerificationId(ivId)
       return
     }
     if (txId) {
       txIdRef.value = txId
+      mode.value = 'running'
+      busy.value = true
       void proceedRouteByTx(txId)
       return
     }
@@ -346,6 +354,15 @@ function startPollingComplete(identityVerificationId) {
       let j
       try { j = JSON.parse(txt) } catch { j = { ok: false, code: 'COMPLETE_NON_JSON', raw: txt } }
 
+      // ✅ 상태 추적(사용자 화면에서 확인 가능)
+      lastFailDetail.value = {
+        code: j?.code || null,
+        ivStatus: j?.ivStatus || j?.status || null,
+        httpStatus: res.status,
+        message: j?.message || null,
+        raw: j,
+      }
+
       if (res.ok && j?.ok) {
         stopPolling()
         pollingResolve?.(j)
@@ -358,8 +375,9 @@ function startPollingComplete(identityVerificationId) {
       }
 
       stopPolling()
-      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j }))
-    } catch {
+      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
+    } catch (e) {
+      // 네트워크 일시 오류 → 계속
       setTimeout(loop, POLL_INTERVAL_MS)
     }
   }
@@ -379,7 +397,7 @@ async function finalizeByIdentityVerificationId(identityVerificationId) {
     clearRunningStore()
     const payload = e?.payload || null
     lastFailCode.value = payload?.code || e?.message || 'COMPLETE_ERROR'
-    lastFailDetail.value = payload || { message: e?.message || '', stackTop: String(e?.stack || '').split('\n')[0] }
+    lastFailDetail.value = payload || { message: e?.message || '', httpStatus: e?.httpStatus || null, stackTop: String(e?.stack || '').split('\n')[0] }
     mode.value = 'fail'
     busy.value = false
     await closeExternal()
@@ -443,7 +461,7 @@ async function proceedRouteByTx(txId) {
       localStorage.setItem('PASS_RESULT_TX', txId)
     } catch {}
 
-    // ✅ 여기서 busy/mode도 정리
+    // ✅ 성공/분기 직전 UI 정리 확정
     busy.value = false
     mode.value = 'idle'
 
@@ -475,7 +493,7 @@ async function proceedRouteByTx(txId) {
   }
 }
 
-/* ──────────────── start button ──────────────── */
+/* ──────────────── start button (PortOne) ──────────────── */
 async function onClickPass() {
   lastFailCode.value = ''
   lastFailDetail.value = null
@@ -505,16 +523,15 @@ async function onClickPass() {
   try {
     const identityVerificationId = makeIdentityVerificationId()
     txIdRef.value = identityVerificationId
-
-    // ✅ 진행중 상태 저장 (웹에서 “멈춤” 방지)
     saveRunningStore(identityVerificationId)
 
-    // ✅ 복귀가 오든 말든 complete로 “반드시” 확정
-    void finalizeByIdentityVerificationId(identityVerificationId)
-
-    const serviceOrigin = 'https://tzchat.tazocode.com'
+    // ✅ 중요: redirectUrl을 backend relay로 통일
+    // - relay가 postMessage / 딥링크 / /pass 복귀를 다 처리함
     const redirectUrl =
-      `${serviceOrigin}/app/pass-result?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
+      `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
+
+    // ✅ complete 폴링은 “항상” 돌려서 확정
+    void finalizeByIdentityVerificationId(identityVerificationId)
 
     const resp = await PortOne.requestIdentityVerification({
       storeId: STORE_ID,
@@ -533,9 +550,6 @@ async function onClickPass() {
       await closeExternal()
       return
     }
-
-    // 웹에서는 “사용자가 인증 UI를 닫아버리는” 케이스가 있어
-    // 아래 감지 로직(visibility/focus/pageshow)이 busy를 정리해줌
   } catch (e) {
     stopPolling()
     clearRunningStore()
@@ -555,37 +569,29 @@ let pageShowHandler = null
 function installWebStuckGuard() {
   if (isNative) return
 
-  // ✅ (웹) relay postMessage 수신
   window.addEventListener('message', handleWindowMessage)
 
-  // ✅ (웹) 사용자가 인증 UI를 닫고 돌아온 듯한 상황 감지
-  // - running store가 있는데 시간이 꽤 지났고 아직 busy면 → 한번 상태 확인 후 정리
   const maybeRecoverOrReset = async () => {
-    try {
-      const run = readRunningStore()
-      if (!run) return
+    const run = readRunningStore()
+    if (!run) return
+    const elapsed = Date.now() - Number(run.startedAt || 0)
 
-      const elapsed = Date.now() - Number(run.startedAt || 0)
+    if (elapsed < 3000) return
+    if (elapsed > POLL_TIMEOUT_MS + 3000) {
+      await forceReset()
+      return
+    }
 
-      // 아직 막 시작(3초 이내)인 경우는 건드리지 않음
-      if (elapsed < 3000) return
-
-      // 타임아웃 넘겼으면 강제 초기화
-      if (elapsed > POLL_TIMEOUT_MS + 3000) {
-        await forceReset()
-        return
-      }
-
-      // 진행중이면: 지금은 busy가 false로 떨어져도(사용자가 닫았을 수 있으니)
-      // finalize가 알아서 성공/실패로 정리한다. 단 UI가 영구 멈춤이면 강제 초기화 가능.
-      // 여기서는 “UI만” 살짝 보수적으로 정리하지 않고 그대로 둠.
-      // 필요 시: elapsed > 15초 && busy=true 인데 pollingPromise가 없으면 forceReset 같은 정책도 가능.
-    } catch {}
+    // ✅ 재진입 시 폴링 재개
+    if (run.identityVerificationId && mode.value !== 'running') {
+      txIdRef.value = String(run.identityVerificationId)
+      mode.value = 'running'
+      busy.value = true
+      void finalizeByIdentityVerificationId(String(run.identityVerificationId))
+    }
   }
 
-  visHandler = () => {
-    if (document.visibilityState === 'visible') void maybeRecoverOrReset()
-  }
+  visHandler = () => { if (document.visibilityState === 'visible') void maybeRecoverOrReset() }
   focusHandler = () => { void maybeRecoverOrReset() }
   pageShowHandler = () => { void maybeRecoverOrReset() }
 
@@ -609,7 +615,7 @@ onMounted(async () => {
   if (isNative) {
     appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen)
     browserFinishedSub = Browser.addListener('browserFinished', () => {
-      // 사용자가 닫았을 수도 있으니 UI만 idle로(폴링은 계속될 수 있음)
+      // 사용자가 닫았을 수도 있으니 UI만 정리 (폴링은 계속 가능)
       busy.value = false
       mode.value = 'idle'
     })
@@ -617,7 +623,6 @@ onMounted(async () => {
     installWebStuckGuard()
   }
 
-  // ✅ (공통) 쿼리로 복귀했을 때 처리
   const ivId = route.query.identityVerificationId ? String(route.query.identityVerificationId) : ''
   if (ivId) {
     txIdRef.value = ivId
@@ -637,8 +642,6 @@ onMounted(async () => {
     return
   }
 
-  // ✅ (웹) “이전 실행 흔적”이 있는데 다시 들어온 경우
-  // - running store가 남아있으면: 폴링을 재개(또는 타임아웃이면 초기화)
   const run = readRunningStore()
   if (run?.identityVerificationId) {
     const elapsed = Date.now() - Number(run.startedAt || 0)
@@ -653,25 +656,15 @@ onMounted(async () => {
     return
   }
 
-  const qFail = route.query.fail ? String(route.query.fail) : ''
-  if (qFail) {
-    lastFailCode.value = qFail
-    mode.value = 'fail'
-    busy.value = false
-  } else {
-    // 기본 초기화
-    mode.value = 'idle'
-    busy.value = false
-  }
+  mode.value = 'idle'
+  busy.value = false
 })
 
 onBeforeUnmount(() => {
   void closeExternal()
   clearRunningStore()
-
   if (appUrlOpenSub) appUrlOpenSub.remove?.()
   if (browserFinishedSub) browserFinishedSub.remove?.()
-
   uninstallWebStuckGuard()
 })
 
