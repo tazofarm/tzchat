@@ -136,7 +136,8 @@ function stopPolling() {
 }
 
 async function closeExternal() {
-  stopPolling()
+  // 주의: 여기서 stopPolling() 호출되면 Promise resolve가 끊길 수 있음.
+  // 그래서 실제 resolve/reject 직전에는 stopPolling을 '나중에' 호출하도록 구성함.
   if (isNative) {
     try { await Browser.close() } catch {}
   }
@@ -174,6 +175,7 @@ async function forceReset() {
   busy.value = false
   txIdRef.value = ''
   clearRunningStore()
+  stopPolling()
   await closeExternal()
 }
 
@@ -230,8 +232,9 @@ function startPollingComplete(identityVerificationId) {
 
     const elapsed = Date.now() - startedAt
     if (elapsed > POLL_TIMEOUT_MS) {
+      const rej = pollingReject
       stopPolling()
-      pollingReject?.(new Error('COMPLETE_TIMEOUT'))
+      rej?.(new Error('COMPLETE_TIMEOUT'))
       return
     }
 
@@ -255,9 +258,11 @@ function startPollingComplete(identityVerificationId) {
         raw: j,
       }
 
+      // ✅ 핵심 수정: resolve를 먼저 "로컬 변수로" 잡고, stopPolling()은 그 다음
       if (res.ok && j?.ok) {
+        const resv = pollingResolve
         stopPolling()
-        pollingResolve?.(j)
+        resv?.(j)
         return
       }
 
@@ -266,9 +271,11 @@ function startPollingComplete(identityVerificationId) {
         return
       }
 
+      const rej = pollingReject
       stopPolling()
-      pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
+      rej?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
     } catch (e) {
+      // 네트워크/타임아웃 등은 계속 재시도
       setTimeout(loop, POLL_INTERVAL_MS)
     }
   }
@@ -286,16 +293,13 @@ function setPassTxToStorage(txId) {
 }
 
 async function hardNavigate(nextRoute, txId) {
-  // 1) 저장(다른 페이지가 무조건 읽게)
   setPassTxToStorage(txId)
 
-  // 2) router 이동 먼저 시도
   const targetPath =
     nextRoute === 'signup'
       ? `/signup?passTxId=${encodeURIComponent(txId)}`
       : `/templogin?txId=${encodeURIComponent(txId)}`
 
-  // (A) name 기반
   try {
     if (nextRoute === 'signup') {
       await router.replace({ name: 'Signup', query: { passTxId: txId } })
@@ -303,25 +307,19 @@ async function hardNavigate(nextRoute, txId) {
       await router.replace({ name: 'TempLogin', query: { txId } })
     }
   } catch (e1) {
-    // (B) path 기반
     try {
       await router.replace(targetPath)
     } catch (e2) {
-      // (C) 최종 폴백: 강제 이동
       window.location.assign(targetPath)
       return
     }
   }
 
-  // 3) “replace가 먹히지 않는” 이상 상황 폴백
-  //    (예: 라우트 이름/컴포넌트 경로 꼬임, 내부 에러로 화면이 그대로인 케이스)
   setTimeout(() => {
     const stillHere =
       String(router.currentRoute.value?.path || '') === '/pass' ||
       String(router.currentRoute.value?.name || '') === 'PassPortal'
-    if (stillHere) {
-      window.location.assign(targetPath)
-    }
+    if (stillHere) window.location.assign(targetPath)
   }, 500)
 }
 
@@ -364,7 +362,6 @@ async function proceedRouteByTx(txId) {
       return
     }
 
-    // ✅ 여기서 “무조건 이동” (라우터 실패/꼬임도 window.location으로 뚫음)
     if (nextRoute === 'signup' || nextRoute === 'templogin') {
       await hardNavigate(nextRoute, txId)
       return
@@ -382,7 +379,6 @@ async function proceedRouteByTx(txId) {
     }
     mode.value = 'fail'
   } finally {
-    // ✅ 어떤 경우든 busy를 영구로 두지 않음
     busy.value = false
     if (mode.value === 'running') mode.value = 'idle'
     await closeExternal()
@@ -394,6 +390,7 @@ async function proceedRouteByTx(txId) {
 async function finalizeByIdentityVerificationId(identityVerificationId) {
   try {
     const j = await startPollingComplete(identityVerificationId)
+
     const txId = j?.txId || identityVerificationId
     txIdRef.value = txId
 
@@ -452,7 +449,6 @@ async function onClickPass() {
     txIdRef.value = identityVerificationId
     saveRunningStore(identityVerificationId)
 
-    // ✅ redirectUrl을 relay로 통일
     const redirectUrl =
       `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
 
