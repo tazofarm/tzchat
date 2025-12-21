@@ -50,8 +50,8 @@
               <li v-if="detail.message"><span class="k">message</span><span class="v">{{ detail.message }}</span></li>
               <li v-if="detail.ivStatus"><span class="k">ivStatus</span><span class="v">{{ detail.ivStatus }}</span></li>
               <li v-if="detail.httpStatus"><span class="k">httpStatus</span><span class="v">{{ detail.httpStatus }}</span></li>
-              <li v-if="detail.stackTop"><span class="k">stackTop</span><span class="v">{{ detail.stackTop }}</span></li>
               <li v-if="detail.tryCount"><span class="k">tryCount</span><span class="v">{{ detail.tryCount }}</span></li>
+              <li v-if="detail.stackTop"><span class="k">stackTop</span><span class="v">{{ detail.stackTop }}</span></li>
             </ul>
 
             <details v-if="detail.raw">
@@ -87,14 +87,9 @@ import { Browser } from '@capacitor/browser'
 const route = useRoute()
 const router = useRouter()
 
-/** ✅ 백엔드 절대 URL (.env.*)
- *  dev:  VITE_API_BASE_URL=http://localhost:2000
- *  prod: VITE_API_BASE_URL=https://tzchat.tazocode.com
- */
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const api = (path) => `${API}${path.startsWith('/') ? path : `/${path}`}`
 
-// 서비스 오리진(웹에서 redirectUrl 구성용)
 const SERVICE_ORIGIN = (import.meta.env.VITE_APP_WEB_ORIGIN || 'https://tzchat.tazocode.com').replace(/\/+$/, '')
 
 const STORE_ID = (import.meta.env.VITE_PORTONE_STORE_ID || '').trim()
@@ -128,30 +123,8 @@ const hasDetail = computed(() => !!lastFailDetail.value)
 
 const isNative = Capacitor.isNativePlatform()
 
-/** ✅ 공용 스토리지 키(회원가입/임시로그인/전화변경 화면과 호환) */
-const STORE_KEYS = {
-  // 신규(권장)
-  PASS_TX: 'PASS_RESULT_TX',     // localStorage: txId
-  PASS_FAIL: 'PASS_FAIL',
-  PASS_FAIL_DETAIL: 'PASS_FAIL_DETAIL',
-
-  // 구버전 호환
-  PASS_TX_OLD: 'passTxId',       // session/localStorage
-  PASS_TX_SESSION: 'passTxId',   // SignupPage.vue 가 읽는 키
-  PASS_TX_ALT: 'pass.txId',      // TempLogin.vue 가 읽는 키
-  PASS_INTENT: 'pass.intent',
-  PASS_ROUTE: 'pass.route',
-}
-
-function isPortOneTxId(id = '') {
-  return /^app_iv_/i.test(String(id || ''))
-}
-
 function getPortOne() { return window?.PortOne }
-
-function pretty(obj) {
-  try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
-}
+function pretty(obj) { try { return JSON.stringify(obj, null, 2) } catch { return String(obj) } }
 
 function stopPolling() {
   pollingAbort = true
@@ -170,7 +143,6 @@ async function closeExternal() {
 function clearRunningStore() {
   try { sessionStorage.removeItem(RUN_STORE_KEY) } catch {}
 }
-
 function saveRunningStore(identityVerificationId) {
   try {
     sessionStorage.setItem(RUN_STORE_KEY, JSON.stringify({
@@ -179,7 +151,6 @@ function saveRunningStore(identityVerificationId) {
     }))
   } catch {}
 }
-
 function readRunningStore() {
   try {
     const raw = sessionStorage.getItem(RUN_STORE_KEY)
@@ -192,41 +163,27 @@ function readRunningStore() {
   }
 }
 
-/** ✅ PASS 관련 로컬 저장소를 “성공 txId” 기준으로 세팅 */
-function storePassSuccessTx(txId) {
+/** ✅ SignupPage.vue가 읽는 키를 “확실히” 맞춰줌 */
+function storePassTxForNextPages(txId) {
   const id = String(txId || '')
   if (!id) return
-  try { localStorage.setItem(STORE_KEYS.PASS_TX, id) } catch {}
-  try { sessionStorage.setItem(STORE_KEYS.PASS_TX_SESSION, id) } catch {}
-  try { localStorage.setItem(STORE_KEYS.PASS_TX_OLD, id) } catch {}
-  try { sessionStorage.setItem(STORE_KEYS.PASS_TX_ALT, id) } catch {}
-  // intent는 있으면 유지(없으면 건드리지 않음)
+
+  // SignupPage.vue: sessionStorage.getItem('passTxId') / localStorage.getItem('PASS_RESULT_TX')
+  try { sessionStorage.setItem('passTxId', id) } catch {}
+  try { localStorage.setItem('PASS_RESULT_TX', id) } catch {}
+
+  // 구버전/다른 페이지 호환 (있어도 무해)
+  try { localStorage.setItem('passTxId', id) } catch {}
+  try { sessionStorage.setItem('pass.txId', id) } catch {}
+  try { localStorage.setItem('pass.txId', id) } catch {}
 }
 
-/** ✅ 실패 정보 저장(디버그용/후속 화면 표시용) */
-function storePassFail(code, detailObj) {
-  try { localStorage.setItem(STORE_KEYS.PASS_FAIL, String(code || 'FAIL')) } catch {}
-  try { localStorage.setItem(STORE_KEYS.PASS_FAIL_DETAIL, JSON.stringify(detailObj || {})) } catch {}
-}
-
-/** ✅ PASS 스토리지 전체 정리 */
-function clearPassAllStorage() {
-  try {
-    localStorage.removeItem(STORE_KEYS.PASS_TX)
-    localStorage.removeItem(STORE_KEYS.PASS_FAIL)
-    localStorage.removeItem(STORE_KEYS.PASS_FAIL_DETAIL)
-    localStorage.removeItem(STORE_KEYS.PASS_TX_OLD)
-    localStorage.removeItem(STORE_KEYS.PASS_TX_ALT)
-    localStorage.removeItem(STORE_KEYS.PASS_INTENT)
-    localStorage.removeItem(STORE_KEYS.PASS_ROUTE)
-  } catch {}
-  try {
-    sessionStorage.removeItem(STORE_KEYS.PASS_TX_SESSION)
-    sessionStorage.removeItem(STORE_KEYS.PASS_TX_OLD)
-    sessionStorage.removeItem(STORE_KEYS.PASS_TX_ALT)
-    sessionStorage.removeItem(STORE_KEYS.PASS_INTENT)
-    sessionStorage.removeItem(STORE_KEYS.PASS_ROUTE)
-  } catch {}
+/** ✅ “인증중 고착 방지”: 성공/실패/예외 어디서든 정리 */
+async function cleanupAfterFlow() {
+  busy.value = false
+  if (mode.value === 'running') mode.value = 'idle'
+  clearRunningStore()
+  await closeExternal()
 }
 
 async function forceReset() {
@@ -236,7 +193,8 @@ async function forceReset() {
   busy.value = false
   txIdRef.value = ''
   clearRunningStore()
-  clearPassAllStorage()
+  try { sessionStorage.removeItem('passTxId') } catch {}
+  try { localStorage.removeItem('PASS_RESULT_TX') } catch {}
   await closeExternal()
 }
 
@@ -273,7 +231,6 @@ function shouldKeepPolling(respJson) {
     if (/pending|processing|requested|ready|started|init/i.test(ivStatus)) return true
     return false
   }
-
   return false
 }
 
@@ -331,8 +288,7 @@ function startPollingComplete(identityVerificationId) {
 
       stopPolling()
       pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j, httpStatus: res.status }))
-    } catch (e) {
-      // 네트워크/타임아웃 등은 계속 재시도
+    } catch {
       setTimeout(loop, POLL_INTERVAL_MS)
     }
   }
@@ -341,16 +297,30 @@ function startPollingComplete(identityVerificationId) {
   return pollingPromise
 }
 
-/* ---------------- route stage (강화: 재시도/안전폴백) ---------------- */
+/* ---------------- navigation helpers ---------------- */
+async function goSignup(txId) {
+  const id = String(txId || '')
+  storePassTxForNextPages(id)
+  await cleanupAfterFlow()
+
+  // ✅ name 의존 제거: 무조건 path로 이동 (라우트 name 불일치로 인한 멈춤 방지)
+  await router.replace({ path: '/signup', query: { passTxId: id } })
+}
+
+async function goTempLogin(txId) {
+  const id = String(txId || '')
+  storePassTxForNextPages(id)
+  await cleanupAfterFlow()
+
+  await router.replace({ path: '/templogin', query: { txId: id } })
+}
+
+/* ---------------- route stage ---------------- */
 function isRetryableRoutePayload(j, httpStatus) {
   const code = String(j?.code || '')
-  // 백엔드가 ok:false 로 내려주는 대기류
   if (code === 'PASS_NOT_SUCCESS') return true
   if (code === 'PASS_TX_NOT_FOUND') return true
-  // 응답이 이상하거나 서버 오류
-  if (httpStatus === 0) return true
-  if (httpStatus === 404) return true
-  if (httpStatus === 429) return true
+  if (httpStatus === 0 || httpStatus === 404 || httpStatus === 429) return true
   if (httpStatus >= 500 && httpStatus <= 599) return true
   return false
 }
@@ -360,15 +330,8 @@ async function proceedRouteByTx(txId) {
   if (!id) {
     lastFailCode.value = 'NO_TXID'
     mode.value = 'fail'
-    busy.value = false
+    await cleanupAfterFlow()
     return
-  }
-
-  // ✅ route 호출 전, 상태 표시를 확실히 남김
-  lastFailDetail.value = {
-    stage: 'route:request',
-    message: 'route 분기 조회 중…',
-    raw: { txId: id }
   }
 
   const maxTry = 8
@@ -376,6 +339,13 @@ async function proceedRouteByTx(txId) {
 
   for (let i = 1; i <= maxTry; i++) {
     try {
+      lastFailDetail.value = {
+        stage: 'route:request',
+        tryCount: i,
+        message: 'route 분기 조회 중…',
+        raw: { txId: id }
+      }
+
       const res = await fetchWithTimeout(
         api(`/api/auth/pass/route?txId=${encodeURIComponent(id)}`),
         { credentials: 'include' },
@@ -394,53 +364,41 @@ async function proceedRouteByTx(txId) {
         raw: j,
       }
 
-      // ✅ 성공 케이스
       if (res.ok && j?.ok !== false) {
         const nextRoute = j?.route || j?.next
         if (!nextRoute) {
           lastFailCode.value = 'ROUTE_MISSING'
           mode.value = 'fail'
-          break
-        }
-
-        // (선택) route 결과 저장
-        try { sessionStorage.setItem(STORE_KEYS.PASS_ROUTE, String(nextRoute)) } catch {}
-
-        if (nextRoute === 'signup') {
-          // ✅ 회원가입 화면이 txId를 안정적으로 읽게끔 저장소도 같이 세팅
-          storePassSuccessTx(id)
-          try { await router.replace({ name: 'Signup', query: { passTxId: id } }) }
-          catch { await router.replace({ path: `/signup?passTxId=${encodeURIComponent(id)}` }) }
+          await cleanupAfterFlow()
           return
         }
 
+        // ✅ 분기
+        if (nextRoute === 'signup') {
+          await goSignup(id)
+          return
+        }
         if (nextRoute === 'templogin') {
-          storePassSuccessTx(id)
-          try { await router.replace({ name: 'TempLogin', query: { txId: id } }) }
-          catch { await router.replace({ path: `/templogin?txId=${encodeURIComponent(id)}` }) }
+          await goTempLogin(id)
           return
         }
 
         lastFailCode.value = 'ROUTE_UNKNOWN'
         mode.value = 'fail'
-        break
+        await cleanupAfterFlow()
+        return
       }
 
-      // ✅ 실패인데 “재시도 가치”가 있는 케이스면 잠깐 기다렸다가 재호출
-      if (isRetryableRoutePayload(j, res.status)) {
-        if (i < maxTry) {
-          await new Promise(r => setTimeout(r, delayMs))
-          continue
-        }
+      if (isRetryableRoutePayload(j, res.status) && i < maxTry) {
+        await new Promise(r => setTimeout(r, delayMs))
+        continue
       }
 
-      // ✅ 최종 실패 처리
       lastFailCode.value = j?.code || 'ROUTE_ERROR'
-      storePassFail(lastFailCode.value, { stage: 'route', httpStatus: res.status, raw: j })
       mode.value = 'fail'
-      break
+      await cleanupAfterFlow()
+      return
     } catch (e) {
-      // timeout/network
       lastFailDetail.value = {
         stage: 'route:exception',
         tryCount: i,
@@ -453,17 +411,13 @@ async function proceedRouteByTx(txId) {
         continue
       }
       lastFailCode.value = e?.name === 'AbortError' ? 'ROUTE_TIMEOUT' : (e?.message || 'ROUTE_FETCH_ERROR')
-      storePassFail(lastFailCode.value, lastFailDetail.value)
       mode.value = 'fail'
-      break
+      await cleanupAfterFlow()
+      return
     }
   }
 
-  // ✅ 어떤 경우든 busy를 영구로 두지 않음
-  busy.value = false
-  if (mode.value === 'running') mode.value = 'idle'
-  await closeExternal()
-  clearRunningStore()
+  await cleanupAfterFlow()
 }
 
 /* ---------------- finalize ---------------- */
@@ -471,11 +425,9 @@ async function finalizeByIdentityVerificationId(identityVerificationId) {
   try {
     const j = await startPollingComplete(identityVerificationId)
 
-    // complete ok 라면 여기로 옴
     const txId = j?.txId || identityVerificationId
     txIdRef.value = txId
 
-    // ✅ complete 성공을 화면에 남기고
     lastFailDetail.value = {
       stage: 'complete:ok',
       ivStatus: j?.ivStatus || null,
@@ -483,10 +435,10 @@ async function finalizeByIdentityVerificationId(identityVerificationId) {
       raw: j
     }
 
-    // ✅ “결과 txId”를 공용 스토리지에 기록 (Signup/TempLogin이 읽을 수 있게)
-    storePassSuccessTx(txId)
+    // ✅ 다음 화면을 위해 저장
+    storePassTxForNextPages(txId)
 
-    // ✅ 분기
+    // ✅ 여기서 route 분기
     await proceedRouteByTx(txId)
   } catch (e) {
     const payload = e?.payload || null
@@ -496,11 +448,8 @@ async function finalizeByIdentityVerificationId(identityVerificationId) {
       message: e?.message || '',
       stackTop: String(e?.stack || '').split('\n')[0]
     }
-    storePassFail(lastFailCode.value, lastFailDetail.value)
     mode.value = 'fail'
-    busy.value = false
-    await closeExternal()
-    clearRunningStore()
+    await cleanupAfterFlow()
   }
 }
 
@@ -510,12 +459,6 @@ async function onClickPass() {
   lastFailDetail.value = null
   stopPolling()
   if (busy.value) return
-
-  // ✅ 기존 실패/상태는 시작 시 정리
-  try {
-    localStorage.removeItem(STORE_KEYS.PASS_FAIL)
-    localStorage.removeItem(STORE_KEYS.PASS_FAIL_DETAIL)
-  } catch {}
 
   if (!STORE_ID || !CHANNEL_KEY) {
     lastFailCode.value = 'ENV_MISSING'
@@ -542,11 +485,10 @@ async function onClickPass() {
     txIdRef.value = identityVerificationId
     saveRunningStore(identityVerificationId)
 
-    // ✅ redirectUrl을 relay로 통일
     const redirectUrl =
       `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
 
-    // ✅ 폴링 시작(동시 진행)
+    // 폴링/완료처리
     void finalizeByIdentityVerificationId(identityVerificationId)
 
     const resp = await PortOne.requestIdentityVerification({
@@ -556,27 +498,20 @@ async function onClickPass() {
       redirectUrl,
     })
 
-    // PortOne SDK가 즉시 에러를 주는 경우
     if (resp?.code) {
       stopPolling()
       lastFailCode.value = resp.code || 'PORTONE_FAIL'
       lastFailDetail.value = { stage: 'start:resp', raw: resp }
-      storePassFail(lastFailCode.value, lastFailDetail.value)
       mode.value = 'fail'
-      busy.value = false
-      await closeExternal()
-      clearRunningStore()
+      await cleanupAfterFlow()
       return
     }
   } catch (e) {
     stopPolling()
     lastFailCode.value = e?.message || 'PORTONE_START_ERROR'
     lastFailDetail.value = { stage: 'start:exception', message: String(e?.message || e) }
-    storePassFail(lastFailCode.value, lastFailDetail.value)
     mode.value = 'fail'
-    busy.value = false
-    await closeExternal()
-    clearRunningStore()
+    await cleanupAfterFlow()
   }
 }
 
@@ -633,26 +568,16 @@ async function handleAppUrlOpen(data) {
     }
 
     lastFailCode.value = 'NO_ID'
-    storePassFail(lastFailCode.value, { stage: 'deeplink', message: 'identityVerificationId/txId 없음', raw: { rawUrl } })
     mode.value = 'fail'
-    busy.value = false
-    await closeExternal()
+    await cleanupAfterFlow()
   } catch {}
 }
 
 onMounted(async () => {
-  // intent 전달(선택): ?intent=signup / phone_update 등
-  try {
-    const intent = typeof route.query.intent === 'string' ? route.query.intent : ''
-    if (intent) {
-      sessionStorage.setItem(STORE_KEYS.PASS_INTENT, intent)
-      localStorage.setItem(STORE_KEYS.PASS_INTENT, intent)
-    }
-  } catch {}
-
   if (isNative) {
     appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen)
     browserFinishedSub = Browser.addListener('browserFinished', () => {
+      // 외부 브라우저 닫힘은 “완료”가 아닐 수 있으니 상태만 풀어줌
       busy.value = false
       if (mode.value === 'running') mode.value = 'idle'
     })
@@ -660,7 +585,6 @@ onMounted(async () => {
     window.addEventListener('message', handleWindowMessage)
   }
 
-  // 쿼리로 바로 들어온 경우
   const ivId = route.query.identityVerificationId ? String(route.query.identityVerificationId) : ''
   if (ivId) {
     txIdRef.value = ivId
@@ -671,7 +595,6 @@ onMounted(async () => {
     return
   }
 
-  // 진행중 상태 복원
   const run = readRunningStore()
   if (run?.identityVerificationId) {
     const elapsed = Date.now() - Number(run.startedAt || 0)
