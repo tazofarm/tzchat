@@ -4,7 +4,9 @@
     <ion-header>
       <ion-toolbar>
         <ion-title>전화번호 변경(PASS)</ion-title>
-        <ion-button @click="goBack">뒤로가기</ion-button>
+        <ion-buttons slot="end">
+          <ion-button @click="goBack">뒤로가기</ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
@@ -31,9 +33,16 @@
             </p>
 
             <div class="status">
+              <!-- ✅ busy는 "클릭/요청 처리중" -->
               <div v-if="busy" class="row">
                 <ion-spinner name="dots" class="mr-2" />
-                <span>처리중…</span>
+                <span>{{ phase === 'commit' ? '변경 반영 중…' : '요청 처리중…' }}</span>
+              </div>
+
+              <!-- ✅ verifying는 "PASS 인증 결과(complete) 대기중" -->
+              <div v-else-if="verifying" class="row pending">
+                <ion-spinner name="dots" class="mr-2" />
+                <span>PASS 인증 결과 확인 중…</span>
               </div>
 
               <div v-else-if="error" class="row error">
@@ -50,7 +59,11 @@
             </div>
 
             <div class="actions">
-              <ion-button expand="block" :disabled="busy || certified" @click="onStartPass">
+              <ion-button
+                expand="block"
+                :disabled="busy || verifying || certified"
+                @click="onStartPass"
+              >
                 <ion-spinner v-if="busy && phase === 'start'" name="dots" class="mr-2" />
                 <span>{{ startBtnText }}</span>
               </ion-button>
@@ -58,7 +71,7 @@
               <ion-button
                 expand="block"
                 fill="outline"
-                :disabled="busy || (!txId && errorCode !== 'CI_MISMATCH')"
+                :disabled="busy || verifying || (!txId && errorCode !== 'CI_MISMATCH')"
                 @click="onSecondaryAction"
               >
                 <ion-spinner v-if="busy && phase === 'commit'" name="dots" class="mr-2" />
@@ -96,7 +109,8 @@
 <script setup lang="ts">
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
-  IonButton, IonSpinner, IonCard, IonCardHeader, IonCardTitle, IonCardSubtitle, IonCardContent
+  IonButton, IonSpinner, IonCard, IonCardHeader, IonCardTitle, IonCardSubtitle, IonCardContent,
+  IonButtons
 } from '@ionic/vue'
 import { Capacitor } from '@capacitor/core'
 import { App } from '@capacitor/app'
@@ -129,10 +143,6 @@ function makeIdentityVerificationId() {
   return `app_iv_${ts}_${rnd}`
 }
 
-function isPortOneTxId(id: any): boolean {
-  return typeof id === 'string' && /^app_iv_/i.test(id)
-}
-
 // ====== AUTH HEADER(기존 유지) ======
 function buildAuthHeaders() {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -162,7 +172,12 @@ function clearPassStorage() {
 
 // ====== UI STATE ======
 const me = ref<any>(null)
+
+// ✅ busy: 버튼 클릭/요청 처리중(짧은 구간)
+// ✅ verifying: PASS 인증 결과(complete) 기다리는 중(길 수 있음)
 const busy = ref(false)
+const verifying = ref(false)
+
 const error = ref('')
 const errorCode = ref('')
 const success = ref(false)
@@ -205,9 +220,9 @@ function resetPassState() {
   updatedFields.value = []
   lastFailCode.value = ''
   lastFailDetail.value = null
+  verifying.value = false
 }
 
-// ====== overlay action ======
 function onSecondaryAction() {
   if (errorCode.value === 'CI_MISMATCH') {
     resetPassState()
@@ -217,7 +232,6 @@ function onSecondaryAction() {
   }
 }
 
-// ====== me ======
 async function reloadMe() {
   try {
     const res = await api.get('/api/me', { withCredentials: true })
@@ -239,7 +253,7 @@ async function fetchWithTimeout(url: string, opts: any = {}, timeoutMs = 15000) 
   }
 }
 
-// ====== PortOne complete polling (PassPortal과 동일) ======
+// ====== complete polling ======
 const POLL_INTERVAL_MS = 900
 const POLL_TIMEOUT_MS = 90_000
 
@@ -253,6 +267,7 @@ function stopPolling() {
   pollingPromise = null
   pollingResolve = null
   pollingReject = null
+  verifying.value = false
 }
 
 function shouldKeepPolling(respJson: any) {
@@ -343,6 +358,7 @@ async function finalizeByIdentityVerificationId(identityVerificationId: string) 
 
     txId.value = String(nextTxId)
     certified.value = true
+    verifying.value = false
     busy.value = false
     phase.value = 'idle'
 
@@ -363,6 +379,7 @@ async function finalizeByIdentityVerificationId(identityVerificationId: string) 
     }
     error.value = '인증 확인 실패'
     errorCode.value = lastFailCode.value || 'COMPLETE_ERROR'
+    verifying.value = false
     busy.value = false
     phase.value = 'idle'
   }
@@ -379,10 +396,9 @@ function handleWindowMessage(ev: MessageEvent) {
     const tx = data.txId ? String(data.txId) : ''
 
     if (ivId) {
-      busy.value = true
-      phase.value = 'start'
-      certified.value = false
       txId.value = ivId
+      certified.value = false
+      verifying.value = true
       void finalizeByIdentityVerificationId(ivId)
       return
     }
@@ -390,6 +406,7 @@ function handleWindowMessage(ev: MessageEvent) {
     if (tx) {
       txId.value = tx
       certified.value = true
+      verifying.value = false
       return
     }
   } catch {}
@@ -402,10 +419,9 @@ async function handleAppUrlOpen(data: any) {
 
     const ivId = url.searchParams.get('identityVerificationId') || ''
     if (ivId) {
-      busy.value = true
-      phase.value = 'start'
-      certified.value = false
       txId.value = ivId
+      certified.value = false
+      verifying.value = true
       try { await Browser.close() } catch {}
       await finalizeByIdentityVerificationId(ivId)
       return
@@ -415,13 +431,14 @@ async function handleAppUrlOpen(data: any) {
     if (tx) {
       txId.value = tx
       certified.value = true
+      verifying.value = false
       try { await Browser.close() } catch {}
       return
     }
   } catch {}
 }
 
-// ====== start pass (최신 PortOne 직접 호출) ======
+// ====== start pass ======
 async function onStartPass() {
   if (certified.value) return
 
@@ -448,14 +465,16 @@ async function onStartPass() {
     const identityVerificationId = makeIdentityVerificationId()
     txId.value = identityVerificationId
 
-    // ✅ redirectUrl을 relay로 통일 (신규 파이프라인)
     const redirectUrl =
       `${SERVICE_ORIGIN}/api/auth/pass/relay?identityVerificationId=${encodeURIComponent(identityVerificationId)}`
 
-    // ✅ complete 폴링 먼저 시작(인증 완료 시 PassResult 생성 보장)
+    // ✅ 이제부터는 busy가 아니라 verifying로 "대기" 표시
+    verifying.value = true
+
+    // ✅ complete 폴링 시작
     void finalizeByIdentityVerificationId(identityVerificationId)
 
-    // ✅ PortOne 시작
+    // ✅ PortOne 시작(사용자 인증 끝날 때까지 오래 걸릴 수 있음)
     const resp = await PortOne.requestIdentityVerification({
       storeId: STORE_ID,
       channelKey: CHANNEL_KEY,
@@ -463,20 +482,21 @@ async function onStartPass() {
       redirectUrl,
     })
 
+    // PortOne이 반환을 늦게 해도 stuck 안 되도록 여기서 busy는 내려줌
+    busy.value = false
+    phase.value = 'idle'
+
     if (resp?.code) {
       stopPolling()
-      busy.value = false
-      phase.value = 'idle'
+      verifying.value = false
       error.value = resp?.message || '인증 시작 실패'
       errorCode.value = String(resp.code || 'PORTONE_FAIL')
       lastFailDetail.value = { stage: 'start:resp', raw: resp }
       return
     }
-
-    // native일 경우 외부 열림은 SDK/환경에 따라 다르므로 별도 처리 없음.
-    // (relay/appUrlOpen/message로 복귀 시 finalize가 알아서 진행)
   } catch (e: any) {
     stopPolling()
+    verifying.value = false
     busy.value = false
     phase.value = 'idle'
     error.value = e?.message || '인증 시작 실패'
@@ -576,13 +596,11 @@ onMounted(async () => {
     window.addEventListener('message', handleWindowMessage)
   }
 
-  // 혹시 URL로 identityVerificationId가 들어온 경우(예외 대응)
   const ivId = typeof route.query.identityVerificationId === 'string' ? route.query.identityVerificationId : ''
   if (ivId) {
-    busy.value = true
-    phase.value = 'start'
     txId.value = ivId
     certified.value = false
+    verifying.value = true
     await finalizeByIdentityVerificationId(ivId)
   }
 })
@@ -592,8 +610,8 @@ onBeforeUnmount(() => {
   if (appUrlOpenSub) appUrlOpenSub.remove?.()
   window.removeEventListener('message', handleWindowMessage)
 })
+
 const goBack = () => {
-  console.log('[phoneupdate] 뒤로가기 클릭')
   router.back()
 }
 </script>
@@ -614,7 +632,6 @@ const goBack = () => {
 .actions { display: grid; gap: 8px; margin: 8px 0 10px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 
-/* debug box */
 .fail-code { margin-top: 12px; color: var(--ion-color-danger); }
 .fail-detail {
   margin-top: 12px;
