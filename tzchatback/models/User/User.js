@@ -9,6 +9,10 @@
 // - 포인트 지갑 및 가입/등급 변경 보너스 반영
 // - PASS 해시는 User에는 '참조용(select:false)'으로만 유지
 //   ※ CI/DI의 '정본(고유성)'은 PassIdentity에서 관리합니다.
+//
+// ✅ [중요 변경]
+// - phone / phoneHash 는 "unique 금지" (전화번호 재할당/변경/중복 허용)
+// - 인덱스는 검색/조회 최적화용 일반 인덱스만 유지
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -94,8 +98,8 @@ const userSchema = new mongoose.Schema(
     search_preference: { type: String, default: '이성친구 - 전체' },
 
     // 유료회원 관련
-    user_level: { 
-      type: String, 
+    user_level: {
+      type: String,
       enum: ['베타회원', '일반회원', '라이트회원', '프리미엄회원'],
       default: '베타회원'
     },
@@ -143,8 +147,8 @@ const userSchema = new mongoose.Schema(
     // 휴대폰/연락처 해시
     // ────────────────────────────────────────────────────────
     /** phone: 선택 입력
-     *  - 필드 레벨 unique/sparse 미지정(중복 인덱스 경고 방지)
-     *  - 인덱스는 하단에서 partial unique로 정의
+     *  ✅ unique 금지 (전화번호 재할당/중복 허용 정책)
+     *  - 인덱스는 하단에서 "일반 인덱스"로만 정의
      */
     phone: {
       type: String,
@@ -152,7 +156,11 @@ const userSchema = new mongoose.Schema(
       default: undefined, // 미입력 시 undefined로 유지
       trim: true,
     },
-    /** phoneHash: 응답 기본 제외, 인덱스는 하단에서 정의 */
+
+    /** phoneHash: 응답 기본 제외
+     *  ✅ unique 금지 (전화번호 중복 허용 정책)
+     *  - 인덱스는 하단에서 "일반 인덱스(sparse)" 로만 정의
+     */
     phoneHash: {
       type: String,
       select: false, // 기본 응답에서 제외
@@ -206,8 +214,6 @@ const userSchema = new mongoose.Schema(
 function removeSensitive(doc, ret) {
   try {
     delete ret.password;
-    // select:false 필드는 기본적으로 내려가지 않지만,
-    // 혹시나 변환 과정에서 포함되면 제거
     delete ret.phoneHash;
     delete ret.ciHash;
     delete ret.diHash;
@@ -234,19 +240,23 @@ userSchema.index({ nickname: 1 }, { unique: true, name: 'nickname_1' });
 userSchema.index({ isDeleted: 1 });
 userSchema.index({ deletedAt: 1 });
 
-// phone: partial unique (값 있을 때만 유니크)
+// ✅ phone: 일반 인덱스(검색용) — unique 제거
 userSchema.index(
   { phone: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { phone: { $exists: true, $ne: '' } },
-    name: 'phone_1',
-  }
+  { name: 'phone_1' }
 );
 
-// phoneHash: 값 있을 때만 유니크(sparse)
-//  - 연락처 제외/매칭을 위한 고속 비교용
-userSchema.index({ phoneHash: 1 }, { unique: true, sparse: true, name: 'phoneHash_1' });
+// ✅ phoneHash: 일반 인덱스(비어있을 수 있으니 sparse) — unique 제거
+userSchema.index(
+  { phoneHash: 1 },
+  { sparse: true, name: 'phoneHash_1' }
+);
+
+// (선택) localContactHashes도 조회/매칭 성능에 필요하면 인덱스 권장
+userSchema.index(
+  { localContactHashes: 1 },
+  { sparse: true, name: 'localContactHashes_1' }
+);
 
 // PASS 해시: 조회 최적화용 일반 인덱스(고유성은 PassIdentity가 보장)
 userSchema.index({ ciHash: 1 }, { sparse: true, name: 'ciHash_idx' });
