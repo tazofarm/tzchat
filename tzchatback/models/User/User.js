@@ -1,18 +1,10 @@
 // backend/models/User/User.js
 // ------------------------------------------------------------
 // User 모델
-// - 기존 구조 유지 + 휴대폰 정규화/해시 자동화
-// - 프로필 이미지 다중 관리
-// - friendlist/blocklist 기본값 보강
-// - 응답 변환 시 민감정보 제거
-// - 탈퇴 상태 정합성 훅
-// - 포인트 지갑 및 가입/등급 변경 보너스 반영
-// - PASS 해시는 User에는 '참조용(select:false)'으로만 유지
-//   ※ CI/DI의 '정본(고유성)'은 PassIdentity에서 관리합니다.
-//
-// ✅ [중요 변경]
-// - phone / phoneHash 는 "unique 금지" (전화번호 재할당/변경/중복 허용)
-// - 인덱스는 검색/조회 최적화용 일반 인덱스만 유지
+// - 휴대폰 정규화/해시 자동화
+// - ✅ 전화번호 중복 가입 허용 정책 반영: phone/phoneHash UNIQUE 제거
+// - ✅ carrier / phoneVerifiedAt / phoneVerifiedBy 필드 추가 (프론트 표시/검증용)
+// - ✅ phoneMasked / phoneFormatted 가상필드 제공 (프론트에서 기대하는 경우 대비)
 // ------------------------------------------------------------
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -47,13 +39,7 @@ const ProfileImageSchema = new mongoose.Schema(
 // ────────────────────────────────────────────────────────────
 // 유틸
 // ────────────────────────────────────────────────────────────
-/** 한국 번호 E.164 정규화
- *  - '+82' 또는 타국가 '+' 시작 → 그대로
- *  - '0' 시작 → '+82' + 나머지
- *  - '82'로 시작(플러스 없음) → '+' 붙여 정규화
- *  - 그 외 숫자만 주어진 경우 → '+82' 접두
- *  ※ 실제 서비스에서는 libphonenumber-js 사용 권장
- */
+/** 한국 번호 E.164 정규화 */
 function normalizePhoneKR(raw = '') {
   const clean = String(raw).replace(/[^\d+]/g, '');
   if (!clean) return '';
@@ -66,6 +52,30 @@ function sha256Hex(text = '') {
   return crypto.createHash('sha256').update(String(text)).digest('hex');
 }
 
+// E.164(+82...) → 010xxxxxxxx 형태로 변환(가능할 때만)
+function toKRLocalDigits(e164 = '') {
+  const p = String(e164 || '');
+  if (!p) return '';
+  if (p.startsWith('+82')) {
+    // +8210xxxxxxxx → 010xxxxxxxx
+    const rest = p.slice(3);
+    if (!rest) return '';
+    return '0' + rest;
+  }
+  return p;
+}
+function maskPhoneDigitsKR(localDigits = '') {
+  // 010xxxxxxxx 또는 01x...
+  const s = String(localDigits || '').replace(/[^\d]/g, '');
+  if (s.length < 7) return s;
+  // 마지막 2~4자리만 남기고 중간 마스킹
+  // 010 + (중간) + (끝 2~4)
+  const last = s.slice(-2);
+  const head = s.slice(0, 3);
+  const midLen = Math.max(0, s.length - head.length - last.length);
+  return `${head} ${'*'.repeat(midLen)} ${last}`.replace(/\s+/g, ' ');
+}
+
 // ────────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema(
   {
@@ -74,9 +84,9 @@ const userSchema = new mongoose.Schema(
     suspended: { type: Boolean, default: false },
 
     // [1] 기본 정보
-    username: { type: String, required: true },                // 인덱스는 하단에서 일괄
-    password: { type: String, required: true, select: false }, // 기본 응답 제외
-    nickname: { type: String, required: true },                // 인덱스는 하단에서 일괄
+    username: { type: String, required: true },
+    password: { type: String, required: true, select: false },
+    nickname: { type: String, required: true },
     birthyear: Number,
     gender: String,
 
@@ -86,7 +96,6 @@ const userSchema = new mongoose.Schema(
     preference: { type: String, default: '이성친구 - 일반' },
     selfintro: { type: String, default: '' },
 
-    // 프로필 이미지 다중 관리
     profileImages: { type: [ProfileImageSchema], default: [] },
     profileMain:   { type: String, default: '' },
 
@@ -105,13 +114,12 @@ const userSchema = new mongoose.Schema(
     },
     refundCountTotal: { type: Number, default: 0, min: 0 },
 
-    // [신규] 포인트 지갑
-    heart: { type: Number, default: 0, min: 0 }, // 하트(무료/일일지급)
-    star:  { type: Number, default: 0, min: 0 }, // 스타(보상/출석·이벤트)
-    ruby:  { type: Number, default: 0, min: 0 }, // 루비(유료/구매)
-    lastDailyGrantAt: { type: Date, default: null }, // 마지막 하트 지급 기준시각(KST 11:00)
+    // 포인트 지갑
+    heart: { type: Number, default: 0, min: 0 },
+    star:  { type: Number, default: 0, min: 0 },
+    ruby:  { type: Number, default: 0, min: 0 },
+    lastDailyGrantAt: { type: Date, default: null },
 
-    // 다중 검색 지역
     search_regions: {
       type: [{
         region1: { type: String, required: true },
@@ -144,42 +152,41 @@ const userSchema = new mongoose.Schema(
     },
 
     // ────────────────────────────────────────────────────────
-    // 휴대폰/연락처 해시
+    // ✅ 휴대폰/통신사/검증 메타
     // ────────────────────────────────────────────────────────
-    /** phone: 선택 입력
-     *  ✅ unique 금지 (전화번호 재할당/중복 허용 정책)
-     *  - 인덱스는 하단에서 "일반 인덱스"로만 정의
-     */
     phone: {
       type: String,
       required: false,
-      default: undefined, // 미입력 시 undefined로 유지
+      default: undefined,
       trim: true,
     },
 
-    /** phoneHash: 응답 기본 제외
-     *  ✅ unique 금지 (전화번호 중복 허용 정책)
-     *  - 인덱스는 하단에서 "일반 인덱스(sparse)" 로만 정의
-     */
+    // ✅ 통신사: authRouter에서 넣고 있으니 스키마에 반드시 있어야 저장됨
+    carrier: { type: String, default: '' },
+
+    // ✅ 검증 메타(없으면 저장이 안되니 스키마에 추가)
+    phoneVerifiedAt: { type: Date, default: null },
+    phoneVerifiedBy: { type: String, default: '' }, // 'PASS' 등
+
+    // 고속 비교용 해시(중복 허용 정책이므로 UNIQUE 금지)
     phoneHash: {
       type: String,
-      select: false, // 기본 응답에서 제외
-    },  // SHA-256(E.164)
+      select: false,
+    },
 
     localContactHashes: {
       type: [String],
       default: [],
-      select: false, // 기본 응답에서 제외
-    }, // SHA-256(E.164) 배열
+      select: false,
+    },
 
-    // 스위치: "ON"/"OFF"
+    // 스위치들
     search_disconnectLocalContacts: { type: String, default: 'OFF' },
     search_allowFriendRequests:     { type: String, default: 'OFF' },
     search_allowNotifications:      { type: String, default: 'OFF' },
     search_onlyWithPhoto:           { type: String, default: 'OFF' },
     search_matchPremiumOnly:        { type: String, default: 'OFF' },
 
-    // 결혼유무
     marriage: { type: String, default: '미혼' },
     search_marriage: { type: String, default: '전체' },
 
@@ -188,30 +195,44 @@ const userSchema = new mongoose.Schema(
     receivedRequestCountTotal: { type: Number, default: 0, min: 0 },
     acceptedChatCountTotal: { type: Number, default: 0, min: 0 },
 
-    // [탈퇴 관리 필드 - 기본 체계]
+    // 탈퇴 관리
     status: { type: String, enum: ['active', 'pendingDeletion', 'deleted'], default: 'active' },
     deletionRequestedAt: { type: Date, default: null },
     deletionDueAt: { type: Date, default: null },
 
-    // [탈퇴 관리 필드 - 호환용]
+    // 호환용
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
 
-    // ────────────────────────────────────────────────────────
-    // PASS 해시 (참조용; 정본/고유성은 PassIdentity에서 관리)
-    // ────────────────────────────────────────────────────────
+    // PASS 해시 (참조용)
     ciHash: { type: String, select: false },
     diHash: { type: String, select: false },
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
 // ────────────────────────────────────────────────────────────
+// ✅ 가상필드: phoneFormatted / phoneMasked
+// (프론트에서 me.phoneMasked / me.phoneFormatted 를 기대하는 경우 대비)
+// ────────────────────────────────────────────────────────────
+userSchema.virtual('phoneFormatted').get(function () {
+  const local = toKRLocalDigits(this.phone || '');
+  return local || '';
+});
+userSchema.virtual('phoneMasked').get(function () {
+  const local = toKRLocalDigits(this.phone || '');
+  if (!local) return '';
+  return maskPhoneDigitsKR(local);
+});
+
+// ────────────────────────────────────────────────────────────
 // 응답 변환: 민감정보 제거
 // ────────────────────────────────────────────────────────────
-function removeSensitive(doc, ret) {
+function removeSensitive(_doc, ret) {
   try {
     delete ret.password;
     delete ret.phoneHash;
@@ -223,8 +244,8 @@ function removeSensitive(doc, ret) {
     return ret;
   }
 }
-userSchema.set('toJSON',  { transform: (_, ret) => removeSensitive(_, ret) });
-userSchema.set('toObject', { transform: (_, ret) => removeSensitive(_, ret) });
+userSchema.set('toJSON',  { virtuals: true, transform: removeSensitive });
+userSchema.set('toObject', { virtuals: true, transform: removeSensitive });
 
 // ────────────────────────────────────────────────────────────
 // 인덱스
@@ -240,42 +261,32 @@ userSchema.index({ nickname: 1 }, { unique: true, name: 'nickname_1' });
 userSchema.index({ isDeleted: 1 });
 userSchema.index({ deletedAt: 1 });
 
-// ✅ phone: 일반 인덱스(검색용) — unique 제거
+// ✅ phone / phoneHash 는 “중복 허용” 정책: UNIQUE 제거하고 일반 인덱스만
 userSchema.index(
   { phone: 1 },
-  { name: 'phone_1' }
+  {
+    name: 'phone_1',
+    partialFilterExpression: { phone: { $exists: true, $ne: '' } },
+  }
 );
+userSchema.index({ phoneHash: 1 }, { sparse: true, name: 'phoneHash_1' });
 
-// ✅ phoneHash: 일반 인덱스(비어있을 수 있으니 sparse) — unique 제거
-userSchema.index(
-  { phoneHash: 1 },
-  { sparse: true, name: 'phoneHash_1' }
-);
-
-// (선택) localContactHashes도 조회/매칭 성능에 필요하면 인덱스 권장
-userSchema.index(
-  { localContactHashes: 1 },
-  { sparse: true, name: 'localContactHashes_1' }
-);
-
-// PASS 해시: 조회 최적화용 일반 인덱스(고유성은 PassIdentity가 보장)
+// PASS 해시 조회 최적화용
 userSchema.index({ ciHash: 1 }, { sparse: true, name: 'ciHash_idx' });
 userSchema.index({ diHash: 1 }, { sparse: true, name: 'diHash_idx' });
 
-// 등급별 리스트/집계용
+// 등급별
 userSchema.index({ user_level: 1 });
 
 // ────────────────────────────────────────────────────────────
 // 메서드/훅
 // ────────────────────────────────────────────────────────────
-
-// 탈퇴 신청/취소
 userSchema.methods.requestDeletion = function() {
   const now = new Date();
   this.status = 'pendingDeletion';
   this.deletionRequestedAt = now;
-  this.deletedAt = now;                 // 호환 필드 동기화
-  this.isDeleted = true;                // 호환 필드 동기화
+  this.deletedAt = now;
+  this.isDeleted = true;
   const days = retention?.DELETION_GRACE_DAYS ?? 14;
   this.deletionDueAt = new Date(now.getTime() + days * 86400000);
 };
@@ -284,24 +295,21 @@ userSchema.methods.cancelDeletion = function() {
   this.status = 'active';
   this.deletionRequestedAt = null;
   this.deletionDueAt = null;
-  this.deletedAt = null;                // 호환 필드 동기화
-  this.isDeleted = false;               // 호환 필드 동기화
+  this.deletedAt = null;
+  this.isDeleted = false;
 };
 
-// 저장 전: 탈퇴 정합성
+// 탈퇴 정합성
 userSchema.pre('save', function(next) {
   try {
     if (this.status === 'pendingDeletion' || this.status === 'deleted') {
       this.isDeleted = true;
-      if (!this.deletedAt) {
-        this.deletedAt = this.deletionRequestedAt || new Date();
-      }
+      if (!this.deletedAt) this.deletedAt = this.deletionRequestedAt || new Date();
       if (!this.deletionDueAt && this.status === 'pendingDeletion') {
         const days = retention?.DELETION_GRACE_DAYS ?? 14;
         this.deletionDueAt = new Date(Date.now() + days * 86400000);
       }
     } else {
-      // active
       this.isDeleted = false;
       if (!this.deletionRequestedAt) this.deletedAt = null;
       if (!this.deletionRequestedAt) this.deletionDueAt = null;
@@ -313,7 +321,7 @@ userSchema.pre('save', function(next) {
   }
 });
 
-// 저장 전: 회원 등급 변경 시 기본 하트 갱신
+// 등급 변경 시 하트 갱신
 userSchema.pre('save', function(next) {
   try {
     if (this.isModified('user_level')) {
@@ -335,13 +343,12 @@ userSchema.pre('save', function(next) {
   }
 });
 
-// 저장 전: 휴대폰 정규화 + phoneHash 자동 생성/동기화
+// ✅ 휴대폰 정규화 + phoneHash 생성
 userSchema.pre('save', function(next) {
   try {
     if (this.isModified('phone')) {
       const raw = this.phone;
 
-      // 비었으면 제거
       if (raw === undefined || raw === null || String(raw).trim() === '') {
         this.phone = undefined;
         this.phoneHash = undefined;
@@ -349,13 +356,11 @@ userSchema.pre('save', function(next) {
       }
 
       const normalized = normalizePhoneKR(raw);
-      if (!normalized) {
-        return next(new Error('유효한 휴대폰 번호가 아닙니다.'));
-      }
+      if (!normalized) return next(new Error('유효한 휴대폰 번호가 아닙니다.'));
+
       this.phone = normalized;
       this.phoneHash = sha256Hex(normalized);
     } else if (!this.phoneHash && this.phone) {
-      // 기존 문서 백필
       const normalized = normalizePhoneKR(this.phone);
       if (normalized) {
         this.phone = normalized;
@@ -372,7 +377,7 @@ userSchema.pre('save', function(next) {
   }
 });
 
-// 가입 훅: 스타/루비 보너스 + 일일지급 기준시각 셋업
+// 가입 보너스
 userSchema.pre('save', function(next) {
   try {
     if (this.isNew) {
@@ -384,7 +389,6 @@ userSchema.pre('save', function(next) {
       this.star = Math.max(0, (Number(this.star || 0) + addStar));
       this.ruby = Math.max(0, (Number(this.ruby || 0) + addRuby));
 
-      // 다음 11:00부터 일일 지급이 시작되도록, 기준시각을 "직전 11:00 KST"로 설정
       this.lastDailyGrantAt = getPrevGrantTimeKST(new Date());
     }
     next();
@@ -394,7 +398,7 @@ userSchema.pre('save', function(next) {
   }
 });
 
-// 등급 변경 보너스(신규 문서 제외)
+// 등급 변경 보너스
 userSchema.pre('save', function(next) {
   try {
     if (this.isModified('user_level') && !this.isNew) {
@@ -413,7 +417,7 @@ userSchema.pre('save', function(next) {
   }
 });
 
-// 스태틱: 기존 데이터 일괄 백필용(옵션)
+// 백필 옵션
 userSchema.statics.backfillPhoneHash = async function() {
   const batch = await this.find({
     $or: [ { phoneHash: { $exists: false } }, { phoneHash: null } ]
