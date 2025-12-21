@@ -93,7 +93,7 @@ android {
 }
 
 repositories {
-    flatDir{
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
@@ -119,7 +119,8 @@ dependencies {
     // implementation 'com.google.firebase:firebase-auth'     // (선택) 전화번호/구글 로그인 등 Auth 사용 시
     // implementation 'com.google.firebase:firebase-crashlytics' // (선택) 크래시 리포트
 
-    // ✅ (삭제) @capawesome/capacitor-app-update 플러그인 사용 시 불필요/중복 가능
+    // ✅ (삭제/비활성) @capawesome/capacitor-app-update 플러그인 사용 시 불필요/중복 가능
+    // MainActivity에서 Play Core(import com.google.android.play.core...)를 직접 쓰지 않을 거면 넣지 마세요.
     // implementation 'com.google.android.play:app-update:2.1.0'
 }
 
@@ -132,6 +133,6 @@ try {
         apply plugin: 'com.google.gms.google-services'
         logger.lifecycle("✅ google-services 플러그인 적용")
     }
-} catch(Exception e) {
+} catch (Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

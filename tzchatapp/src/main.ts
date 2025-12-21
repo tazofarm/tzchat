@@ -22,7 +22,7 @@ import { useUserStore } from '@/store/user'
 // ✅ (추가) 안드로이드 권한 유틸
 import { requestBasicPermissions } from '@/lib/permissions'
 import { Capacitor } from '@capacitor/core'
-import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 / 백버튼
+import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 / 백버튼 / resume
 import { Browser } from '@capacitor/browser'     // ✅ 커스텀탭 닫기용
 
 // ✅ 구글플레이 업데이트 유도(스토어 열기)
@@ -274,12 +274,21 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
-    // ✅ [추가] 앱 실행 시 "스토어 업데이트" 체크 → 업데이트 있으면 Play Store로 유도
-    // - checkAndPromptStoreUpdate 내부에서 native/android만 동작하도록 가드됨
+    // ✅ [추가] 앱 시작 직후 1회 스토어 업데이트 체크
     // - mounted 직후 바로 띄우면 overlay/수화 타이밍이 꼬일 수 있어서 약간 지연
     window.setTimeout(() => {
       checkAndPromptStoreUpdate({ confirm: true }).catch(() => {})
     }, 700)
+
+    // ✅ [추가] 앱이 다시 포그라운드로 돌아올 때(PlayStore 인지 지연 대응)
+    // - 배포 직후: 처음엔 안 뜨다가 resume 때 뜨는 경우가 많습니다.
+    try {
+      CapApp.addListener('resume', () => {
+        window.setTimeout(() => {
+          checkAndPromptStoreUpdate({ confirm: true }).catch(() => {})
+        }, 250)
+      })
+    } catch {}
 
     // ✅ 안드로이드에서만 권한 요청하되, 자동 "테스트 알림" 제거
     try {
