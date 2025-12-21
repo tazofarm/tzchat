@@ -115,7 +115,7 @@ const busy = ref(false);
 const lastFailCode = ref('');
 const lastFailDetail = ref(null);
 
-const txIdRef = ref(''); // identityVerificationId를 txId처럼 사용
+const txIdRef = ref(''); // identityVerificationId 또는 txId
 const popupWin = ref(null);
 
 // polling
@@ -125,9 +125,11 @@ let pollingResolve = null;
 let pollingReject = null;
 
 const POLL_INTERVAL_MS = 900;
-const POLL_TIMEOUT_MS = 90_000; // 90초 (PASS 완료 + PG 반영 지연까지 감안)
+const POLL_TIMEOUT_MS = 90_000;
 
-// PassResult 디버그
+// ✅ 마지막 ivId 저장 키(복귀 신호/딥링크가 없어도 browserFinished에서 다시 확정하기 위해)
+const LAST_IV_KEY = 'PASS_LAST_IV_ID';
+
 const passResult = ref(null);
 const passResultRaw = ref(null);
 const hasPassResult = computed(() => !!passResult.value);
@@ -136,7 +138,6 @@ const passTxShort = computed(
   () => (pr.value?.txId || txIdRef.value || '').slice(0, 18) + (txIdRef.value ? '…' : '')
 );
 
-// 버튼 상태
 const mode = ref('idle'); // idle | running | fail
 const buttonText = computed(() =>
   mode.value === 'running'
@@ -164,13 +165,11 @@ const fmt = (d) => {
 
 const isNative = Capacitor.isNativePlatform();
 
-// PortOne SDK는 index.html CDN 로드 (window.PortOne)
 function getPortOne() {
   return window?.PortOne;
 }
 
 function makeIdentityVerificationId() {
-  // ✅ 콘솔에서 앱 건을 쉽게 구분하도록 prefix 고정
   const ts = Date.now();
   const rnd = Math.random().toString(16).slice(2);
   return `app_iv_${ts}_${rnd}`;
@@ -188,7 +187,8 @@ async function handleAppUrlOpen(data) {
     const ivId = url.searchParams.get('identityVerificationId') || '';
     if (ivId) {
       txIdRef.value = ivId;
-      await closeExternal();
+      try { localStorage.setItem(LAST_IV_KEY, ivId); } catch {}
+      // ✅ 여기서는 Browser.close()를 굳이 먼저 하지 말고, finalize가 끝나고 정리
       await finalizeByIdentityVerificationId(ivId);
       return;
     }
@@ -196,7 +196,6 @@ async function handleAppUrlOpen(data) {
     const txId = url.searchParams.get('txId') || '';
     if (txId) {
       txIdRef.value = txId;
-      await closeExternal();
       await proceedRouteByTx(txId);
       return;
     }
@@ -208,9 +207,7 @@ async function handleAppUrlOpen(data) {
   } catch {}
 }
 
-/* ─────────────────────────────
-   (웹) 팝업 유틸
-   ───────────────────────────── */
+/* ───────────────────────────── (웹) 팝업 유틸 ───────────────────────────── */
 function openPopup(features = '') {
   const baseFeatures = [
     'popup=yes', 'width=480', 'height=720', 'menubar=no', 'toolbar=no',
@@ -289,7 +286,6 @@ function shouldKeepPolling(respJson) {
 }
 
 function startPollingComplete(identityVerificationId) {
-  // ✅ 이미 돌고 있으면 재사용
   if (pollingPromise) return pollingPromise;
 
   pollingAbort = false;
@@ -326,28 +322,23 @@ function startPollingComplete(identityVerificationId) {
         return;
       }
 
-      // 계속 폴링
       if (shouldKeepPolling(j)) {
         setTimeout(loop, POLL_INTERVAL_MS);
         return;
       }
 
-      // 명확 실패
       stopPolling();
       pollingReject?.(Object.assign(new Error(j?.code || 'COMPLETE_ERROR'), { payload: j }));
     } catch {
-      // 네트워크 일시 오류면 계속
       setTimeout(loop, POLL_INTERVAL_MS);
     }
   };
 
-  // 즉시 1회 실행
   void loop();
-
   return pollingPromise;
 }
 
-/* ──────────────── 포트원 결과 확정(서버 조회/저장) ──────────────── */
+/* ──────────────── 포트원 결과 확정 ──────────────── */
 async function finalizeByIdentityVerificationId(identityVerificationId) {
   try {
     const j = await startPollingComplete(identityVerificationId);
@@ -366,7 +357,7 @@ async function finalizeByIdentityVerificationId(identityVerificationId) {
   }
 }
 
-/* ──────────────── 서버 결과/분기 처리 (기존 유지) ──────────────── */
+/* ──────────────── 서버 결과/분기 처리 ──────────────── */
 async function loadPassResult(txId) {
   if (!txId) return;
   try {
@@ -423,9 +414,12 @@ async function proceedRouteByTx(txId) {
       localStorage.setItem('PASS_RESULT_TX', txId);
     } catch {}
 
+    // ✅ 여기서 UI를 끝내고 외부 브라우저도 정리
     if (nextRoute === 'signup') {
       try { await router.replace({ name: 'Signup', query: { passTxId: txId } }); }
       catch { await router.replace({ path: `/signup?passTxId=${encodeURIComponent(txId)}` }); }
+      busy.value = false;
+      mode.value = 'idle';
       await closeExternal();
       return;
     }
@@ -433,6 +427,8 @@ async function proceedRouteByTx(txId) {
     if (nextRoute === 'templogin') {
       try { await router.replace({ name: 'TempLogin', query: { txId } }); }
       catch { await router.replace({ path: `/templogin?txId=${encodeURIComponent(txId)}` }); }
+      busy.value = false;
+      mode.value = 'idle';
       await closeExternal();
       return;
     }
@@ -451,7 +447,7 @@ async function proceedRouteByTx(txId) {
   }
 }
 
-/* ──────────────── 시작 버튼 (PortOne SDK: CDN) ──────────────── */
+/* ──────────────── 시작 버튼 ──────────────── */
 async function onClickPass() {
   lastFailCode.value = '';
   lastFailDetail.value = null;
@@ -492,12 +488,18 @@ async function onClickPass() {
     const identityVerificationId = makeIdentityVerificationId();
     txIdRef.value = identityVerificationId;
 
+    // ✅ 복귀 신호가 없어도 browserFinished/onMounted에서 잡을 수 있게 저장
+    try { localStorage.setItem(LAST_IV_KEY, identityVerificationId); } catch {}
+
     // ✅ 복귀가 오든 말든 complete로 “반드시” 확정
     void finalizeByIdentityVerificationId(identityVerificationId);
 
     const serviceOrigin = 'https://tzchat.tazocode.com';
+
+    // ✅✅ 중요: PassPortal이 처리하는 라우트로 redirectUrl을 바꾼다.
+    //    (기존 /app/pass-result 는 라우터에 없음 → 멈춤 원인)
     const redirectUrl =
-      `${serviceOrigin}/app/pass-result?identityVerificationId=${encodeURIComponent(identityVerificationId)}`;
+      `${serviceOrigin}/pass?identityVerificationId=${encodeURIComponent(identityVerificationId)}`;
 
     const resp = await PortOne.requestIdentityVerification({
       storeId: STORE_ID,
@@ -516,7 +518,7 @@ async function onClickPass() {
       return;
     }
 
-    // 리디렉션/외부 UI 진행: busy는 그대로 유지(폴링이 성공/실패로 끝날 때 해제)
+    // 리디렉션/외부 UI 진행: busy 유지 (complete 성공/실패 시 해제)
   } catch (e) {
     stopPolling();
     lastFailCode.value = e?.message || 'PORTONE_START_ERROR';
@@ -531,16 +533,35 @@ async function onClickPass() {
 onMounted(async () => {
   if (isNative) {
     appUrlOpenSub = App.addListener('appUrlOpen', handleAppUrlOpen);
-    browserFinishedSub = Browser.addListener('browserFinished', () => {
-      // 사용자가 닫았을 수도 있으니 UI만 idle로(폴링은 계속될 수 있음)
-      busy.value = false;
-      mode.value = 'idle';
+
+    browserFinishedSub = Browser.addListener('browserFinished', async () => {
+      // ✅ 사용자가 창을 닫거나 리디렉션으로 종료되더라도
+      //    마지막 ivId로 “완료 확정”을 다시 시도한다.
+      try {
+        const ivId =
+          (route.query.identityVerificationId ? String(route.query.identityVerificationId) : '') ||
+          (txIdRef.value || '') ||
+          (localStorage.getItem(LAST_IV_KEY) || '');
+
+        if (ivId && mode.value === 'running') {
+          await finalizeByIdentityVerificationId(ivId);
+          return;
+        }
+      } catch {}
+
+      // 폴링이 없으면 idle로
+      if (mode.value === 'running' && !pollingPromise) {
+        busy.value = false;
+        mode.value = 'idle';
+      }
     });
   }
 
+  // ✅ redirectUrl이 /pass?... 로 오면 여기서 자동 처리됨
   const ivId = route.query.identityVerificationId ? String(route.query.identityVerificationId) : '';
   if (ivId) {
     txIdRef.value = ivId;
+    try { localStorage.setItem(LAST_IV_KEY, ivId); } catch {}
     mode.value = 'running';
     busy.value = true;
     await finalizeByIdentityVerificationId(ivId);
@@ -555,6 +576,20 @@ onMounted(async () => {
     await proceedRouteByTx(qTx);
     return;
   }
+
+  // ✅ 혹시 쿼리 없이 돌아온 경우(앱 링크/브라우저 종료 등)에도 마지막 ivId로 재시도
+  try {
+    const lastIv = localStorage.getItem(LAST_IV_KEY) || '';
+    if (lastIv) {
+      // 이미 처리 끝났으면 route가 idle일 수 있으니, running일 때만 강제 재시도
+      // 사용자가 “멈춤”을 겪는 케이스는 대부분 여기서 복구됨
+      mode.value = 'running';
+      busy.value = true;
+      txIdRef.value = lastIv;
+      await finalizeByIdentityVerificationId(lastIv);
+      return;
+    }
+  } catch {}
 
   const qFail = route.query.fail ? String(route.query.fail) : '';
   if (qFail) {
@@ -575,6 +610,7 @@ function onBack() {
   try {
     sessionStorage.removeItem('passTxId');
     localStorage.removeItem('PASS_RESULT_TX');
+    localStorage.removeItem(LAST_IV_KEY);
   } catch {}
   void closeExternal();
   router.replace('/login');

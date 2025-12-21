@@ -25,6 +25,9 @@ import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'   // ✅ 딥링크 / 백버튼
 import { Browser } from '@capacitor/browser'     // ✅ 커스텀탭 닫기용
 
+// ✅ 구글플레이 업데이트 유도(스토어 열기)
+import { checkAndPromptStoreUpdate } from '@/lib/appUpdate'
+
 /* Ionicons */
 import { addIcons } from 'ionicons'
 import {
@@ -271,15 +274,18 @@ router.isReady()
     app.mount('#app')
     console.log('✅ Vue + Ionic mounted.')
 
+    // ✅ [추가] 앱 실행 시 "스토어 업데이트" 체크 → 업데이트 있으면 Play Store로 유도
+    // - checkAndPromptStoreUpdate 내부에서 native/android만 동작하도록 가드됨
+    // - mounted 직후 바로 띄우면 overlay/수화 타이밍이 꼬일 수 있어서 약간 지연
+    window.setTimeout(() => {
+      checkAndPromptStoreUpdate({ confirm: true }).catch(() => {})
+    }, 700)
+
     // ✅ 안드로이드에서만 권한 요청하되, 자동 "테스트 알림" 제거
     try {
       if (Capacitor.getPlatform() === 'android') {
         const res = await requestBasicPermissions()
         console.log('🔐 [perm] requested →', res)
-        // 주석 처리 또는 제거:
-        // if (res.notification) {
-        //   await testLocalNotification()
-        // }
       } else {
         console.log('↪️ non-Android platform: 권한 요청 생략')
       }
@@ -351,7 +357,6 @@ router.isReady()
         const path = current.path || ''
         const name = (current.name as string | undefined) || ''
 
-        // 👉 여기 조건을 실제 "메인 화면" 기준으로 필요하면 조정
         const isMainLike =
           path === '/' ||
           path === '/home' ||
@@ -360,13 +365,11 @@ router.isReady()
           name === 'Home' ||
           name === 'MainPage'
 
-        // 메인 화면에서는 뒤로가기 → 앱 종료 (로그인 화면으로 돌아가지 않도록)
         if (isMainLike) {
           CapApp.exitApp()
           return
         }
 
-        // 그 외 화면에서는 history 가 있으면 뒤로가기, 없으면 종료
         if (canGoBack && router.options.history.state.back !== null) {
           router.back()
         } else {

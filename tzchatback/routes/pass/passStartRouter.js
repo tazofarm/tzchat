@@ -3,7 +3,7 @@
 // - GET  /start/ping
 // - ALL  /start                  ← 앱/웹 공용 시작 (preferUrl=1이면 외부 브라우저용 URL 반환)
 // - GET  /start/html/:txId       ← 외부 브라우저용 캐시된 HTML 서빙
-// - GET  /relay                  ← 웹/앱 통합 릴레이 페이지(앱 복귀: tzchat://pass-result?txId=... or ?identityVerificationId=...)
+// - GET  /relay                  ← 웹/앱 통합 릴레이 페이지(복귀: tzchat://pass?txId=... or ?identityVerificationId=...)
 
 const express = require('express');
 const router = express.Router();
@@ -32,6 +32,7 @@ function getPublicOrigin(req) {
     ''
   ).replace(/\/+$/, '');
   if (env) return env;
+
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   return `${proto}://${host}`;
@@ -79,16 +80,27 @@ const APP_PACKAGE =
   process.env.ANDROID_APP_PACKAGE ||
   process.env.APP_PACKAGE ||
   'com.example.tzchat';
+
 const APP_LINK_BASE = (process.env.APP_LINK_BASE || 'https://tzchat.tazocode.com').replace(
   /\/+$/,
   ''
 );
+
 const CUSTOM_SCHEME = process.env.APP_CUSTOM_SCHEME || 'tzchat';
+
 // 커스텀 스킴 + intent 복귀를 항상 시도
 const USE_INTENT = true;
 
-// ✅ 중요: PortOne은 identityVerificationId 기준, Danal PASS는 txId 기준.
-//    릴레이는 둘 다 지원하고, identityVerificationId가 있으면 그걸 우선 사용.
+/**
+ * ✅ 중요:
+ * - PortOne: identityVerificationId 기준
+ * - Danal PASS: txId 기준
+ * 릴레이는 둘 다 지원하고, identityVerificationId가 있으면 그걸 우선 사용
+ *
+ * ✅ 그리고 "복귀 목적지"는 pass-result가 아니라 PassPortal(/pass)로 통일
+ * - 웹:  https://.../pass?txId=... 또는 ?identityVerificationId=...
+ * - 앱:  tzchat://pass?txId=... 또는 ?identityVerificationId=...
+ */
 function buildRelayHtml({ txId, identityVerificationId, targetOrigin, appLinkBase }) {
   const safeTxId = String(txId || '');
   const safeIvId = String(identityVerificationId || '');
@@ -98,14 +110,16 @@ function buildRelayHtml({ txId, identityVerificationId, targetOrigin, appLinkBas
     ? `identityVerificationId=${encodeURIComponent(safeIvId)}`
     : `txId=${encodeURIComponent(safeTxId)}`;
 
-  // 앱에서 처리할 메인 딥링크 & 웹 앱 링크 (pass-result 기준으로 통일)
-  const appLink = `${appLinkBase}/app/pass-result?${q}`;
-  const customScheme = `${CUSTOM_SCHEME}://pass-result?${q}`;
-  const intent = `intent://pass-result?${q}#Intent;scheme=${encodeURIComponent(
+  // ✅ PassPortal 라우트로 복귀
+  const webReturn = `${appLinkBase}/pass?${q}`;
+  const customScheme = `${CUSTOM_SCHEME}://pass?${q}`;
+
+  // ✅ intent도 pass로 통일 (fallback: webReturn)
+  const intent = `intent://pass?${q}#Intent;scheme=${encodeURIComponent(
     CUSTOM_SCHEME
   )};package=${encodeURIComponent(
     APP_PACKAGE
-  )};S.browser_fallback_url=${encodeURIComponent(appLink)};end`;
+  )};S.browser_fallback_url=${encodeURIComponent(webReturn)};end`;
 
   return `<!doctype html>
 <html lang="ko">
@@ -139,7 +153,7 @@ function buildRelayHtml({ txId, identityVerificationId, targetOrigin, appLinkBas
     var txId = ${JSON.stringify(safeTxId)};
     var identityVerificationId = ${JSON.stringify(safeIvId)};
     var targetOrigin = ${JSON.stringify(targetOrigin)};
-    var appLink = ${JSON.stringify(appLink)};
+    var webReturn = ${JSON.stringify(webReturn)};
     var customScheme = ${JSON.stringify(customScheme)};
     var intentUrl = ${JSON.stringify(intent)};
 
@@ -164,20 +178,20 @@ function buildRelayHtml({ txId, identityVerificationId, targetOrigin, appLinkBas
       }
     }catch(e){}
 
-    // 2) 앱 복귀 시도: 커스텀 스킴 → 인텐트(앱링크 fallback 포함)
+    // 2) 앱 복귀 시도: 커스텀 스킴 → 인텐트(웹 fallback 포함)
     setTimeout(function(){
       safeOpen(customScheme);
-    }, 500);
+    }, 300);
 
     ${USE_INTENT ? `
     setTimeout(function(){
       safeOpen(intentUrl);
-    }, 1500);
+    }, 1200);
     ` : ''}
 
-    // 3) pure 웹 환경 fallback
+    // 3) 앱이 없거나 실패하면 웹(/pass)으로 복귀
     setTimeout(function(){
-      safeOpen(appLink);
+      safeOpen(webReturn);
     }, 2200);
 
     // 4) 웹 팝업으로 열린 경우에만 창 닫기 시도
@@ -207,6 +221,7 @@ router.all('/start', async (req, res) => {
       (req.body && req.body.intent) ||
       (req.query && req.query.intent) ||
       'unified';
+
     const preferUrl =
       String(
         (req.body && req.body.preferUrl) ||
@@ -218,6 +233,7 @@ router.all('/start', async (req, res) => {
           (req.query && req.query.preferUrl) ||
           ''
       ) === '1';
+
     const stub = (req.query && req.query.stub) || (req.body && req.body.stub);
 
     // 간이 STUB
@@ -246,10 +262,12 @@ router.all('/start', async (req, res) => {
         message: 'formHtml not generated',
       });
     }
+
     const txId = out.tid || `tid_${Date.now()}`;
     const html = out.body || out.formHtml;
 
     if (preferUrl) {
+      // 캐시에 저장하고 URL만 돌려준다 (앱은 이 URL을 외부브라우저로 open)
       saveHtml(txId, html);
       const startUrl = `${getPublicOrigin(
         req
@@ -257,6 +275,7 @@ router.all('/start', async (req, res) => {
       return json(res, 200, { ok: true, txId, startUrl });
     }
 
+    // 과거(웹 팝업) 호환: formHtml 직접 반환
     return json(res, 200, { ok: true, txId, formHtml: html });
   } catch (e) {
     const code = e?.code || e?.returnCode || 'START_ERROR';
@@ -296,12 +315,14 @@ router.get('/relay', (req, res) => {
   const txId = String(req.query.txId || '');
   const identityVerificationId = String(req.query.identityVerificationId || '');
   const targetOrigin = resolvePostMessageTarget();
+
   const html = buildRelayHtml({
     txId,
     identityVerificationId,
     targetOrigin,
     appLinkBase: APP_LINK_BASE,
   });
+
   res.set({
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

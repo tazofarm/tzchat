@@ -19,8 +19,8 @@
     <!-- ✅ 본문 -->
     <ion-content class="ion-padding">
       <p class="text-white">준비 중 입니다.</p>
-              versionCode 41
-        versionName "0.2.07"
+        versionCode 42
+        versionName "0.2.08"
     </ion-content>
   </ion-page>
 </template>
