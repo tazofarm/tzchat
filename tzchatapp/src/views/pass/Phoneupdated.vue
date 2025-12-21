@@ -4,9 +4,7 @@
     <ion-header>
       <ion-toolbar>
         <ion-title>전화번호 변경(PASS)</ion-title>
-                <ion-buttons slot="start">
-          <ion-button class="back-btn" @click="goBack" aria-label="뒤로가기">←</ion-button>
-        </ion-buttons>
+        <ion-button @click="goBack">뒤로가기</ion-button>
       </ion-toolbar>
     </ion-header>
 
