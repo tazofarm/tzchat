@@ -1,15 +1,10 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-      <!-- 뒤로가기 버튼 
-      <IonButtons>
-        <IonButton class="back-btn" @click="goBack">← 뒤로가기</IonButton>
-      </IonButtons>
--->
       <br /><br />
-      <h1>Yes? Yes!</h1>
-      <h2>네네챗</h2>
+      <h1>Between</h1>
       <br /><br />
+
       <h2>로그인</h2>
       <br />
 
@@ -52,42 +47,41 @@
       <!-- 에러/안내 메시지 -->
       <p class="error" v-if="message">{{ message }}</p>
 
-      <!-- 회원가입 링크 -->
+      <!-- 회원가입 링크 
       <div class="link-container">
         <p>계정이 없으신가요? <router-link to="/pass">회원가입</router-link></p>
       </div>
 
-      <!-- 비밀번호 모를때, Pass 로그인 -->
+      비밀번호 모를때, Pass 로그인
       <div class="link-container">
         <p>비밀번호를 잊으셨나요 ? <router-link to="/pass">임시로그인</router-link></p>
       </div>
+-->
 
     </div>
   </div>
 </template>
- 
+
 <script setup lang="ts">
 /**
  * LoginPage.vue
- * - 인터셉터 영향(자동 리다이렉트 등) 없이 /api/me를 '프로브'로 검증
- * - 로그인 응답에서 JWT 토큰 키를 광범위하게 탐색하여 저장(쿠키에 의존X)
- * - 성공/실패를 명확히 메시지로 안내
- * - ✅ 진입/로그인 시작 시 PASS 스토리지 찌꺼기 정리 (소모형 토큰 재사용 방지)
+ * ✅ 자동 로그인(토큰 기반 즉시 진입/백그라운드 검증)은 router 가드에서만 처리
+ * - LoginPage에서는 중복 /api/me 호출을 하지 않음 (체감 지연/깜빡임 제거)
+ * - 토큰이 있으면 "즉시" 목적지로 이동만 시킴 (검증/동의/탈퇴는 가드가 처리)
  */
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api, { auth as AuthAPI, getAgreementStatus, setAuthToken } from '@/lib/api'
+import { auth as AuthAPI, setAuthToken } from '@/lib/api'
 import { connectSocket, reconnectSocket, getSocket } from '@/lib/socket'
-import { IonButtons, IonButton } from '@ionic/vue'
 
 const router = useRouter()
 const route = useRoute()
 
 // 사용자 입력값
-const username = ref<string>('') 
-const password = ref<string>('') 
-const message = ref<string>('') 
-const submitting = ref<boolean>(false) 
+const username = ref<string>('')
+const password = ref<string>('')
+const message = ref<string>('')
+const submitting = ref<boolean>(false)
 
 // ✅ PASS 보조 유틸: 스토리지 키 정리(남은 txId로 잘못 분기되는 현상 예방)
 function clearPassKeys() {
@@ -107,74 +101,18 @@ function redirectTarget() {
     ? String(route.query.redirect)
     : '/home/6page'
 }
-function redirectAfterLogin() {
-  // ✅ 로그인 후에는 히스토리를 덮어써서 뒤로가기 시 로그인 화면이 나오지 않도록 처리
-  router.replace(redirectTarget())
-}
 
-/** 뒤로가기 동작 */
-const goBack = () => {
-  if (window.history.length > 1) router.back()
-  else router.push('/home/6page') // 히스토리 없을 때 폴백
-}
-
-// ===== 진단: 실제 baseURL 로그 =====
-function debugBaseURL() {
-  try {
-    const base = api?.defaults?.baseURL || '(unknown)'
-    const mode = (import.meta as any)?.env?.MODE || '(unknown)'
-    const viteMode = (import.meta as any)?.env?.VITE_MODE || '(unknown)'
-    const apiEnv = (import.meta as any)?.env?.VITE_API_BASE_URL
-    const wsEnv  = (import.meta as any)?.env?.VITE_WS_BASE
-    console.log('[HTTP][CFG][FINAL]', { mode, viteMode, baseURL_from_instance: base, VITE_API_BASE_URL: apiEnv, VITE_WS_BASE: wsEnv })
-  } catch (e: any) {
-    console.log('[HTTP][CFG][ERR] debugBaseURL', { message: e?.message })
-  }
-}
-
-/** axios 인터셉터 영향을 피해서 /api/me 상태를 확인하는 프로브 */
-async function meProbe(): Promise<{ ok: boolean; data?: any; status: number; reason?: string }> {
-  const base = (api?.defaults?.baseURL || '').replace(/\/+$/, '')
-  const url = `${base}/api/me`
-  try {
-    // 토큰이 있으면 Authorization 추가, 없으면 쿠키만으로 시도
-    const token = (() => {
-      try { return localStorage.getItem('TZCHAT_AUTH_TOKEN') } catch { return null }
-    })()
-    const headers: Record<string, string> = { 'Accept': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-
-    const res = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      headers,
-      cache: 'no-store',
-    })
-    const status = res.status
-    let data: any = null
-    try { data = await res.json() } catch { /* ignore */ }
-
-    if (status >= 200 && status < 300) {
-      return { ok: true, data, status }
-    }
-    return { ok: false, data, status, reason: data?.message || data?.error || `HTTP ${status}` }
-  } catch (e: any) {
-    return { ok: false, status: 0, reason: e?.message || 'network error' }
-  }
-}
-
-// 진입 시 세션/JWT 확인(401이면 정상 흐름) — 인터셉터 미사용 프로브
-onMounted(async () => {
-  // ⬅️ 페이지 진입 시 PASS 관련 스토리지 정리(이전 PASS 인증 잔여값 차단)
+onMounted(() => {
   clearPassKeys()
 
-  debugBaseURL()
-  const probe = await meProbe()
-  if (probe.ok) {
-    console.log('[UI][RES] already signed-in', { user: probe.data?.user?.username })
-    await checkPendingAgreementsOrRedirect()
-  } else {
-    console.log('[UI][INFO] not signed-in (probe)', probe)
+  // ✅ 토큰이 있으면 로그인 화면에서 멈추지 말고 즉시 이동
+  //    (실제 유효성 검증/동의/탈퇴 체크는 router 가드가 백그라운드로 처리)
+  let token: string | null = null
+  try { token = localStorage.getItem('TZCHAT_AUTH_TOKEN') } catch { token = null }
+
+  if (token && token.trim()) {
+    try { setAuthToken(token.trim()) } catch {}
+    router.replace(redirectTarget())
   }
 })
 
@@ -184,7 +122,6 @@ const login = async () => {
   submitting.value = true
   message.value = ''
 
-  // ⬅️ 로그인 시작 시에도 한번 더 정리(탭 복귀/새 세션 등 케이스 방어)
   clearPassKeys()
 
   try {
@@ -195,10 +132,9 @@ const login = async () => {
       return
     }
 
-    // 로그인 요청
     const res = await AuthAPI.login({ username: id, password: pw })
-    // ▲ 주의: 일부 서버는 쿠키만 내려주고 토큰을 바디에 안 줄 수 있음
-    // 토큰을 다양한 키에서 최대한 찾아서 저장 (쿠키 의존 최소화)
+
+    // 일부 서버는 token 키가 다를 수 있으니 후보 처리
     const body: any = res?.data ?? {}
     const tokenCandidates = [
       body?.token,
@@ -207,35 +143,26 @@ const login = async () => {
       body?.jwt,
       body?.data?.accessToken,
     ].filter(Boolean)
+
     if (tokenCandidates.length > 0) {
       try { setAuthToken(String(tokenCandidates[0])) } catch {}
     }
+
     password.value = ''
 
-    // 소켓 인증 반영(실패해도 로그인 흐름은 계속)
-    try {
-      const s = getSocket()
-      if (s && s.connected) reconnectSocket()
-      else connectSocket()
-    } catch (sockErr: any) {
-      console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
-    }
+    // ✅ 성공 즉시 이동 (가드가 필요한 체크는 알아서 처리)
+    router.replace(redirectTarget())
 
-    // 로그인 직후 /api/me 재검증 — 인터셉터 미사용 프로브
-    const probe = await meProbe()
-    if (!probe.ok) {
-      // 여기서 막히면, 쿠키 미전송/토큰 미발급/탈퇴차단 가능성 중 하나
-      message.value =
-        probe.status === 401
-          ? '로그인 정보 확인 실패(401). 개발환경에서는 쿠키/토큰 정책 영향일 수 있어요. 다시 시도해주세요.'
-          : `로그인 확인 실패: ${probe.reason || probe.status}`
-      return
-    }
-    console.log('[UI][RES] /me after login', { user: probe.data?.user?.username })
-    message.value = (res?.data as any)?.message || (res?.data as any)?.msg || '로그인 되었습니다.'
-
-    // ✅ 재동의 필요 여부 확인 → 전용 동의 페이지 or 목적지
-    await checkPendingAgreementsOrRedirect()
+    // ✅ 소켓은 UX를 막지 않게 "백그라운드"로 시도
+    setTimeout(() => {
+      try {
+        const s = getSocket()
+        if (s && s.connected) reconnectSocket()
+        else connectSocket()
+      } catch (sockErr: any) {
+        console.log('[SOCKET][ERR] connect/reconnect', { message: sockErr?.message })
+      }
+    }, 0)
   } catch (err: any) {
     console.error('[HTTP][ERR] /login', {
       status: err?.response?.status,
@@ -256,34 +183,9 @@ const login = async () => {
     submitting.value = false
   }
 }
-
-/** 활성 필수 동의(pending) 있으면 전용 페이지로 라우팅, 없으면 목적지로 이동 */
-async function checkPendingAgreementsOrRedirect() {
-  try {
-    const resp: any = await getAgreementStatus()
-    const pending: any[] =
-      resp?.data?.pending ??
-      resp?.pending ??
-      resp?.data?.data?.pending ?? // 혹시 모를 케이스 대비
-      []
-
-    if (Array.isArray(pending) && pending.length > 0) {
-      // router/index.ts 기준: AgreementPagePublic
-      // ✅ 동의 페이지로 이동 시에도 replace 사용해서 로그인 히스토리를 남기지 않음
-      router.replace({ name: 'AgreementPagePublic', query: { return: redirectTarget() } })
-    } else {
-      redirectAfterLogin()
-    }
-  } catch (e: any) {
-    console.log('[UI][ERR] getAgreementStatus', { msg: e?.message, data: e?.response?.data })
-    // 문제가 있어도 사용자 흐름 막지 않도록 목적지로 이동
-    redirectAfterLogin()
-  }
-}
 </script>
 
 <style scoped>
-/* (기존 스타일 유지) */
 .login-container {
   display: flex;
   justify-content: center;

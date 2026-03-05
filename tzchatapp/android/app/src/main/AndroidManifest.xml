@@ -1,8 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<manifest
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <!-- 📡 네트워크 권한 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -26,7 +23,8 @@
         android:normalScreens="true"
         android:largeScreens="true"
         android:xlargeScreens="true"
-        android:anyDensity="true" />
+        android:anyDensity="true"
+    />
 
     <!-- 📌 하드웨어 요구 완화 -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -39,18 +37,17 @@
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <!-- 📍 위치 하드웨어 필수 아님 -->
-    <uses-feature
-        android:name="android.hardware.location"
-        android:required="false"
-        tools:replace="android:required" />
+    <uses-feature android:name="android.hardware.location" android:required="false" tools:replace="android:required" />
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="false"
-        tools:replace="android:required" />
+        tools:replace="android:required"
+    />
     <uses-feature
         android:name="android.hardware.location.network"
         android:required="false"
-        tools:replace="android:required" />
+        tools:replace="android:required"
+    />
 
     <application
         android:allowBackup="true"
@@ -61,20 +58,19 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
-
         <!-- 📌 AdMob App ID -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="@string/admob_app_id" />
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />
 
         <!-- 🔔 FCM 알림 기본 아이콘/색상 -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_stat_notification" />
+            android:resource="@drawable/ic_stat_notification"
+        />
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
-            android:resource="@color/notification_color" />
+            android:resource="@color/notification_color"
+        />
 
         <!-- 🚀 메인 액티비티 -->
         <activity
@@ -88,7 +84,6 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:windowLayoutInDisplayCutoutMode="shortEdges"
             tools:replace="android:windowSoftInputMode">
-
             <!-- 📌 App Icon Launch -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -109,9 +104,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="tzchat"
-                    android:host="pass" />
+                <data android:scheme="tzchat" android:host="pass" />
             </intent-filter>
 
             <!-- 🔗 HTTPS 앱 링크 -->
@@ -119,10 +112,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="tzchat.tazocode.com"
-                    android:pathPrefix="/app/pass" />
+                <data android:scheme="https" android:host="tzchat.tazocode.com" android:pathPrefix="/app/pass" />
             </intent-filter>
         </activity>
 
@@ -132,19 +122,14 @@
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
         <!-- 🔔 FCM 수신 서비스 -->
-        <service
-            android:name=".MyFirebaseService"
-            android:exported="false">
+        <service android:name=".MyFirebaseService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-
     </application>
 </manifest>

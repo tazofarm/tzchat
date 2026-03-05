@@ -42,6 +42,7 @@
                     class="read-flag"
                     aria-label="상대가 아직 읽지 않음"
                   >안읽음</span>
+
                   <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
 
                   <div class="bubble my-bubble">
@@ -84,6 +85,7 @@
                   <div class="name-line" v-if="item._meta?.showAvatarName">
                     <span class="name" @click="goToPartnerProfile">{{ partnerNickname }}</span>
                   </div>
+
                   <div class="bubble-row">
                     <div class="bubble other-bubble">
                       <template v-if="item.imageUrl">
@@ -97,6 +99,7 @@
                         {{ item.content }}
                       </template>
                     </div>
+
                     <span v-if="item._meta?.showTime" class="time right-time">{{ formatTime(item.createdAt) }}</span>
                   </div>
                 </div>
@@ -105,7 +108,7 @@
           </div>
         </div>
 
-        <!-- 하단 입력창 (플로우 하단) -->
+        <!-- 하단 입력창 -->
         <div class="chat-input-wrapper" ref="composerWrapperRef">
           <div v-if="showEmoji" class="emoji-picker-wrapper" @click.stop>
             <emoji-picker @emoji-click="insertEmoji"></emoji-picker>
@@ -114,15 +117,9 @@
           <div class="chat-input" @click.stop>
             <ion-button size="small" fill="outline" class="icon-btn" @click="triggerFileInput" aria-label="파일 첨부">📎</ion-button>
             <input type="file" accept="image/*" ref="fileInput" style="display: none" @change="uploadImage" />
-            <ion-button
-              size="small"
-              fill="outline"
-              class="icon-btn"
-              @click="toggleEmoji"
-              aria-label="이모지 선택"
-            >😊</ion-button>
 
-            <!-- textarea 자동 높이 & 최대 높이 동적 제한 -->
+            <ion-button size="small" fill="outline" class="icon-btn" @click="toggleEmoji" aria-label="이모지 선택">😊</ion-button>
+
             <textarea
               ref="textareaRef"
               v-model="newMessage"
@@ -207,7 +204,7 @@ const toLocalYMD = (d) => { const t=new Date(d); return `${t.getFullYear()}-${pa
 const formatKDate = (d) => new Date(d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', weekday: 'long' })
 const formatTime=(iso)=> new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
 
-// ===== 포커스 헬퍼 =====
+// ===== 포커스 =====
 const focusComposer = async (delay = 0) => {
   await nextTick()
   window.setTimeout(() => {
@@ -224,7 +221,7 @@ const focusComposer = async (delay = 0) => {
 const isMine = (msg)=> !!(msg?.sender && (msg.sender._id===myId.value || msg.sender===myId.value))
 const isReadByPartner = (msg)=> partnerId.value && (msg?.readBy||[]).some(id=>String(id)===String(partnerId.value))
 
-// ===== 렌더 배열(날짜 + 그룹 메타) =====
+// ===== 렌더 배열 =====
 const displayItems = computed(() => {
   const out = []
   let lastYmd = null
@@ -267,7 +264,7 @@ const displayItems = computed(() => {
 const openImage = (url)=>{ enlargedImage.value=url; requestAnimationFrame(()=>document.querySelector('.image-modal')?.focus()) }
 const closeImageModal = ()=>{ enlargedImage.value='' }
 
-// ✅ 앱(WebView)에서도 항상 “서버(API) 기준”으로 이미지 URL을 만든다.
+// ✅ 이미지 URL 생성
 const getImageUrl = (path) => {
   if (!path) return ''
   const s = String(path).trim()
@@ -279,8 +276,6 @@ const getImageUrl = (path) => {
 
   const mediaBase = apiBase.replace(/\/+$/, '')
 
-  // 1) 절대 URL이면 그대로 사용하되,
-  //    http://localhost:2000/uploads/... 같은 개발용 주소가 섞여 있으면 운영 주소로 치환
   if (/^https?:\/\//i.test(s)) {
     if (/^http:\/\/localhost:2000\/uploads\//i.test(s)) {
       return s.replace(/^http:\/\/localhost:2000/i, mediaBase)
@@ -288,13 +283,24 @@ const getImageUrl = (path) => {
     return s
   }
 
-  // 2) 상대경로(/uploads/...)면 mediaBase를 붙인다
   const p = s.startsWith('/') ? s : `/${s}`
   return `${mediaBase}${p}`
 }
 
+// ===== scrollToBottom: "1회 예약" =====
+let scrollRaf = 0
+const requestScrollToBottom = () => {
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(async () => {
+    scrollRaf = 0
+    await nextTick()
+    const el = chatScroll.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
 // 데이터 로딩
-const loadMessages = async ()=>{
+const loadMessages = async ()=> {
   const res = await axios.get(`/api/chatrooms/${roomId}`)
   messages.value = res.data.messages || []
   myId.value = res.data.myId
@@ -302,19 +308,21 @@ const loadMessages = async ()=>{
   partnerNickname.value = partner?.nickname || '상대방'
   partnerId.value = partner?._id || ''
   partnerGender.value = partner?.gender || ''
-  await nextTick(); scrollToBottom(); scheduleMarkAsRead()
+  await nextTick()
+  requestScrollToBottom()
+  scheduleMarkAsRead()
 }
 
 // 전송
-const sendMessage = async ()=>{
+const sendMessage = async ()=> {
   const content=newMessage.value.trim()
   if(!content) return
   const res = await axios.post(`/api/chatrooms/${roomId}/message`,{content,type:'text'})
   newMessage.value=''
   getSocket()?.emit('chatMessage',{roomId,message:res.data})
   pushMessageSafe({...res.data,createdAt:res.data.createdAt||new Date().toISOString()})
-  scrollToBottom()
   showEmoji.value = false
+  requestScrollToBottom()
   await focusComposer(0)
 }
 
@@ -331,8 +339,9 @@ const uploadImage=async(e)=>{
   const msg=await axios.post(`/api/chatrooms/${roomId}/message`,{content:relativePath,type:'image'},{withCredentials:true})
   getSocket()?.emit('chatMessage',{roomId,message:msg.data})
   pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
-  scrollToBottom(); e.target.value=''
+  e.target.value=''
   showEmoji.value = false
+  requestScrollToBottom()
   await focusComposer(0)
 }
 
@@ -349,23 +358,24 @@ const onPaste=async(e)=>{
         const msg=await axios.post(`/api/chatrooms/${roomId}/message`,{content:relativePath,type:'image'},{withCredentials:true})
         getSocket()?.emit('chatMessage',{roomId,message:msg.data})
         pushMessageSafe({...msg.data,createdAt:msg.data.createdAt||new Date().toISOString()})
-        scrollToBottom(); e.preventDefault()
         showEmoji.value = false
+        requestScrollToBottom()
         await focusComposer(0)
+        e.preventDefault()
         break
       }
     }
   }
 }
 
-const closeEmojiIfOpen = async ()=>{
+const closeEmojiIfOpen = async ()=> {
   if(showEmoji.value){
     showEmoji.value=false
     await focusComposer(0)
   }
 }
 
-const toggleEmoji = ()=>{
+const toggleEmoji = ()=> {
   showEmoji.value = !showEmoji.value
   if (showEmoji.value) {
     requestAnimationFrame(autoResizeComposer)
@@ -380,7 +390,9 @@ const handleKeydown=(e)=>{
     sendMessage()
   }
 }
+
 const triggerFileInput=()=>fileInput.value?.click()
+
 const insertEmoji=(ev)=>{
   const emoji=ev?.detail?.unicode||''
   if(emoji){
@@ -389,24 +401,53 @@ const insertEmoji=(ev)=>{
     autoResizeComposer()
   }
 }
-const scrollToBottom=async()=>{ await nextTick(); const el=chatScroll.value; if(el) el.scrollTop=el.scrollHeight }
 
 // 읽음 처리
 let readTimer=null
 const scheduleMarkAsRead=(delay=200)=>{ if(readTimer) clearTimeout(readTimer); readTimer=setTimeout(markAsReadNow,delay) }
-const markAsReadNow=async()=>{ try{ if(!roomId||!myId.value) return; const r=await axios.put(`/api/chatrooms/${roomId}/read`); const ids=r?.data?.updatedMessageIds||[]; if(!ids.length) return; for(const m of messages.value){ if(ids.includes(m._id)){ const arr=m.readBy||[]; if(!arr.includes(myId.value)) m.readBy=[...arr,myId.value] } } getSocket()?.emit('messagesRead',{roomId,readerId:myId.value,messageIds:ids}) }catch(e){} }
+const markAsReadNow=async()=>{ try{
+  if(!roomId||!myId.value) return
+  const r=await axios.put(`/api/chatrooms/${roomId}/read`)
+  const ids=r?.data?.updatedMessageIds||[]
+  if(!ids.length) return
+  for(const m of messages.value){
+    if(ids.includes(m._id)){
+      const arr=m.readBy||[]
+      if(!arr.includes(myId.value)) m.readBy=[...arr,myId.value]
+    }
+  }
+  getSocket()?.emit('messagesRead',{roomId,readerId:myId.value,messageIds:ids})
+}catch(e){} }
 
 // 중복 방지
 const seenMsgIds=new Set()
-const pushMessageSafe=(m)=>{ const id=m?._id; if(!id||seenMsgIds.has(id)) return; seenMsgIds.add(id); messages.value.push(m); if(seenMsgIds.size>1000){ const fid=messages.value[0]?._id; if(fid) seenMsgIds.delete(fid) } }
+const pushMessageSafe=(m)=>{
+  const id=m?._id
+  if(!id||seenMsgIds.has(id)) return
+  seenMsgIds.add(id)
+  messages.value.push(m)
+  if(seenMsgIds.size>1000){
+    const fid=messages.value[0]?._id
+    if(fid) seenMsgIds.delete(fid)
+  }
+}
 
-// ===== [키보드] 가상 키보드 대응 =====
+// ===== [키보드] =====
 let removeKeyboardListeners = null
 let vv = null
 let baseVh = 0
 let kbOpen = false
+let lastKb = -1
 
 const setCssVar = (name, value) => document.documentElement.style.setProperty(name, value)
+
+const COMPOSER_MAX_CLOSED = 120
+const COMPOSER_MAX_OPEN_RATIO = 0.33
+
+const getComposerMaxPx = () => {
+  const vh = Number(getComputedStyle(document.documentElement).getPropertyValue('--vh').replace('px','')) || window.innerHeight
+  return kbOpen ? Math.round(vh * COMPOSER_MAX_OPEN_RATIO) : COMPOSER_MAX_CLOSED
+}
 
 // textarea 자동 리사이즈 (+ 최대 높이 제한) + 입력창 높이 반영
 const autoResizeComposer = () => {
@@ -418,7 +459,7 @@ const autoResizeComposer = () => {
   updateComposerHeight()
 }
 
-// 입력창 wrapper 실제 높이를 CSS 변수로 반영 → 리스트 하단 여백으로 사용
+// 입력창 wrapper 실제 높이를 CSS 변수로 반영
 const updateComposerHeight = () => {
   const wrap = composerWrapperRef.value
   if (!wrap) return
@@ -426,29 +467,31 @@ const updateComposerHeight = () => {
   setCssVar('--composer-h', `${h}px`)
 }
 
-const COMPOSER_MAX_CLOSED = 120
-const COMPOSER_MAX_OPEN_RATIO = 0.33
-
-const getComposerMaxPx = () => {
-  const vh = Number(getComputedStyle(document.documentElement).getPropertyValue('--vh').replace('px','')) || window.innerHeight
-  return kbOpen ? Math.round(vh * COMPOSER_MAX_OPEN_RATIO) : COMPOSER_MAX_CLOSED
-}
-
+// ✅ 키보드 상태 업데이트: "변화 있을 때만"
 const updateKeyboardState = (kbHeightPx = 0) => {
-  kbOpen = kbHeightPx > 0
-  setCssVar('--kb', kbOpen ? `${kbHeightPx}px` : '0px')
+  const nextOpen = kbHeightPx > 0
+  const nextKb = nextOpen ? kbHeightPx : 0
+
+  if (nextKb === lastKb && nextOpen === kbOpen) return
+  lastKb = nextKb
+  kbOpen = nextOpen
+
+  setCssVar('--kb', kbOpen ? `${nextKb}px` : '0px')
   setCssVar('--composer-max', `${getComposerMaxPx()}px`)
-  // 키보드 상태에 따른 홈바 여유 패딩 (열린다음 메세지와 키보드 사이 간격 앞쪽 4가 그거야)
-  setCssVar('--homebar-pad', kbOpen ? '4px' : '80px')
+
+  // ✅ 미세 간격 제거: 키보드 열리면 0px
+  setCssVar('--homebar-pad', kbOpen ? '0px' : '80px')
+
   updateComposerHeight()
-  scrollToBottom()
+  requestScrollToBottom()
 }
 
-// visualViewport 기반 추정
+// visualViewport 기반
 const handleViewportResize = () => {
   if (!vv) return
   const current = Math.round(vv.height)
   setCssVar('--vh', `${current}px`)
+
   const SLOP = 8
   const kbHeight = Math.max(0, Math.round(baseVh - current) + SLOP)
   updateKeyboardState(kbHeight)
@@ -459,20 +502,17 @@ onMounted(async()=>{
   window.addEventListener('paste', onPaste)
   await loadMessages()
 
-  // onMounted 내부 초기 설정 부분
   setCssVar('--kb','0px')
   setCssVar('--composer-max','110px')
   setCssVar('--vh', `${window.innerHeight}px`)
-  setCssVar('--homebar-pad','80px')  // ⬅️ 키보드 닫힘 기본값
+  setCssVar('--homebar-pad','80px')
   updateComposerHeight()
 
-  // Capacitor Keyboard: 웹뷰 리사이즈 방식 (화면을 키보드 높이만큼 줄임)
   try {
     await Keyboard.setResizeMode({ mode: 'native' })
     await Keyboard.setScroll({ isDisabled: true })
   } catch (e) {}
 
-  // visualViewport 리스너
   if (window.visualViewport) {
     vv = window.visualViewport
     baseVh = Math.round(vv.height)
@@ -488,7 +528,6 @@ onMounted(async()=>{
     window.addEventListener('resize', onResize)
   }
 
-  // Capacitor Keyboard 이벤트
   try {
     const listeners = []
     listeners.push(await Keyboard.addListener('keyboardWillShow', ({ keyboardHeight }) => {
@@ -507,21 +546,30 @@ onMounted(async()=>{
   } catch (e) {}
 
   socket.emit('joinRoom',roomId)
+
   socket.on('chatMessage',(msg)=>{
     const message=msg?.message||msg
-    const inSameRoom = msg?.roomId===roomId || msg?.chatRoom===roomId || msg?.chatRoom?._id===roomId || message?.chatRoom===roomId || message?.chatRoom?._id===roomId
+    const inSameRoom =
+      msg?.roomId===roomId ||
+      msg?.chatRoom===roomId ||
+      msg?.chatRoom?._id===roomId ||
+      message?.chatRoom===roomId ||
+      message?.chatRoom?._id===roomId
     if(!inSameRoom) return
     if(!message.createdAt) message.createdAt=new Date().toISOString()
-    pushMessageSafe(message); scrollToBottom()
+    pushMessageSafe(message)
+    requestScrollToBottom()
     if(!isMine(message)) scheduleMarkAsRead(250)
   })
+
   socket.on('messagesRead',({roomId:rid,readerId,messageIds}={})=>{
     if(String(rid)!==String(roomId)) return
     if(!readerId || !Array.isArray(messageIds) || !messageIds.length) return
     for(const m of messages.value){
       if(!isMine(m)) continue
       if(!messageIds.includes(m._id)) continue
-      const arr=m.readBy||[]; if(!arr.includes(readerId)) m.readBy=[...arr,readerId]
+      const arr=m.readBy||[]
+      if(!arr.includes(readerId)) m.readBy=[...arr,readerId]
     }
   })
 })
@@ -533,13 +581,16 @@ onUnmounted(() => {
     vv.removeEventListener('scroll', handleViewportResize)
   }
   removeKeyboardListeners?.()
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  scrollRaf = 0
+
   setCssVar('--kb','0px')
   setCssVar('--composer-max','110px')
-  setCssVar('--homebar-pad','80px') // ⬅️ 리셋(선택)
+  setCssVar('--homebar-pad','80px')
 })
 
-watch(messages,()=>{ scrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
-watch(showEmoji, async ()=>{ await nextTick(); updateComposerHeight() })
+watch(messages,()=>{ requestScrollToBottom(); scheduleMarkAsRead(250) },{deep:true})
+watch(showEmoji, async ()=>{ await nextTick(); updateComposerHeight(); requestScrollToBottom() })
 
 // 네비게이션
 const goBack=()=>router.push('/home/4page')
@@ -547,11 +598,9 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 </script>
 
 <style scoped>
-/* 상단 여백 강제 제거: 헤더를 최상단으로 붙임 */
 :deep(ion-header){ padding-top:0 !important; --ion-safe-area-top:0px; }
 :deep(ion-toolbar){ --padding-top:0 !important; --min-height:44px; }
 
-/* ion-content 내부 여백 제거 & 키보드 리사이즈 반영 */
 .chat-content {
   --padding-top: 0px;
   --padding-bottom: 0px;
@@ -562,7 +611,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   background: var(--page-bg, #0b0b0b);
 }
 
-/* 컨테이너는 flex column으로 전체 영역 차지 */
 .chatroom-container{
   display:flex; flex-direction:column;
   height:100%; min-height:100%;
@@ -578,7 +626,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   --fz-base:13px; --fz-time:11px; --fz-title:14px;
 }
 
-/* Header 를 더 위로 밀착 */
 .chat-toolbar{
   --background: #0b0b0b;
   --border-color: rgba(255,255,255,.06);
@@ -590,8 +637,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   height:44px; padding: var(--gap-md);
   background:#0b0b0b;
   box-sizing:border-box;
-  /* 상단 여백 제거 */
-  /* padding-top: calc(env(safe-area-inset-top, 0px) - 0px); */
 }
 .chatroom-header ion-button{
   --padding-start:6px; --padding-end:6px; --border-radius:8px; --color:var(--gold-500);
@@ -602,24 +647,22 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   font-weight:800;
   letter-spacing:.2px;
   color:var(--gold-500);
-  font-size:16px; /* 🔹글씨 크기 키움 (기존 var(--fz-title) ≈ 14px) */
+  font-size:16px;
   line-height:2.15;
   cursor:pointer;
   margin-left:8px;
 }
-/* Messages (inner scroll) */
+
 .chat-messages{
   flex:1 1 0; min-height:0;
   overflow:auto; -webkit-overflow-scrolling:touch;
   padding: var(--gap-md);
-  /* 리스트 바닥 여백 = 실제 입력창 높이만큼 확보 (키보드 높이 추가 금지) */
-  padding-bottom: 4px; /* 또는 0px */
+  padding-bottom: 4px;
   background:var(--section-bg);
   scrollbar-gutter:stable;
   overscroll-behavior: contain;
   touch-action: manipulation;
 }
-.chat-messages::-webkit-scrollbar{ width:6px; height:6px; }
 
 .message-row{ margin-bottom:var(--gap-xs); }
 
@@ -668,7 +711,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border-radius:999px; padding:2px 6px; margin-left:4px; line-height:1.3; user-select:none;
 }
 
-/* 날짜 구분선 — 왼쪽 정렬 */
 .date-divider{
   display:flex; align-items:center; justify-content:flex-start; gap:60px; margin:10px 0;
 }
@@ -678,20 +720,19 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border:1px solid rgba(230,199,102,0.35); border-radius:999px; padding:4px 10px; line-height:1.2;
 }
 
-/* 홈바 여유패딩을 변수로 치환: 키보드 상태에 따라 JS에서 갱신 */
+/* ✅ 입력창: 키보드 열릴 때는 homebar-pad 0px로 */
 .chat-input-wrapper {
   position: sticky;
   bottom: 0;
   z-index: 3;
   background: var(--page-bg);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  /* 키보드 닫힘(80px) / 열림(8px) 을 JS에서 --homebar-pad로 제어 */
   padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--homebar-pad, 80px));
 }
 
 .chat-input{
   display:grid; grid-template-columns:auto auto 1fr auto; align-items:end; gap:var(--gap-sm);
-  padding:8px var(--gap-md);              /* ⬅️ 내부 여백 소폭 ↑ */
+  padding:8px var(--gap-md);
   background:var(--page-bg); box-sizing:border-box;
 }
 
@@ -709,7 +750,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
 .chat-input textarea::placeholder{ color:#7a7a7a; }
 .chat-input textarea:focus{ outline:none; box-shadow:0 0 0 2px rgba(212,175,55,0.35); border-color:var(--gold-500); }
 
-/* 이모지 피커 */
 .emoji-picker-wrapper{
   position:absolute; left:var(--gap-md);
   bottom: calc(100% + 8px);
@@ -717,7 +757,6 @@ const goToPartnerProfile=()=>{ if(partnerId.value) router.push(`/home/user/${par
   border-radius:var(--radius-lg); overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.5);
 }
 
-/* Modal */
 .image-modal{
   position: fixed; inset: 0; z-index: 9999;
   display:flex; align-items:center; justify-content:center;

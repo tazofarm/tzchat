@@ -5,7 +5,7 @@ const isDebug = process.env.CAP_ENV === 'debug'
 
 const config: CapacitorConfig = {
   appId: 'com.tazocode.tzchat',
-  appName: '네네챗',
+  appName: 'Between',
   webDir: 'dist',
 
   server: isDebug

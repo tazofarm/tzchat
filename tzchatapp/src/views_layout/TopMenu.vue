@@ -33,10 +33,10 @@
 <script setup>
 /**
  * TopMenu.vue
- * - List(사람 아이콘)의 ⓝ 배지는 "받은 친구 신청" 신규 발생시에만 표시
- *   (friendRequest:created 이벤트에서 toId === 내 아이디 일 때만 ON)
- * - Chat ⓝ 배지는 /api/chatrooms/unread-total 로 계산
- * - friends:state 커스텀 이벤트를 수신하여 받은신청 상태와 동기화
+ * ✅ "홈 진입 체감 딜레이" 줄이기:
+ * - onMounted에서 await 제거 (초기 렌더 블로킹 방지)
+ * - /api/me는 캐시(localStorage) 우선 사용, 없을 때만 백그라운드 조회
+ * - unread-total은 디바운스 + inFlight로 중복 호출 방지
  */
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -44,14 +44,9 @@ import { IonIcon } from '@ionic/vue'
 import api from '@/lib/api'
 import { connectSocket, getSocket } from '@/lib/socket'
 import {
-  warningOutline,
-  locateOutline,
   peopleOutline,
   chatbubblesOutline,
   personCircleOutline,
-  settingsOutline,
-  starOutline,
-  trophyOutline,
   diamondOutline,
 } from 'ionicons/icons'
 
@@ -59,17 +54,10 @@ const route = useRoute()
 const router = useRouter()
 
 const menuItems = [
- // { name: 't-emer', path: '/home/91page', icon: diamondOutline },
- // { name: 't-tar', path: '/home/92page', icon: locateOutline },
- // { name: 't-all', path: '/home/93page', icon: warningOutline },
- // { name: 'Premium', path: '/home/0page', icon: diamondOutline },
- // { name: 'Search', path: '/home/2page', icon: locateOutline },
   { name: 'Search', path: '/home/targetpage', icon: diamondOutline },
- // { name: 'all', path: '/home/1page', icon: warningOutline },
   { name: 'List', path: '/home/3page', icon: peopleOutline },
   { name: 'Chat', path: '/home/4page', icon: chatbubblesOutline },
   { name: 'Profile', path: '/home/6page', icon: personCircleOutline },
-  //{ name: '설정', path: '/home/7page', icon: settingsOutline },
 ]
 
 const goTo = (path) => router.push(path)
@@ -81,6 +69,9 @@ const badgeChat = ref(false)
 const myId = ref(null)
 let socket = null
 
+// ✅ 내 아이디 캐시 키 (TopMenu가 /me를 매번 치지 않도록)
+const MYID_KEY = 'TZCHAT_MY_ID'
+
 /* ===== 받은신청 상태: window 이벤트 연동 =====
    - detail.hasNew: boolean (새로운 '받은' 친구 신청 존재 여부)
 */
@@ -89,8 +80,19 @@ const onFriendsState = (e) => {
   badgeFriends.value = hasNew
 }
 
-/* ===== 채팅 탭: 총 미읽음 조회 ===== */
-const refreshChatBadge = async (label = 'init') => {
+/* ===== 채팅 탭: 총 미읽음 조회 (디바운스 + 중복방지) ===== */
+let unreadTimer = null
+let unreadInFlight = false
+let unreadQueued = false
+
+const refreshChatBadgeNow = async (label = 'init') => {
+  if (unreadInFlight) {
+    unreadQueued = true
+    return
+  }
+  unreadInFlight = true
+  unreadQueued = false
+
   try {
     const res = await api.get('/api/chatrooms/unread-total')
     const total = Number(res?.data?.total || 0)
@@ -98,17 +100,33 @@ const refreshChatBadge = async (label = 'init') => {
     console.log(`[TopMenu] refreshChatBadge(${label}) → total=`, total)
   } catch (e) {
     console.warn('[TopMenu] refreshChatBadge 실패:', e)
+  } finally {
+    unreadInFlight = false
+    if (unreadQueued) {
+      // 큐가 있으면 한번 더
+      unreadQueued = false
+      refreshChatBadgeNow('queued')
+    }
   }
 }
 
-/* ===== 소켓 핸들러 ===== */
-const hConnect = async () => {
-  console.log('[TopMenu] socket connected:', socket.id)
-  if (myId.value) socket.emit('join', { userId: myId.value })
-  await refreshChatBadge('socket-connect')
+const refreshChatBadge = (label = 'init', delayMs = 150) => {
+  if (unreadTimer) clearTimeout(unreadTimer)
+  unreadTimer = setTimeout(() => {
+    unreadTimer = null
+    refreshChatBadgeNow(label)
+  }, delayMs)
 }
 
-/* ✅ 핵심 변경: "받은 친구 신청"일 때만 배지 ON */
+/* ===== 소켓 핸들러 ===== */
+const hConnect = () => {
+  console.log('[TopMenu] socket connected:', socket?.id)
+  if (myId.value) socket.emit('join', { userId: myId.value })
+  // ✅ 기다리지 말고 백그라운드로 갱신
+  refreshChatBadge('socket-connect', 0)
+}
+
+/* ✅ 핵심: "받은 친구 신청"일 때만 배지 ON */
 const hFriendReq = (req) => {
   const me = myId.value
   if (!me) return
@@ -118,17 +136,17 @@ const hFriendReq = (req) => {
   }
 }
 
-const hRoomsBadge = async (payload) => {
+const hRoomsBadge = (payload) => {
   console.log('[TopMenu] socket chatrooms:badge:', payload)
-  await refreshChatBadge('socket-badge')
+  refreshChatBadge('socket-badge', 0)
 }
-const hRoomsUpdated = async (payload) => {
+const hRoomsUpdated = (payload) => {
   console.log('[TopMenu] socket chatrooms:updated:', payload)
-  await refreshChatBadge('socket-updated')
+  refreshChatBadge('socket-updated', 0)
 }
-const hChatMsg = async () => {
+const hChatMsg = () => {
   console.log('[TopMenu] socket chatMessage(compat): refresh')
-  await refreshChatBadge('socket-chatMessage')
+  refreshChatBadge('socket-chatMessage', 0)
 }
 
 /* ===== 소켓 바인딩 ===== */
@@ -141,7 +159,7 @@ function bindSocket() {
   socket.off('chatMessage', hChatMsg)
 
   socket.on('connect', hConnect)
-  socket.on('friendRequest:created', hFriendReq) // ← 받은신청일 때만 배지 ON
+  socket.on('friendRequest:created', hFriendReq)
   socket.on('chatrooms:badge', hRoomsBadge)
   socket.on('chatrooms:updated', hRoomsUpdated)
   socket.on('chatMessage', hChatMsg)
@@ -150,35 +168,69 @@ function bindSocket() {
 /* ===== 라우트 변화 반응 ===== */
 watch(() => route.path, (p) => {
   if (p === '/home/4page') {
-    setTimeout(() => refreshChatBadge('route-enter-chat'), 250)
+    // 채팅탭 진입 시 즉시 갱신 (디바운스 안에서 처리)
+    refreshChatBadge('route-enter-chat', 100)
   }
 })
 
-/* ===== 마운트 ===== */
-onMounted(async () => {
+/* ===== 내 아이디 빠른 로드 (캐시 우선) ===== */
+function loadMyIdFromCache() {
+  try {
+    const v = localStorage.getItem(MYID_KEY)
+    if (v && v.trim()) return v.trim()
+  } catch {}
+  return null
+}
+
+/* ===== /api/me 는 필요할 때만 "백그라운드"로 ===== */
+async function fetchMyIdInBackground() {
   try {
     const me = await api.get('/api/me')
-    myId.value = me.data?.user?._id || null
+    const id = me.data?.user?._id || null
+    if (id) {
+      myId.value = id
+      try { localStorage.setItem(MYID_KEY, String(id)) } catch {}
+
+      // 소켓이 이미 연결돼 있으면 join 한번 더
+      if (socket && socket.connected) {
+        socket.emit('join', { userId: myId.value })
+      }
+    }
   } catch (e) {
     console.warn('[TopMenu] /me 실패', e)
   }
+}
 
-  socket = getSocket() || connectSocket()
-  bindSocket()
-
-  // Received 페이지가 방송하는 상태를 수신
+/* ===== 마운트 ===== */
+onMounted(() => {
+  // 1) 친구 Received 페이지 이벤트 수신
   window.addEventListener('friends:state', onFriendsState)
 
-  // 현재 상태 요청(Received 페이지가 friends:state로 응답)
+  // 2) 현재 상태 요청(Received 페이지가 friends:state로 응답)
   try {
     window.dispatchEvent(new CustomEvent('friends:requestState'))
   } catch {}
 
-  await refreshChatBadge('mounted')
+  // 3) 내 ID는 캐시 우선
+  const cachedId = loadMyIdFromCache()
+  if (cachedId) myId.value = cachedId
+  else fetchMyIdInBackground() // ✅ await 금지
+
+  // 4) 소켓 연결/바인딩
+  socket = getSocket() || connectSocket()
+  bindSocket()
+
+  // 5) unread 갱신도 "백그라운드" (await 금지)
+  refreshChatBadge('mounted', 0)
 })
 
 onUnmounted(() => {
   window.removeEventListener('friends:state', onFriendsState)
+
+  if (unreadTimer) {
+    clearTimeout(unreadTimer)
+    unreadTimer = null
+  }
 
   if (socket) {
     socket.off('connect', hConnect)

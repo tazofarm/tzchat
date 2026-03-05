@@ -49,6 +49,14 @@ function withWalletDefaults(u: MeUser | null): MeUser | null {
 /** 지연 재동기화를 위한 모듈 스코프 타이머 (중복 호출 디바운스) */
 let _walletRefreshTimer: number | null = null
 
+/** ✅ /api/me 단일 진행 + TTL 캐시(여러 컴포넌트에서 동시에 호출해도 1번만 나가게) */
+const _meCache = {
+  checkedAt: 0,
+  user: null as MeUser | null,
+  inflight: null as Promise<MeUser | null> | null,
+}
+const ME_CACHE_TTL_MS = 30_000
+
 export const useUserStore = defineStore('user', {
   state: () => ({
     user: null as MeUser | null,
@@ -72,7 +80,11 @@ export const useUserStore = defineStore('user', {
 
   actions: {
     setUser(u: MeUser | null) {
-      this.user = withWalletDefaults(u)
+      const nu = withWalletDefaults(u)
+      this.user = nu
+      // ✅ 캐시도 함께 최신화
+      _meCache.user = nu
+      _meCache.checkedAt = Date.now()
     },
 
     clear() {
@@ -80,40 +92,107 @@ export const useUserStore = defineStore('user', {
       this.error = ''
       this.loading = false
       this._socketBound = false
+
+      // ✅ 캐시 초기화
+      _meCache.checkedAt = 0
+      _meCache.user = null
+      _meCache.inflight = null
+
       if (_walletRefreshTimer) {
         clearTimeout(_walletRefreshTimer)
         _walletRefreshTimer = null
       }
     },
 
-    /** /api/me 호출로 최신 사용자 정보 동기화 */
-    async fetchMe() {
-      try {
-        this.loading = true
-        this.error = ''
-        const res = await api.get('/api/me', { withCredentials: true })
-        const u = withWalletDefaults(extractUser(res?.data))
-        if (!u?._id) throw new Error('NO_USER')
-        this.user = u
-        return u
-      } catch (e: any) {
-        this.error = e?.response?.data?.error || e?.message || 'ME_ERROR'
-        this.user = null
-        return null
-      } finally {
-        this.loading = false
+    /**
+     * ✅ /api/me 호출로 최신 사용자 정보 동기화
+     * - 여러 곳에서 동시에 호출되어도 inflight 공유로 1번만 요청
+     * - TTL 내면 캐시 반환
+     * - 실패해도 "기존 user를 null로 지우지 않음" (401일 때만 clear 성격)
+     */
+    async fetchMe(opts?: { force?: boolean; silent?: boolean }): Promise<MeUser | null> {
+      const force = !!opts?.force
+      const silent = !!opts?.silent
+
+      const now = Date.now()
+      if (!force && _meCache.checkedAt && now - _meCache.checkedAt < ME_CACHE_TTL_MS) {
+        // 캐시가 있으면 즉시 반환
+        if (_meCache.user) {
+          // 스토어에도 반영(혹시 다른 곳에서 setUser 안된 경우)
+          if (!this.user || this.user._id !== _meCache.user._id) {
+            this.user = _meCache.user
+          }
+        }
+        return _meCache.user
       }
+
+      // 이미 진행중이면 그 promise를 공유
+      if (_meCache.inflight) {
+        try {
+          const u = await _meCache.inflight
+          return u
+        } catch {
+          return _meCache.user ?? this.user
+        }
+      }
+
+      _meCache.inflight = (async () => {
+        try {
+          if (!silent) {
+            this.loading = true
+            this.error = ''
+          }
+
+          const res = await api.get('/api/me', { withCredentials: true })
+          const u = withWalletDefaults(extractUser(res?.data))
+          if (!u?._id) throw new Error('NO_USER')
+
+          // 성공: user & cache 갱신
+          this.setUser(u)
+          return u
+        } catch (e: any) {
+          const status = e?.response?.status
+          const msg = e?.response?.data?.error || e?.message || 'ME_ERROR'
+
+          // ✅ 401(인증 만료)일 때만 user 제거 성격
+          if (status === 401) {
+            this.error = msg
+            this.user = null
+            _meCache.user = null
+            _meCache.checkedAt = Date.now()
+            return null
+          }
+
+          // ✅ 그 외 네트워크/서버 오류는 user 유지 (UX: 깜빡임 방지)
+          this.error = msg
+
+          // 캐시 시간만 갱신해 “짧은 시간 연속 호출 폭주” 방지
+          _meCache.checkedAt = Date.now()
+
+          // 현재 user(혹은 캐시) 유지
+          return this.user ?? _meCache.user
+        } finally {
+          if (!silent) this.loading = false
+          _meCache.inflight = null
+        }
+      })()
+
+      return await _meCache.inflight
     },
 
     /** 임시 결제 성공 직후 등급만 빠르게 반영(낙관적 업데이트) */
     applyLevel(level: UserLevel) {
       if (!this.user) return
       this.user = { ...this.user, user_level: level }
+      // 캐시도 동기화
+      _meCache.user = this.user
+      _meCache.checkedAt = Date.now()
     },
 
     /** 결제 후 보수적 재동기화(백엔드 반영 상태 확인) */
     async refreshAfterPurchase() {
-      return await this.fetchMe()
+      // 결제 직후는 최신이 중요하니 force
+      return await this.fetchMe({ force: true })
     },
 
     /** ✅ 하트/별/루비 부분 갱신용 (반응형 보장) */
@@ -122,6 +201,10 @@ export const useUserStore = defineStore('user', {
       const current = this.user.wallet ?? { heart: 0, star: 0, ruby: 0 }
       const updated = { ...current, ...partial }
       this.user = { ...this.user, wallet: updated }
+
+      // 캐시도 동기화
+      _meCache.user = this.user
+      _meCache.checkedAt = Date.now()
     },
 
     /** 내부 사용: 현재 wallet을 기본값 포함해 가져오고 반응형 객체로 유지 */
@@ -130,6 +213,8 @@ export const useUserStore = defineStore('user', {
       const base = { heart: 0, star: 0, ruby: 0 }
       const w = { ...base, ...(this.user.wallet ?? {}) }
       this.user = { ...this.user, wallet: w }
+      _meCache.user = this.user
+      _meCache.checkedAt = Date.now()
       return w
     },
 
@@ -158,7 +243,8 @@ export const useUserStore = defineStore('user', {
         } else if (res?.data?.wallet) {
           this.updateWallet(res.data.wallet)
         } else {
-          await this.fetchMe()
+          // force는 과할 수 있으니 silent로 백그라운드
+          await this.fetchMe({ silent: true })
         }
       } catch (e) {
         // 4) 실패 시 롤백
@@ -181,7 +267,7 @@ export const useUserStore = defineStore('user', {
         const u = extractUser(res?.data)
         if (u?.wallet) this.updateWallet(u.wallet)
         else if (res?.data?.wallet) this.updateWallet(res.data.wallet)
-        else await this.fetchMe()
+        else await this.fetchMe({ silent: true })
       } catch (e) {
         this.updateWallet({ star: prev })
         throw e
@@ -201,7 +287,7 @@ export const useUserStore = defineStore('user', {
         const u = extractUser(res?.data)
         if (u?.wallet) this.updateWallet(u.wallet)
         else if (res?.data?.wallet) this.updateWallet(res.data.wallet)
-        else await this.fetchMe()
+        else await this.fetchMe({ silent: true })
       } catch (e) {
         this.updateWallet({ ruby: prev })
         throw e
@@ -212,7 +298,7 @@ export const useUserStore = defineStore('user', {
 
     /** 서버에서 지갑만 빠르게 재동기화 하고 싶을 때 */
     async refreshWallet() {
-      const u = await this.fetchMe()
+      const u = await this.fetchMe({ silent: true })
       if (u?.wallet) this.updateWallet(u.wallet)
       return u?.wallet ?? null
     },
@@ -241,8 +327,7 @@ export const useUserStore = defineStore('user', {
 
     /**
      * ✅ 소켓 바인딩: 서버 푸시를 받아 즉시 반영
-     * - io: Socket.IO client 인스턴스 (예: import io from '@/lib/socket')
-     * - 이벤트 이름은 서버와 맞춰 변경하세요.
+     * - connect에서 fetchMe를 await로 막지 않게 + TTL/캐시로 부담 감소
      */
     bindSocket(io: any) {
       if (this._socketBound || !io) return
@@ -251,7 +336,6 @@ export const useUserStore = defineStore('user', {
       const applyWalletFromPayload = (payload: any) => {
         if (!payload) return
         if (payload.wallet) {
-          // payload가 user 또는 {wallet} 형태
           this.updateWallet(payload.wallet)
         } else if (
           typeof payload.heart === 'number' ||
@@ -262,20 +346,18 @@ export const useUserStore = defineStore('user', {
         }
       }
 
-      // 연결/재연결 시 내 정보 최신화(옵션)
       io.on('connect', () => {
-        // 재연결 후 서버 상태와 diff가 있으면 정합성 확보
-        this.fetchMe()
+        // ✅ 재연결 직후 정합성은 "백그라운드(silent)"로만
+        // (TTL 캐시가 있어 폭주 방지)
+        try { this.fetchMe({ silent: true }) } catch {}
       })
 
-      // 서버가 지갑만 내려주는 경우
       io.on('wallet:update', (data: any) => {
         applyWalletFromPayload(data)
       })
 
-      // 서버가 전체 사용자 변경을 내려주는 경우
       io.on('me:update', (data: any) => {
-        const u = extractUser(data)
+        const u = withWalletDefaults(extractUser(data))
         if (u) {
           this.setUser(u)
         } else {
@@ -283,15 +365,14 @@ export const useUserStore = defineStore('user', {
         }
       })
 
-      // 결제 확정 같은 별도 이벤트가 있는 경우
       io.on('purchase:confirmed', (data: any) => {
-        const u = extractUser(data)
+        const u = withWalletDefaults(extractUser(data))
         if (u?.user_level) this.applyLevel(u.user_level)
         applyWalletFromPayload(u ?? data)
-      })
 
-      // 필요시 언바인드 함수도 제공 가능
-      // io.on('disconnect', () => { ... })
+        // 결제 확정은 최신이 중요 → force(하지만 silent로 UX 막지 않음)
+        try { this.fetchMe({ force: true, silent: true }) } catch {}
+      })
     },
   },
 })

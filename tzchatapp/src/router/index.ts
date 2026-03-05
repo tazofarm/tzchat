@@ -1,6 +1,6 @@
 // src/router/index.ts
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import api, { getAgreementStatus } from '@/lib/api'
+import api, { getAgreementStatus, setAuthToken } from '@/lib/api'
 
 import {
   modalController,
@@ -105,13 +105,11 @@ const AgreementPage = () => import('@/legalpage/AgreementPage.vue')
 
 // ✅ 멤버십 구매(남/녀 자동 분기 단일 페이지)
 import BuyPage from '@/components/05110_Membership/Buy.vue'
-// ✅ 결제 이력 페이지
 import HistoryPage from '@/components/05110_Membership/History.vue'
 
 // (문서 목록/단일)
 const LegalDocs = () => import('@/legalpage/LegalDocs.vue')
 const LegalContainer = () => import('@/legalpage/LegalContainer.vue')
-// ✅ 관리자 약관 편집 페이지
 const TermsAdmin = () => import('@/legalpage/admin/TermsAdmin.vue')
 
 // ✅ 탈퇴신청 전용 페이지
@@ -121,26 +119,17 @@ const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginPage },
 
-  // 🔐 PASS 관련(인증 없이 접근 가능)
   { path: '/pass', name: 'PassPortal', component: PassPortal, meta: { public: true } },
-
-  // ✅ [ADD] PortOne redirectUrl 복귀 전용 라우트
-  // - redirectUrl: https://tzchat.tazocode.com/app/pass-result?identityVerificationId=...
-  // - 별도 PassResult.vue 없이 PassPortal이 그대로 받아서 finalize/polling 처리
   { path: '/app/pass-result', name: 'PassResult', component: PassPortal, meta: { public: true } },
-
   { path: '/pass/manual', name: 'PassManual', component: PassManual, meta: { public: true, layout: 'blank' } },
 
-  // 🔐 회원가입/임시로그인도 공개
   { path: '/signup', name: 'Signup', component: SignupPage, meta: { public: true } },
   { path: '/templogin', name: 'TempLogin', component: TempLogin, meta: { public: true } },
 
-  // ✅ 외부 공개 라우트(로그인 불필요)
   { path: '/legal/consent', name: 'AgreementPagePublic', component: AgreementPage, meta: { public: true } },
   { path: '/legals/v2', name: 'LegalDocsV2Public', component: LegalDocs, meta: { public: true } },
   { path: '/legals/v2/:slug', name: 'LegalPageV2Public', component: LegalContainer, props: true, meta: { public: true } },
 
-  // ✅ 탈퇴신청 전용(로그인 필요)
   {
     path: '/account/deletion-pending',
     name: 'AccountDeletionPending',
@@ -148,7 +137,6 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
 
-  // ✅ 관리자 약관 편집 (마스터 전용)
   {
     path: '/admin/terms/:slug',
     name: 'AdminTermsEdit',
@@ -164,7 +152,6 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', component: Page6 },
 
-      // ✅ 멤버십 관련 라우트
       { path: 'membership/buy', component: BuyPage, meta: { requiresAuth: true } },
       { path: 'membership/history', component: HistoryPage, meta: { requiresAuth: true } },
 
@@ -188,10 +175,8 @@ const routes: RouteRecordRaw[] = [
       { path: '34page', component: Page34 },
       { path: 'phoneupdate', component: PhoneUpdate },
 
-      // minipage
       { path: 'user/:id', component: PageuserProfile, props: true },
 
-      // ✅ 정규 경로 + 오탈자 alias 동시 지원
       {
         path: 'premiumuser/:id',
         component: PagepremiumProfile,
@@ -201,19 +186,12 @@ const routes: RouteRecordRaw[] = [
 
       { path: 'chat/:id', component: ChatRoomPage, props: true },
 
-      // purchase
       { path: 'purchase/main', component: purchaseMain },
 
-      // setting
       { path: 'setting/0001', component: setting01 },
       { path: 'setting/0002', component: setting02 },
       { path: 'setting/0002/write', component: NoticeEditPage, meta: { requiresMaster: true } },
-      {
-        path: 'setting/0002/edit/:id',
-        component: NoticeEditPage,
-        meta: { requiresMaster: true },
-        props: true,
-      },
+      { path: 'setting/0002/edit/:id', component: NoticeEditPage, meta: { requiresMaster: true }, props: true },
 
       { path: 'setting/0003', component: setting03 },
       { path: 'setting/0004', component: setting04 },
@@ -234,7 +212,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'setting/0019', component: setting19 },
       { path: 'setting/0020', component: setting20 },
 
-      // ✅ 관리자
       { path: 'admin', component: AdminDashboard, meta: { requiresMaster: true } },
       { path: 'admin/0001', component: Admin01, meta: { requiresMaster: true } },
       { path: 'admin/0002', component: Admin02, meta: { requiresMaster: true } },
@@ -257,25 +234,15 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/0019', component: Admin19, meta: { requiresMaster: true } },
       { path: 'admin/0020', component: Admin20, meta: { requiresMaster: true } },
 
-      // ✅ 내부(로그인 후) 법적 문서 라우트
       { path: 'legals/v2', name: 'LegalDocsV2Internal', component: LegalDocs },
       { path: 'legals/v2/:slug', name: 'LegalPageV2Internal', component: LegalContainer, props: true },
     ],
   },
 
-  // 404
   { path: '/:pathMatch(.*)*', name: 'NotFound', component: Page6 },
 ]
 
-const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes,
-  scrollBehavior() {
-    // (윈도우 스크롤용) 항상 맨 위로
-    return { top: 0, left: 0 }
-  },
-})
-
+// ===== helpers =====
 function parseMePayload(raw: any) {
   const user =
     raw?.user ??
@@ -285,35 +252,30 @@ function parseMePayload(raw: any) {
   return { ok, user }
 }
 
-// 약관/동의 화면 화이트리스트
 function isLegalRoute(path: string) {
-  return (
-    path.startsWith('/legal/consent') ||
-    path.startsWith('/legals/v2') ||
-    path.includes('/home/legals/v2')
-  )
+  return path.startsWith('/legal/consent') || path.startsWith('/legals/v2') || path.includes('/home/legals/v2')
 }
 
-// ✅ 남아있는 모든 Ionic 오버레이 강제 정리
-async function dismissAllOverlays() {
+// ✅ “채팅 라우트” 판별 (router 쪽에서도 동일 기준)
+function isChatRoutePath(path: string) {
+  const p = String(path || '').toLowerCase()
+  return p.startsWith('/home/chat/') || p.startsWith('/home/chat') // /home/chat/:id 포함
+}
+
+async function dismissAllOverlaysOnce() {
   try {
-    for (let i = 0; i < 3; i++) {
-      await Promise.allSettled([
-        modalController.dismiss(),
-        actionSheetController.dismiss(),
-        alertController.dismiss(),
-        loadingController.dismiss(),
-        popoverController.dismiss(),
-        pickerController.dismiss(),
-        toastController.dismiss(),
-      ])
-    }
-  } catch {
-    /* no-op */
-  }
+    await Promise.allSettled([
+      modalController.dismiss(),
+      actionSheetController.dismiss(),
+      alertController.dismiss(),
+      loadingController.dismiss(),
+      popoverController.dismiss(),
+      pickerController.dismiss(),
+      toastController.dismiss(),
+    ])
+  } catch {}
 }
 
-// --- 추가: 계정 상태 조회 함수
 async function fetchAccountStatus(): Promise<'active' | 'pendingDeletion' | 'unknown'> {
   try {
     const res = await api.get('/api/account/status', { withCredentials: true })
@@ -324,48 +286,220 @@ async function fetchAccountStatus(): Promise<'active' | 'pendingDeletion' | 'unk
   }
 }
 
+function getStoredToken(): string | null {
+  try {
+    const t = localStorage.getItem('TZCHAT_AUTH_TOKEN')
+    return t && t.trim() ? t.trim() : null
+  } catch {
+    return null
+  }
+}
+
+const authCache = {
+  checkedAt: 0,
+  ok: false,
+  me: null as any,
+  checking: null as Promise<any> | null,
+}
+const AUTH_CACHE_TTL_MS = 30_000
+
+function getFreshCachedMe(): any | null {
+  const now = Date.now()
+  if (authCache.checkedAt && now - authCache.checkedAt < AUTH_CACHE_TTL_MS && authCache.ok && authCache.me) {
+    return authCache.me
+  }
+  return null
+}
+
+async function validateMeCached(force = false): Promise<{ ok: boolean; me: any | null }> {
+  const now = Date.now()
+  if (!force && authCache.checkedAt && now - authCache.checkedAt < AUTH_CACHE_TTL_MS) {
+    return { ok: authCache.ok, me: authCache.me }
+  }
+
+  if (authCache.checking) {
+    try {
+      const me = await authCache.checking
+      return { ok: !!me, me }
+    } catch {
+      return { ok: false, me: null }
+    }
+  }
+
+  authCache.checking = (async () => {
+    const res = await api.get('/api/me', { withCredentials: true })
+    const { ok, user: me } = parseMePayload(res?.data)
+    authCache.checkedAt = Date.now()
+    authCache.ok = !!ok && !!me
+    authCache.me = authCache.ok ? me : null
+    return authCache.me
+  })()
+
+  try {
+    const me = await authCache.checking
+    return { ok: !!me, me }
+  } catch {
+    authCache.checkedAt = Date.now()
+    authCache.ok = false
+    authCache.me = null
+    return { ok: false, me: null }
+  } finally {
+    authCache.checking = null
+  }
+}
+
+function clearAuthLocal() {
+  try {
+    localStorage.removeItem('TZCHAT_AUTH_TOKEN')
+  } catch {}
+  try {
+    setAuthToken('')
+  } catch {}
+  authCache.checkedAt = 0
+  authCache.ok = false
+  authCache.me = null
+  authCache.checking = null
+}
+
+// ✅ 백그라운드 실행 (첫 페인트/전환 방해 금지)
+function runInBackground(fn: () => void, delayMs = 0) {
+  // @ts-ignore
+  const ric = (window as any).requestIdleCallback as undefined | ((cb: Function, opts?: any) => any)
+  if (ric) {
+    ric(() => fn(), { timeout: 1200 })
+    return
+  }
+  setTimeout(fn, delayMs)
+}
+
+// ✅ “전환이 안정화된 후” 네비게이션 실행
+function safeReplace(to: any) {
+  // 2프레임 뒤에 실행: 전환/레이아웃 먼저 안정화
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      router.replace(to).catch(() => {})
+    })
+  })
+}
+
+async function backgroundPostChecks(toFullPath: string, requiresMaster: boolean) {
+  try {
+    const { ok, me } = await validateMeCached(true)
+    if (!ok || !me) {
+      clearAuthLocal()
+      safeReplace({ path: '/login', query: { redirect: toFullPath } })
+      return
+    }
+
+    const role = String(me?.role || '').toLowerCase()
+    if (requiresMaster && role !== 'master') {
+      safeReplace('/home')
+      return
+    }
+
+    const status = await fetchAccountStatus()
+    const isOnDeletionPage =
+      toFullPath === '/account/deletion-pending' || toFullPath.startsWith('/account/deletion-pending?')
+    if (status === 'pendingDeletion' && !isOnDeletionPage) {
+      safeReplace({ name: 'AccountDeletionPending' })
+      return
+    }
+
+    if (status !== 'pendingDeletion' && !isLegalRoute(toFullPath)) {
+      try {
+        const gs = await getAgreementStatus()
+        const pending: any[] = gs?.data?.pending ?? []
+        if (Array.isArray(pending) && pending.length > 0) {
+          safeReplace({
+            name: 'AgreementPagePublic',
+            query: { return: toFullPath },
+          })
+          return
+        }
+      } catch (e) {
+        console.error('⚠️ 동의 상태 조회 실패(보수적으로 유지):', e)
+      }
+    }
+  } catch (e) {
+    console.log('⚠️ backgroundPostChecks err', e)
+  }
+}
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes,
+
+  // ✅ 채팅에서는 Router의 스크롤 개입을 끊어서 튕김/멈칫 방지
+  scrollBehavior(to) {
+    if (isChatRoutePath(to.fullPath)) return false as any
+    return { top: 0, left: 0 }
+  },
+})
+
 router.beforeEach(async (to, _from, next) => {
   const requiresAuth = to.matched.some((r) => r.meta.requiresAuth)
   const requiresMaster = to.matched.some((r) => r.meta.requiresMaster)
 
-  // 🔓 public 라우트는 인증 없이 통과
-  if (to.matched.some((r) => r.meta?.public)) {
-    return next()
-  }
+  if (to.matched.some((r) => r.meta?.public)) return next()
+  if (isLegalRoute(to.fullPath) && !requiresAuth && !requiresMaster) return next()
 
-  // 외부 약관/문서 경로는 로그인 없이 통과
-  if (isLegalRoute(to.fullPath) && !requiresAuth && !requiresMaster) {
+  if (to.path === '/login') {
+    const token = getStoredToken()
+    if (token) {
+      try {
+        setAuthToken(token)
+      } catch {}
+      const redirect = typeof to.query.redirect === 'string' ? String(to.query.redirect) : '/home/6page'
+      const target = redirect.startsWith('/home') ? redirect : '/home/6page'
+      next({ path: target, replace: true })
+      runInBackground(() => {
+        backgroundPostChecks(target, false).catch(() => {})
+      }, 0)
+      return
+    }
     return next()
   }
 
   if (!requiresAuth && !requiresMaster) return next()
 
+  const token = getStoredToken()
+  if (token) {
+    try {
+      setAuthToken(token)
+    } catch {}
+
+    const freshMe = getFreshCachedMe()
+    if (requiresMaster && freshMe) {
+      const role = String(freshMe?.role || '').toLowerCase()
+      if (role !== 'master') return next('/home')
+    }
+
+    next()
+
+    runInBackground(() => {
+      backgroundPostChecks(to.fullPath, requiresMaster).catch(() => {})
+    }, 0)
+    return
+  }
+
+  // 토큰 없으면 엄격 검사
   try {
-    console.log('🔒 [가드] 보호 라우트 진입: ', to.fullPath)
     const res = await api.get('/api/me', { withCredentials: true })
     const { ok, user: me } = parseMePayload(res?.data)
-    if (!ok || !me) {
-      return next({ path: '/login', query: { redirect: to.fullPath } })
-    }
+    if (!ok || !me) return next({ path: '/login', query: { redirect: to.fullPath } })
 
-    // 1) 마스터 권한 확인
     const role = String(me?.role || '').toLowerCase()
-    if (requiresMaster && role !== 'master') {
-      return next('/home')
-    }
+    if (requiresMaster && role !== 'master') return next('/home')
 
-    // 2) 계정 상태 확인 (탈퇴신청이면 전용 페이지로)
     const status = await fetchAccountStatus()
-    const isOnDeletionPage =
-      to.name === 'AccountDeletionPending' || to.path === '/account/deletion-pending'
+    const isOnDeletionPage = to.name === 'AccountDeletionPending' || to.path === '/account/deletion-pending'
     if (status === 'pendingDeletion' && !isOnDeletionPage) {
       return next({ name: 'AccountDeletionPending', replace: true })
     }
 
-    // 3) (탈퇴신청이 아닐 때만) 동의 미완료 시, 공개 동의 페이지로 우회
     if (status !== 'pendingDeletion' && !isLegalRoute(to.fullPath)) {
       try {
-        const gs = await getAgreementStatus() // { data: { pending: [...] } }
+        const gs = await getAgreementStatus()
         const pending: any[] = gs?.data?.pending ?? []
         if (Array.isArray(pending) && pending.length > 0) {
           return next({
@@ -382,51 +516,21 @@ router.beforeEach(async (to, _from, next) => {
     return next()
   } catch (err: any) {
     const status = err?.response?.status
-    if (status === 401) {
-      return next({ path: '/login', query: { redirect: to.fullPath } })
-    }
+    if (status === 401) return next({ path: '/login', query: { redirect: to.fullPath } })
     return next({ path: '/login', query: { redirect: to.fullPath, e: status || '500' } })
   }
 })
 
-router.afterEach(async () => {
-  await dismissAllOverlays()
-
-  // ✅ 라우트 전환 후 스크롤 루트들을 확실히 0으로 초기화
-  const resetScroll = () => {
-    try {
-      // 1) Ionic(ion-content) 내부 스크롤
-      const contents = document.querySelectorAll('ion-content')
-      contents.forEach((el) => {
-        // @ts-ignore - web component 메서드
-        el?.scrollToTop?.(0)
-        // @ts-ignore - 호환 메서드
-        el?.scrollToPoint?.(0, 0, 0)
-        ;(el as unknown as HTMLElement).scrollTop = 0
-      })
-
-      // 2) 커스텀 스크롤 컨테이너(.main-page 등)
-      const customRoots = document.querySelectorAll<HTMLElement>(
-        '.main-page,[data-scroll-root],[data-scroll-container]'
-      )
-      customRoots.forEach((el) => {
-        el.scrollTop = 0
-      })
-
-      // 3) 바깥쪽(문서/윈도우) 스크롤도 함께 초기화
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-      window.scrollTo({ top: 0, left: 0 })
-    } catch {
-      /* no-op */
-    }
-  }
-
-  // 렌더 완료 이후 한 번 더 보장 (전환 애니메이션/지연 대비)
-  requestAnimationFrame(() => {
-    resetScroll()
-    requestAnimationFrame(resetScroll)
-  })
+/**
+ * ✅ afterEach:
+ * - 채팅에서는 오버레이 정리도 스킵(최소 부하)
+ * - await로 전환 막지 않음
+ */
+router.afterEach((to) => {
+  if (isChatRoutePath(to.fullPath)) return
+  runInBackground(() => {
+    dismissAllOverlaysOnce().catch(() => {})
+  }, 0)
 })
 
 export default router

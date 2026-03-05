@@ -8,7 +8,7 @@
           {{ user.nickname }}
         </h3>
 
-        <!-- ✅ 프로필 사진 컴포넌트 -->
+        <!-- ✅ 프로필 사진 컴포넌트 (lazy-load) -->
         <div class="pf-photo">
           <ProfilePhotoManager
             :gender="user?.gender || ''"
@@ -52,13 +52,19 @@
               @click="canEditFieldLocal('nickname') ? openPopup(4, user.nickname) : lock('닉네임')"
               @keydown.enter="canEditFieldLocal('nickname') ? openPopup(4, user.nickname) : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.personCircleOutline" class="row-icon" /><strong class="label">닉네임</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.personCircleOutline" class="row-icon" />
+                <strong class="label">닉네임</strong>
+              </td>
               <td class="pf-td editable-text">{{ user.nickname }}</td>
             </tr>
 
             <!-- 나이 -->
             <tr class="editable-row disabled" aria-disabled="true">
-              <td class="pf-th"><IonIcon :icon="icons.calendarOutline" class="row-icon" /><strong class="label">나이</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.calendarOutline" class="row-icon" />
+                <strong class="label">나이</strong>
+              </td>
               <td class="pf-td readonly editable-text">
                 {{ user.birthyear || '미입력' }}
               </td>
@@ -66,13 +72,16 @@
 
             <!-- 성별 -->
             <tr class="editable-row disabled" aria-disabled="true">
-              <td class="pf-th"><IonIcon :icon="icons.maleFemaleOutline" class="row-icon" /><strong class="label">성별</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.maleFemaleOutline" class="row-icon" />
+                <strong class="label">성별</strong>
+              </td>
               <td class="pf-td readonly editable-text">
                 {{ user.gender === 'man' ? '남자' : user.gender === 'woman' ? '여자' : '미입력' }}
               </td>
             </tr>
 
-            <!-- 전화번호: 마스킹 -->
+            <!-- 전화번호: 마스킹 
             <tr class="editable-row pf-row--phone" tabindex="-1">
               <td class="pf-td2 pf-fullcell" colspan="2">
                 <div class="pf-fullrow">
@@ -91,7 +100,7 @@
                 </div>
               </td>
             </tr>
-
+-->
             <!-- 지역 -->
             <tr
               :class="['editable-row', { disabled: !canEditFieldLocal('region') }]"
@@ -99,7 +108,10 @@
               @click="canEditFieldLocal('region') ? openPopup(1, user.region1 + ' ' + user.region2) : lock('지역')"
               @keydown.enter="canEditFieldLocal('region') ? openPopup(1, user.region1 + ' ' + user.region2) : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.locationOutline" class="row-icon" /><strong class="label">지역</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.locationOutline" class="row-icon" />
+                <strong class="label">지역</strong>
+              </td>
               <td class="pf-td editable-text">{{ user.region1 }} {{ user.region2 }}</td>
             </tr>
 
@@ -110,7 +122,10 @@
               @click="canEditFieldLocal('preference') ? openPopup(2, user.preference) : lock('특징')"
               @keydown.enter="canEditFieldLocal('preference') ? openPopup(2, user.preference) : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">특징</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">특징</strong>
+              </td>
               <td class="pf-td editable-text">
                 <span
                   v-if="preferenceRestricted && !isPremiumComputed"
@@ -128,7 +143,10 @@
               @click="canEditFieldLocal('marriage') ? openMarriageModal() : lock('결혼')"
               @keydown.enter="canEditFieldLocal('marriage') ? openMarriageModal() : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">결혼</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">결혼</strong>
+              </td>
               <td class="pf-td editable-text">{{ user.marriage }}</td>
             </tr>
           </tbody>
@@ -144,7 +162,10 @@
               @click="canEditFieldLocal('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : lock('소개')"
               @keydown.enter="canEditFieldLocal('selfintro') ? openPopup(3, user.selfintro || '소개 없음') : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" /><strong class="label">소개</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.chatbubbleEllipsesOutline" class="row-icon" />
+                <strong class="label">소개</strong>
+              </td>
               <td class="pf-td editable-text">{{ user.selfintro || '소개 없음' }}</td>
             </tr>
           </tbody>
@@ -155,7 +176,10 @@
 
       <!-- ✅ 친구 찾기 설정 카드 -->
       <div v-if="user" class="card pf-scope">
-        <h3 class="card-title"><IonIcon :icon="icons.optionsOutline" class="title-icon" />친구 찾기 설정</h3>
+        <h3 class="card-title">
+          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
+          친구 찾기 설정
+        </h3>
 
         <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
@@ -167,8 +191,13 @@
               @click="canEditFieldLocal('search_year') ? openSearchYearModal() : lock('검색나이')"
               @keydown.enter="canEditFieldLocal('search_year') ? openSearchYearModal() : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.calendarNumberOutline" class="row-icon" /><strong class="label">검색나이</strong></td>
-              <td class="pf-td editable-text">{{ toAll(user.search_birthyear1) }} ~ {{ toAll(user.search_birthyear2) }}</td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.calendarNumberOutline" class="row-icon" />
+                <strong class="label">검색나이</strong>
+              </td>
+              <td class="pf-td editable-text">
+                {{ toAll(user.search_birthyear1) }} ~ {{ toAll(user.search_birthyear2) }}
+              </td>
             </tr>
 
             <!-- 검색지역 -->
@@ -178,7 +207,10 @@
               @click="canEditFieldLocal('search_regions') ? openSearchRegionModal() : lock('검색지역')"
               @keydown.enter="canEditFieldLocal('search_regions') ? openSearchRegionModal() : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.locationOutline" class="row-icon" /><strong class="label">검색지역</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.locationOutline" class="row-icon" />
+                <strong class="label">검색지역</strong>
+              </td>
               <td class="pf-td editable-text">{{ searchRegionDisplay }}</td>
             </tr>
 
@@ -255,7 +287,10 @@
 
       <!-- ✅ 프리미엄 설정 카드 -->
       <div v-if="user" class="card pf-scope">
-        <h3 class="card-title"><IonIcon :icon="icons.optionsOutline" class="title-icon" />프리미엄 설정</h3>
+        <h3 class="card-title">
+          <IonIcon :icon="icons.optionsOutline" class="title-icon" />
+          프리미엄 설정
+        </h3>
 
         <table class="info-table">
           <colgroup><col class="pf-col-th" /><col class="pf-col-td" /></colgroup>
@@ -267,7 +302,10 @@
               @click="canEditFieldLocal('search_preference') ? openSearchPreferenceModal() : lock('검색특징', '라이트회원 이상 사용 가능')"
               @keydown.enter="canEditFieldLocal('search_preference') ? openSearchPreferenceModal() : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">검색특징</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">검색특징</strong>
+              </td>
               <td class="pf-td editable-text">
                 <span v-if="!canEditFieldLocal('search_preference')" class="pf-lock">🔒</span>
                 {{ user.search_preference }}
@@ -281,9 +319,12 @@
               @click="canEditFieldLocal('search_marriage') ? openSearchMarriageModal() : lock('검색결혼', '라이트회원 이상 사용 가능')"
               @keydown.enter="canEditFieldLocal('search_marriage') ? openSearchMarriageModal() : null"
             >
-              <td class="pf-th"><IonIcon :icon="icons.sparklesOutline" class="row-icon" /><strong class="label">검색결혼</strong></td>
+              <td class="pf-th">
+                <IonIcon :icon="icons.sparklesOutline" class="row-icon" />
+                <strong class="label">검색결혼</strong>
+              </td>
               <td class="pf-td editable-text">
-               <span v-if="!canEditFieldLocal('search_marriage')" class="pf-lock">🔒</span>
+                <span v-if="!canEditFieldLocal('search_marriage')" class="pf-lock">🔒</span>
                 {{ user.search_marriage }}
               </td>
             </tr>
@@ -294,7 +335,7 @@
                 <div class="pf-fullrow">
                   <IonIcon :icon="icons.optionsOutline" class="row-icon" />
                   <strong class="label pf-fullrow__label">사진 있는 사람만 연결하기</strong>
-                   <span v-if="!canEditFieldLocal('onlyWithPhoto')" class="pf-lock-inline">🔒</span>
+                  <span v-if="!canEditFieldLocal('onlyWithPhoto')" class="pf-lock-inline">🔒</span>
                   <button
                     type="button"
                     class="pf-switch"
@@ -346,7 +387,7 @@
       <p v-else class="loading-text">유저 정보를 불러오는 중입니다...</p>
     </div>
 
-    <!-- 모달들 -->
+    <!-- 모달들 (lazy-load) -->
     <PopupModal_1 v-if="showModal1" :message="popupMessage" @close="showModal1 = false" @updated="handleRegionUpdate" />
     <PopupModal_2
       v-if="showModal2"
@@ -378,38 +419,52 @@
       @close="showLevelModal = false"
       @updated="handleLevelUpdated"
     />
-    
+
     <PasswordChangeModal :is-open="showPasswordModal" @close="showPasswordModal = false" @updated="onPasswordUpdated" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { toastController, alertController, IonIcon, IonButton } from '@ionic/vue'
 import axios from '@/lib/api'
 import { useRouter } from 'vue-router'
-import { Contacts } from '@capacitor-community/contacts'
 import { Capacitor } from '@capacitor/core'
 import { setNotificationsOptOut } from '@/push/webPush'
 
-import PopupModal_1 from '@/components/04610_Page6_profile/Modal_region.vue'
-import PopupModal_2 from '@/components/04610_Page6_profile/Modal_preference.vue'
-import PopupModal_3 from '@/components/04610_Page6_profile/Modal_mention.vue'
-import PopupModal_4 from '@/components/04610_Page6_profile/Modal_nickname.vue'
+/**
+ * ✅ 핵심 개선
+ * 1) 모달/무거운 컴포넌트 lazy-load (초기 진입 번들/파싱량 감소)
+ * 2) Contacts 정적 import 제거 (연락처 기능 사용할 때만 동적 import)
+ * 3) 스위치 저장 PATCH 디바운스 (연타/중복 요청 방지)
+ */
 
-import Search_Year_Modal from '@/components/04610_Page6_profile/Search_Year_Modal.vue'
-import Search_Region_Modal from '@/components/04610_Page6_profile/Search_Region_Modal.vue'
-import Search_Preference_Modal from '@/components/04610_Page6_profile/Search_Preference_Modal.vue'
+/* ===== lazy-load components ===== */
+const PopupModal_1 = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_region.vue'))
+const PopupModal_2 = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_preference.vue'))
+const PopupModal_3 = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_mention.vue'))
+const PopupModal_4 = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_nickname.vue'))
 
-import PasswordChangeModal from '@/components/04610_Page6_profile/Modal_password_chagne.vue'
-import ProfilePhotoManager from '@/components/04610_Page6_profile/ProfilePhotoManager.vue'
+const Search_Year_Modal = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Search_Year_Modal.vue'))
+const Search_Region_Modal = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Search_Region_Modal.vue'))
+const Search_Preference_Modal = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Search_Preference_Modal.vue'))
 
-import ModalMarriage from '@/components/04610_Page6_profile/Modal_marriage.vue'
-import Search_Marriage from '@/components/04610_Page6_profile/Search_Marriage.vue'
+const PasswordChangeModal = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_password_chagne.vue'))
+const ProfilePhotoManager = defineAsyncComponent(() => import('@/components/04610_Page6_profile/ProfilePhotoManager.vue'))
 
-import ModalLevel from '@/components/04610_Page6_profile/Modal_Level.vue'
+const ModalMarriage = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_marriage.vue'))
+const Search_Marriage = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Search_Marriage.vue'))
 
-import { RULES, isPremium as isPremiumLevel, canEditField as canEditFieldByLevel, isRestricted as isRestrictedByLevel, normalizeLevel } from '@/components/05110_Membership/grade/gradeRule.js'
+const ModalLevel = defineAsyncComponent(() => import('@/components/04610_Page6_profile/Modal_Level.vue'))
+
+/* ===== grade rules (가벼운 js는 그대로 static import) ===== */
+import {
+  RULES,
+  isPremium as isPremiumLevel,
+  canEditField as canEditFieldByLevel,
+  isRestricted as isRestrictedByLevel,
+  normalizeLevel
+} from '@/components/05110_Membership/grade/gradeRule.js'
 
 import {
   personCircleOutline, lockClosedOutline, calendarOutline, calendarNumberOutline,
@@ -483,7 +538,13 @@ async function onProfileMainChanged() {
 
 /* 유틸 */
 const toAll = (v) => (v === null || v === undefined || v === '' ? '전체' : v)
-const openPopup = (n, v) => { popupMessage.value = v; showModal1.value = n===1; showModal2.value = n===2; showModal3.value = n===3; showModal4.value = n===4 }
+const openPopup = (n, v) => {
+  popupMessage.value = v
+  showModal1.value = n===1
+  showModal2.value = n===2
+  showModal3.value = n===3
+  showModal4.value = n===4
+}
 
 function openMarriageModal() { showMarriageModal.value = true }
 function openSearchMarriageModal() { showSearchMarriage.value = true }
@@ -546,8 +607,11 @@ function normalizeRegionsPayload(payload){
   if (Array.isArray(payload)) {
     if (payload.length && typeof payload[0] === 'object') arr = payload
     else { const [r1='', r2=''] = payload; arr = [{ region1:r1, region2:r2 }] }
-  } else if (payload && typeof payload === 'object') { arr = [{ region1: payload.region1 ?? payload.r1 ?? '', region2: payload.region2 ?? payload.r2 ?? '' }] }
-  else if (typeof payload === 'string') { const parts = payload.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); const [r1='',r2='']=parts; arr=[{region1:r1, region2:r2}] }
+  } else if (payload && typeof payload === 'object') {
+    arr = [{ region1: payload.region1 ?? payload.r1 ?? '', region2: payload.region2 ?? payload.r2 ?? '' }]
+  } else if (typeof payload === 'string') {
+    const parts = payload.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); const [r1='',r2='']=parts; arr=[{region1:r1, region2:r2}]
+  }
   arr = arr.map(it=>({ region1:(it.region1||'').trim(), region2:(it.region2||'').trim() })).filter(it=>it.region1 && it.region2)
   if (arr.some(it=>it.region1==='전체' && it.region2==='전체')) return [{ region1:'전체', region2:'전체' }]
   return arr
@@ -662,6 +726,16 @@ const matchPremiumOnly       = ref(false)
 const onOffToBool = (v) => String(v || '').toUpperCase() === 'ON'
 const boolToOnOff = (b) => (b ? 'ON' : 'OFF')
 
+/** ✅ 스위치 저장 디바운스 (연타/중복 요청 방지) */
+let _saveTimer = null
+function saveSwitchesDebounced(delay = 250) {
+  if (_saveTimer) clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(async () => {
+    try { await saveSwitchesToDB() }
+    finally { _saveTimer = null }
+  }, delay)
+}
+
 async function saveSwitchesToDB() {
   if (!user.value) return
   user.value.search_disconnectLocalContacts = boolToOnOff(disconnectLocalContacts.value)
@@ -692,12 +766,13 @@ async function toggleDisconnectLocalContacts(){
   const platform = Capacitor.getPlatform ? Capacitor.getPlatform() : 'web'
   const nextState = !disconnectLocalContacts.value
 
-  // ✅ 1) 웹: 연락처/폰은 건드리지 않고, 스위치 + DB만 업데이트
+  // ✅ 1) 웹: 연락처/폰은 건드리지 않고, 스위치 + DB만 업데이트 (디바운스 저장)
   if (platform === 'web') {
     disconnectLocalContacts.value = nextState
 
     try {
-      await saveSwitchesToDB()
+      // 즉시 저장 대신 디바운스
+      saveSwitchesDebounced(200)
 
       if (nextState) {
         const msg =
@@ -717,7 +792,6 @@ async function toggleDisconnectLocalContacts(){
       }
     } catch (err) {
       console.error('웹 스위치 저장 실패:', err)
-      // 실패 시 원래 상태로 롤백
       disconnectLocalContacts.value = !nextState
       ;(await toastController.create({
         message: '설정 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.',
@@ -739,7 +813,10 @@ async function toggleDisconnectLocalContacts(){
       const hashes = await collectLocalContactHashes()
       await axios.post('/api/contacts/hashes', { hashes }, { withCredentials: true })
       disconnectLocalContacts.value = true
+
+      // 업로드 성공 후 저장은 즉시(정합성 중요)
       await saveSwitchesToDB()
+
       ;(await toastController.create({
         message: `연락처 ${hashes.length}건이 저장되었습니다.`,
         duration: 1500,
@@ -753,33 +830,21 @@ async function toggleDisconnectLocalContacts(){
         err?.message ||
         String(err || '')
 
-      // 디버깅용 raw는 콘솔에만
       console.log('[contacts] raw error:', raw)
 
       let msg = '연락처 저장에 실패했습니다.'
 
-      // 1) 웹 구현만 있을 때 나는 에러
       if (/not implemented on web/i.test(raw)) {
         msg = '이 기능은 앱(안드로이드/iOS)에서만 사용할 수 있습니다.'
-      }
-      // 2) 안드로이드에서 READ_CONTACTS / WRITE_CONTACTS 권한 문제
-      else if (/(READ_CONTACTS|WRITE_CONTACTS)/i.test(raw)) {
+      } else if (/(READ_CONTACTS|WRITE_CONTACTS)/i.test(raw)) {
         msg = '연락처 권한이 부족합니다. 앱 설정에서 연락처 권한을 허용해 주세요.'
-      }
-      // 3) 연락처 목록에 전화번호 자체가 없을 때
-      else if (/연락처에서 전화번호를 찾지 못했습니다/.test(raw)) {
+      } else if (/연락처에서 전화번호를 찾지 못했습니다/.test(raw)) {
         msg = '연락처에서 전화번호를 찾지 못했습니다. 휴대폰에 저장된 연락처를 한번 확인해 주세요.'
-      }
-      // 4) 플러그인이 네이티브에 안 붙어 있을 때 (plugin_not_installed 등)
-      else if (/plugin[_\s-]?not[_\s-]?installed|not implemented on (android|ios)/i.test(raw)) {
+      } else if (/plugin[_\s-]?not[_\s-]?installed|not implemented on (android|ios)/i.test(raw)) {
         msg = '앱에 연락처 기능이 아직 올바르게 설치되지 않았습니다. 앱을 최신 버전으로 다시 설치하거나, 개발 중이라면 npx cap sync를 확인해 주세요.'
-      }
-      // 5) SHA-256(Web Crypto) 지원이 안 될 때 가능성
-      else if (/subtle.*digest/i.test(raw)) {
+      } else if (/subtle.*digest/i.test(raw)) {
         msg = '단말기에서 보안 해시 기능을 사용할 수 없습니다. 단말기/앱을 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.'
-      }
-      // 6) 서버가 에러 메시지를 내려준 경우 그대로 표시
-      else if (err?.response?.data?.error) {
+      } else if (err?.response?.data?.error) {
         msg = err.response.data.error
       }
 
@@ -789,7 +854,6 @@ async function toggleDisconnectLocalContacts(){
         color: 'danger'
       })).present()
 
-      // 실패했으므로 스위치는 다시 OFF 상태로 롤백
       disconnectLocalContacts.value = false
     }
   } else {
@@ -818,12 +882,16 @@ async function toggleDisconnectLocalContacts(){
   }
 }
 
+/* 다른 스위치들 (저장은 디바운스 + 사용자 체감 즉시) */
+async function toggleAllowFriendRequests() {
+  allowFriendRequests.value = !allowFriendRequests.value
+  saveSwitchesDebounced(250)
+  feedbackOK('설정이 적용되었습니다.')
+}
 
-/* 다른 스위치들 */
-async function toggleAllowFriendRequests()   { allowFriendRequests.value    = !allowFriendRequests.value;    await saveSwitchesToDB(); feedbackOK('설정이 적용되었습니다.') }
 async function toggleAllowNotifications() {
   allowNotifications.value = !allowNotifications.value
-  await saveSwitchesToDB()
+  saveSwitchesDebounced(250)
   await setNotificationsOptOut(allowNotifications.value)
   feedbackOK('설정이 적용되었습니다.')
 }
@@ -832,28 +900,27 @@ async function onToggleOnlyWithPhoto(){
   if (!canEditFieldLocal('onlyWithPhoto')) {
     if (onlyWithPhoto.value) {
       onlyWithPhoto.value = false
-      await saveSwitchesToDB()
+      saveSwitchesDebounced(250)
     }
     return lock('사진 있는 사람만', '이 기능은 프리미엄회원만 사용할 수 있습니다.')
   }
   onlyWithPhoto.value = !onlyWithPhoto.value
-  await saveSwitchesToDB()
+  saveSwitchesDebounced(250)
   feedbackOK('설정이 적용되었습니다.')
 }
+
 async function onToggleMatchPremiumOnly(){
   if (!canEditFieldLocal('matchPremiumOnly')) {
     if (matchPremiumOnly.value) {
       matchPremiumOnly.value = false
-      await saveSwitchesToDB()
+      saveSwitchesDebounced(250)
     }
     return lock('Premium 만 연결하기', '이 기능은 프리미엄회원에서만 사용할 수 있습니다.')
   }
   matchPremiumOnly.value = !matchPremiumOnly.value
-  await saveSwitchesToDB()
+  saveSwitchesDebounced(250)
   feedbackOK('설정이 적용되었습니다.')
 }
-async function toggleOnlyWithPhoto()    { return onToggleOnlyWithPhoto() }
-async function toggleMatchPremiumOnly() { return onToggleMatchPremiumOnly() }
 
 /* 공통 유틸 */
 async function confirmDialog(message){
@@ -930,11 +997,13 @@ async function sha256Hex(text){
 }
 
 async function getLocalContactPhoneNumbers() {
-  // 웹이면 바로 에러
   const platform = Capacitor.getPlatform ? Capacitor.getPlatform() : 'web'
   if (platform === 'web') {
     throw new Error('웹에서는 휴대폰 연락처를 읽을 수 없습니다.')
   }
+
+  // ✅ Contacts는 "필요할 때만" 동적 import (페이지 진입 딜레이 감소)
+  const { Contacts } = await import('@capacitor-community/contacts')
 
   // 권한 요청
   try {
@@ -950,7 +1019,6 @@ async function getLocalContactPhoneNumbers() {
     console.warn('[contacts] permission error:', e)
   }
 
-  // ⭐ projection을 항상 넘겨서 Android 네이티브 쪽에서 null 접근하지 않도록
   const res = await Contacts.getContacts({
     projection: {
       phones: true,

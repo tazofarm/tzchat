@@ -26,8 +26,26 @@ let currentOrigin: string | null = null
 const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
 
 /** util */
-function isSocketOrigin(u: string): boolean { return /^(https?:|wss?:)\/\//i.test(u || '') }
-function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
+function isSocketOrigin(u: string): boolean {
+  return /^(https?:|wss?:)\/\//i.test(u || '')
+}
+function originOf(u: URL): string {
+  return `${u.protocol}//${u.host}`
+}
+
+/** ✅ Capacitor(WebView) 여부 추정: polling 업그레이드 지연을 피하기 위해 사용 */
+function isNativeWebView(): boolean {
+  try {
+    const w = window as any
+    if (w?.Capacitor?.isNativePlatform?.()) return true
+    const proto = String(window.location?.protocol || '')
+    // capacitor://localhost, file:// 등
+    if (proto.startsWith('capacitor') || proto.startsWith('file')) return true
+    return false
+  } catch {
+    return false
+  }
+}
 
 /** 환경 검사: 오리진 필수 */
 ;(function assertEnv() {
@@ -39,7 +57,9 @@ function originOf(u: URL): string { return `${u.protocol}//${u.host}` }
     )
   }
   if (!isSocketOrigin(WS_BASE)) {
-    throw new Error(`[CFG][socket] VITE_WS_BASE가 유효한 오리진이 아닙니다: "${WS_BASE}" (허용: http(s) 또는 ws(s))`)
+    throw new Error(
+      `[CFG][socket] VITE_WS_BASE가 유효한 오리진이 아닙니다: "${WS_BASE}" (허용: http(s) 또는 ws(s))`
+    )
   }
 })()
 
@@ -51,11 +71,20 @@ function getToken(): string | null {
 
 function buildOptions(): Partial<ManagerOptions & SocketOptions> {
   const token = getToken()
+  const native = isNativeWebView()
+
+  // ✅ 네이티브(WebView/Capacitor)에서는 polling→upgrade 지연을 피하기 위해 websocket only
+  const transports: Array<'websocket' | 'polling'> = native ? ['websocket'] : ['websocket', 'polling']
+  const upgrade = native ? false : true
+  const rememberUpgrade = native ? false : true
+
   const opts: Partial<ManagerOptions & SocketOptions> = {
     path: SOCKET_PATH,
-    transports: ['websocket', 'polling'],
-    upgrade: true,
-    rememberUpgrade: true,
+
+    transports,
+    upgrade,
+    rememberUpgrade,
+
     withCredentials: true,
 
     // 재연결 정책
@@ -64,7 +93,9 @@ function buildOptions(): Partial<ManagerOptions & SocketOptions> {
     reconnectionDelay: 800,
     reconnectionDelayMax: 8000,
     randomizationFactor: 0.5,
-    timeout: 30000,
+
+    // ✅ 너무 길면 사용자 체감이 “멈춤”처럼 보임 (네트워크 나쁠 때)
+    timeout: native ? 12000 : 30000,
 
     // 연결 제어: 앱 엔트리에서 connectSocket()로만 연결되도록
     autoConnect: false,
@@ -72,7 +103,17 @@ function buildOptions(): Partial<ManagerOptions & SocketOptions> {
     // 인증 토큰 전달 (socket.handshake.auth)
     auth: token ? { token } : undefined,
   }
-  console.log('[Socket][CFG]', { MODE, TARGET_ORIGIN, SOCKET_PATH, hasToken: !!token })
+
+  console.log('[Socket][CFG]', {
+    MODE,
+    TARGET_ORIGIN,
+    SOCKET_PATH,
+    hasToken: !!token,
+    native,
+    transports,
+    upgrade,
+  })
+
   return opts
 }
 

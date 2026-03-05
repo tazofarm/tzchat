@@ -46,12 +46,6 @@ function removeApiSuffix(u: string): string {
   }
 }
 
-// 토큰 유틸
-const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
-function getAuthToken(): string | null { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
-export function setAuthToken(tok: string | null) { try { tok ? localStorage.setItem(TOKEN_KEY, tok) : localStorage.removeItem(TOKEN_KEY) } catch {} }
-export function clearAuthToken() { setAuthToken(null) }
-
 // ------------------ baseURL 계산 ------------------
 // ❗️여기서는 절대로 '/api'를 덧붙이지 않습니다.
 function computeBaseURL(): string {
@@ -93,6 +87,57 @@ console.log('%c[HTTP][CFG]', 'color:#0a0;font-weight:bold', {
   normalizedBaseURL: ENV_BASE,
   withCredentials: USE_COOKIES,
 })
+
+// ------------------ 토큰(캐시 + 즉시헤더반영) ------------------
+const TOKEN_KEY = 'TZCHAT_AUTH_TOKEN'
+
+// ✅ 웹뷰/localStorage가 느릴 수 있어 메모리 캐시를 둡니다.
+let cachedToken: string | null = null
+
+function readTokenFromStorage(): string | null {
+  try {
+    const t = localStorage.getItem(TOKEN_KEY)
+    return t && t.trim() ? t.trim() : null
+  } catch {
+    return null
+  }
+}
+
+// 앱 시작 시 1회 로드
+cachedToken = readTokenFromStorage()
+if (cachedToken) {
+  ;(api.defaults.headers as any).Authorization = `Bearer ${cachedToken}`
+}
+
+function getAuthToken(): string | null {
+  // 캐시가 있으면 캐시 우선
+  if (cachedToken) return cachedToken
+  // 캐시가 비어있으면 스토리지에서 1회 읽어 캐시에 반영
+  cachedToken = readTokenFromStorage()
+  return cachedToken
+}
+
+// ✅ 외부에서도 쓰는 함수: 저장 + 캐시 + axios 기본헤더 즉시 반영
+export function setAuthToken(tok: string | null) {
+  const next = tok && String(tok).trim() ? String(tok).trim() : null
+  cachedToken = next
+
+  try {
+    if (next) localStorage.setItem(TOKEN_KEY, next)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {}
+
+  // ✅ 즉시 반영 (다음 요청이 같은 틱에 나가도 헤더 붙게)
+  if (next) {
+    ;(api.defaults.headers as any).Authorization = `Bearer ${next}`
+  } else {
+    try { delete (api.defaults.headers as any).Authorization } catch {}
+  }
+}
+
+export function clearAuthToken() {
+  setAuthToken(null)
+}
 
 // [추가] 안전 리다이렉트 유틸 (router 순환참조 방지)
 function safeRedirect(path: string) {
@@ -154,7 +199,6 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // ✅ 응답 인터셉터: wallet 변화 브로드캐스트 + 401/423 처리 + 로깅
 api.interceptors.response.use(
   (res: AxiosResponse) => {
-    // 지갑 변화가 응답에 포함되면 전역 이벤트로 통지 → main.ts에서 Pinia 반영
     const w = extractWalletFromResponse(res)
     if (w) emitWalletUpdate(w)
     return res
@@ -184,7 +228,6 @@ api.interceptors.response.use(
       safeRedirect('/account/deletion-pending')
     }
 
-    // (공통) 에러 로깅
     console.warn('[HTTP][ERR]', {
       status,
       url,
@@ -243,32 +286,19 @@ export const auth = {
 }
 
 // ------------------ 약관/동의/관리자 API ----------------
-// ✅ 서버(routes/legal/termsPublicRouter.js) 스펙에 맞춤.
-// 문서 조회(terms)와 동의 저장(consents)을 /api/terms 하위로 통일.
-
-// 활성 문서 (조회)
 export const getActiveTerms = () => http.get('/api/terms/active')
 export const getActiveTermBySlug = (slug: string) => {
   const s = encodeURIComponent(String(slug || ''))
   return http.get(`/api/terms/${s}/active`)
 }
-// 버전 목록 (조회)
 export const getTermVersions = (slug: string) => {
   const s = encodeURIComponent(String(slug || ''))
   return http.get(`/api/terms/${s}/versions`)
 }
 
-// ===== 타입 정의 (추가) =====
 export type PendingConsentItem = { slug: string; title?: string; isRequired?: boolean }
 export type AgreementStatusResponse = { data: { pending: PendingConsentItem[] } }
 
-/**
- * AgreementPage용 상태 조회
- * ✅ 1순위: /api/terms/agreements/status (정확한 pending만 제공)
- * 🔁 폴백1: /agreements/list 에서 pending === true 인 항목만 사용
- * 🔁 폴백2: 구버전(/require-consent + /active) 조합
- * 반환 형식(고정): { data: { pending: PendingConsentItem[] } }
- */
 export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => {
   // 1) 최신 엔드포인트: 정확한 pending
   try {
@@ -312,11 +342,6 @@ export const getAgreementStatus = async (): Promise<AgreementStatusResponse> => 
   return { data: { pending } }
 }
 
-/**
- * 다건 동의 저장
- * ✅ 1순위: /api/terms/agreements/accept 배치 저장
- * 🔁 폴백: slug별 활성버전 조회 후 /api/terms/consents 개별 저장
- */
 export const acceptAgreements = async (slugs: string[]) => {
   try {
     await http.post('/api/terms/agreements/accept', { slugs })
@@ -335,7 +360,6 @@ export const acceptAgreements = async (slugs: string[]) => {
   }
 }
 
-// ----- Admin: 약관 새 버전 발행 -----
 export const adminCreateTerms = (payload: {
   slug: string
   title: string
@@ -346,9 +370,9 @@ export const adminCreateTerms = (payload: {
   effectiveAt?: string
 }) => http.post('/api/admin/terms', payload)
 
-// 목록 조회
 export const adminListTerms = (q?: { slug?: string; active?: 'true' | 'false'; kind?: 'page' | 'consent' }) =>
   http.get('/api/admin/terms', { params: q })
 
 export default api
 export const AuthAPI = auth
+ 

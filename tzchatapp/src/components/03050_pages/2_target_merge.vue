@@ -36,11 +36,8 @@
         @select="u => goToUserProfile(u?._id || u?.id)"
       />
 
-      <!-- ✅ 새로운 친구 보기(리셋): 두 모드 공통으로 같은 카운트/시드 사용 -->
-      <div
-        v-if="displayUsers.length"
-        class="reset-btn-wrap"
-      >
+      <!-- ✅ 새로운 친구 보기(리셋) -->
+      <div v-if="displayUsers.length" class="reset-btn-wrap">
         <button
           type="button"
           @click="openResetConfirm"
@@ -82,19 +79,24 @@
 <script setup>
 /* -----------------------------------------------------------
    통합 Emergency/Target 페이지 (A안: ion-header + ion-content)
-   - ion-header에 EmergencySwitch 고정, 나머지는 ion-content 스크롤
+   - 초기 딜레이 감소 최적화:
+     1) 현재 모드 목록만 먼저 로드, 나머지는 idle
+     2) ModalAdv/EmergencySwitch lazy-load
+     3) 소켓 init도 mount 직후가 아닌, 첫 렌더 뒤로
 ----------------------------------------------------------- */
-import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@/lib/api'
-import ModalAdv from '@/components/04010_Page0_emergency/Modal_adv.vue'
+import api from '@/lib/api'
 import UserList from '@/components/02010_minipage/mini_list/UserList.vue'
-import EmergencySwitch from '@/components/02010_minipage/mini_emergency/emergencySwitch.vue'
 import { applyTotalFilterPremium } from '@/components/04210_Page2_target/Filter/Total_Filter_premium'
 import { applyTotalFilterNormal } from '@/components/04210_Page2_target/Filter/Total_Filter_normal'
 import { applyDistributedSelection } from '@/components/04210_Page2_target/Logic/distribution'
 import { connectSocket, getSocket } from '@/lib/socket'
 import { IonPage, IonContent, IonModal, IonHeader } from '@ionic/vue'
+
+/** ✅ lazy-load (초기 번들/파싱 감소) */
+const ModalAdv = defineAsyncComponent(() => import('@/components/04010_Page0_emergency/Modal_adv.vue'))
+const EmergencySwitch = defineAsyncComponent(() => import('@/components/02010_minipage/mini_emergency/emergencySwitch.vue'))
 
 /* ===== 공통 상태 ===== */
 const isLoading = ref(true)
@@ -105,7 +107,7 @@ const isPremium = ref(false)
 const currentUser = ref({})
 const viewerId = ref('')
 
-/* 제외 세트 (친구/차단/대기/채팅상대) */
+/* 제외 세트 */
 const excludeIds = ref(new Set())
 
 /* 리스트 상단 앵커 */
@@ -123,7 +125,7 @@ const emergencyUsers = ref([])     // 화면 표시(선정 결과)
 
 /* 옵션: 나 포함 */
 const INCLUDE_ME_WHEN_ON = true
-const APPLY_FILTERS_TO_ME = false   // 나 포함시 필터 무시(옵션)
+const APPLY_FILTERS_TO_ME = false
 
 /* ===== Target(일반 추천) 모드 상태 ===== */
 const rawServerList = ref([])      // 검색/추천 원본
@@ -144,39 +146,58 @@ const formattedTime = computed(() => {
   return `${s}초`
 })
 
-/* ===== 유틸 ===== */
+/* ===== 백그라운드 유틸 (첫 렌더 방해 금지) ===== */
+function runInBackground(fn, delayMs = 0) {
+  const ric = window.requestIdleCallback
+  if (typeof ric === 'function') {
+    ric(() => fn(), { timeout: 1200 })
+    return
+  }
+  setTimeout(fn, delayMs)
+}
 
+/* ===== 유틸 ===== */
 function goToUserProfile(userId) {
   if (!userId) return
   const id = String(userId)
-  const targetPath = emergencyOn.value
-    ? `/home/premuimuser/${id}`
-    : `/home/user/${id}`
+  const targetPath = emergencyOn.value ? `/home/premuimuser/${id}` : `/home/user/${id}`
   router.push(targetPath)
 }
+
+function blurActive() {
+  try {
+    const el = document.activeElement
+    if (el && typeof el.blur === 'function') el.blur()
+  } catch {}
+}
+
 function scrollToTopSmooth() {
-  // 1순위: 이 컴포넌트의 IonContent 인스턴스에 직접 스크롤
-  const ion = contentRef.value?.$el ?? contentRef.value
-  if (ion && typeof ion.scrollToTop === 'function') {
-    // 키보드 포커스가 스크롤을 막는 상황 방지
+  // 1순위: IonContent API
+  const proxy = contentRef.value
+  const el = proxy?.$el ?? proxy
+  // Ionic Vue에서 scrollToTop이 proxy 또는 el 중 한쪽에 있는 케이스가 있어 둘 다 대응
+  const fn = proxy?.scrollToTop || el?.scrollToTop
+  if (typeof fn === 'function') {
     blurActive()
-    ion.scrollToTop(300)
+    try { fn.call(proxy || el, 300) } catch { fn(300) }
     return
   }
-  // 2순위: 리스트 상단 앵커로 스크롤
+
+  // 2순위: 앵커
   if (listTop.value && typeof listTop.value.scrollIntoView === 'function') {
     blurActive()
     listTop.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return
   }
-  // 3순위: 윈도우 스크롤
+
+  // 3순위: window
   try {
     blurActive()
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch {}
 }
 
-/** 안전 ID 정규화(문자열/숫자/ObjectId/문서/{$oid}) */
+/** 안전 ID 정규화 */
 function normId(v) {
   if (!v) return ''
   if (typeof v === 'string' || typeof v === 'number') return String(v)
@@ -195,7 +216,6 @@ function toIdList(src) {
   const arr = Array.isArray(src) ? src : []
   return arr.map(normId).filter(Boolean)
 }
-/** FriendRequest 객체 배열에서 "상대방" ID 추출 */
 function extractOtherIdsFromRequests(list, myId) {
   const arr = Array.isArray(list) ? list : []
   const out = []
@@ -221,22 +241,23 @@ function buildExcludeIdsSet({
 } = {}) {
   const set = new Set()
 
-  // me에도 friendlist/blocklist, pendingSent/Recv가 있을 수 있음 → 모두 포함
   ;[
     me.friendlist, me.friends, friends
   ].forEach(list => toIdList(list).forEach(id => set.add(id)))
+
   ;[
     me.blocklist, me.blocks, blocks
   ].forEach(list => toIdList(list).forEach(id => set.add(id)))
 
-  // 받은/보낸 신청: ID 배열 + 객체 배열 모두 대응
   const myId = normId(me)
+
   ;[
     me.pendingSent, me.requests?.sent, me.friendRequests?.sent, me.sentRequests, sent
   ].forEach(list => {
     toIdList(list).forEach(id => set.add(id))
     extractOtherIdsFromRequests(list, myId).forEach(id => set.add(id))
   })
+
   ;[
     me.pendingRecv, me.pendingReceived, me.requests?.received, me.friendRequests?.received, me.receivedRequests, recv
   ].forEach(list => {
@@ -244,19 +265,19 @@ function buildExcludeIdsSet({
     extractOtherIdsFromRequests(list, myId).forEach(id => set.add(id))
   })
 
-  // 채팅 상대
   ;[
     me.chatUserIds, me.recentChatUserIds, me._relations?.chatUserIds, me.chatPartners, me._relations?.chatPartners, chats
   ].forEach(list => toIdList(list).forEach(id => set.add(id)))
 
-  // 자기 자신
   if (myId) set.add(myId)
-
   return set
 }
 
 function yyyymmddKST(date = new Date()) {
-  const fmt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })
+  const fmt = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  })
   const parts = fmt.formatToParts(date).reduce((o,p)=>{ o[p.type]=p.value; return o }, {})
   return `${parts.year}${parts.month}${parts.day}`
 }
@@ -276,10 +297,7 @@ function isEmergencyActive(u) {
   } catch { return false }
 }
 
-/* ===== 🔁 통합 리셋 상태 =====
-   - 두 모드(Emergency/Target)에서 같은 카운트/인덱스/시드 공유
-   - 키: unified:${viewerId}:${yyyymmdd}
------------------------------------------------------------ */
+/* ===== 🔁 통합 리셋 상태 ===== */
 const reset = ref({ used: 0, idx: 0, limit: 20, seedDay: '' })
 
 function loadResetState() {
@@ -304,7 +322,6 @@ function saveResetState() {
 function recomputeEmergency() {
   const me = currentUser.value
   let baseList = rawEmergencyList.value
-  // 1차 프리체크 제외(네트워크/동기 타이밍 방어)
   baseList = Array.isArray(baseList)
     ? baseList.filter(u => u && u._id && !excludeIds.value.has(String(u._id)))
     : []
@@ -315,8 +332,7 @@ function recomputeEmergency() {
     seedDay: reset.value.seedDay,
     viewerId: viewerId.value,
     resetIndex: reset.value.idx,
-    excludeIdsSet: excludeIds.value, // 0차 제거
-    // 1차 제거 후 TotalFilter에서도 한 번 더 안전 제거
+    excludeIdsSet: excludeIds.value,
     applyTotalFilter: (list, meArg) =>
       (APPLY_FILTERS_TO_ME && isEmergencyActive(meArg))
         ? list
@@ -339,9 +355,9 @@ function recomputeTarget() {
     seedDay: reset.value.seedDay,
     viewerId: viewerId.value,
     resetIndex: reset.value.idx,
-    excludeIdsSet: excludeIds.value, // 0차 제거
+    excludeIdsSet: excludeIds.value,
     applyTotalFilter: (list, meArg) =>
-      applyTotalFilterNormal(list, meArg, { log: false, extraExcludeIds: extra }) // 안전 제거 중복 적용
+      applyTotalFilterNormal(list, meArg, { log: false, extraExcludeIds: extra })
   })
   targetUsers.value = selected
 }
@@ -358,17 +374,13 @@ async function fetchRelations() {
       api.get('/api/chatrooms/partners'),
     ])
 
-    // me(자체에 friendlist/blocklist/pending 들 수록)
     const me = meRes?.data?.user || {}
     currentUser.value = { ...currentUser.value, ...me }
 
     const myId = normId(me)
-
-    // friends / blocks
     const friends = friendsRes?.data?.ids ?? friendsRes?.data ?? []
     const blocks  = blocksRes?.data?.ids  ?? blocksRes?.data  ?? []
 
-    // sent / recv: 다양한 응답 형태에 대응
     const sentRaw = sentRes?.data?.pendingIds ?? sentRes?.data?.ids ?? sentRes?.data?.list ?? sentRes?.data ?? []
     const recvRaw = recvRes?.data?.pendingIds ?? recvRes?.data?.ids ?? recvRes?.data?.list ?? recvRes?.data ?? []
 
@@ -381,20 +393,15 @@ async function fetchRelations() {
       ...extractOtherIdsFromRequests(recvRaw, myId),
     ]
 
-    // chats
     const chatUserIds = chatsRes?.data?.ids ?? chatsRes?.data ?? []
 
-    // 최종 제외 세트 구축 (me 내부 값 + API들 통합)
     excludeIds.value = buildExcludeIdsSet({
-      me,
-      friends,
-      blocks,
+      me, friends, blocks,
       sent: sentIds,
       recv: recvIds,
       chats: chatUserIds
     })
 
-    // me에도 보관(필터 내부 collectRelationIdSet이 me.*를 참고)
     currentUser.value = {
       ...currentUser.value,
       chatUserIds,
@@ -438,24 +445,15 @@ const onHeaderToggle = async (next) => {
   if (next) showAdvModal.value = true
   await updateEmergencyState(next)
 }
-function blurActive() {
-  try {
-    const el = document.activeElement
-    if (el && typeof el.blur === 'function') el.blur()
-  } catch {}
-}
 
 const closeAdv = async () => {
-  // 🔑 닫기 전에 포커스 제거 (경고 방지)
   blurActive()
   try {
-    // 모달 자체를 먼저 dismiss (상태는 didDismiss에서 false로)
     await advModal.value?.$el?.dismiss?.()
   } catch {}
 }
 
 const onAdvDidDismiss = () => {
-  // 실제 상태는 여기서 false로 전환
   showAdvModal.value = false
 }
 
@@ -491,12 +489,16 @@ async function updateEmergencyState(newState) {
       }
     }
 
-    // 모드에 맞는 목록 갱신 + 상단 스크롤
+    // ✅ 모드에 맞는 목록만 즉시 갱신
     if (emergencyOn.value) {
       await fetchEmergencyUsers()
+      // target 목록은 급하지 않으니 idle로
+      runInBackground(() => { fetchTargetUsers().catch(()=>{}) }, 0)
     } else {
       await fetchTargetUsers()
+      runInBackground(() => { fetchEmergencyUsers().catch(()=>{}) }, 0)
     }
+
     await nextTick()
     scrollToTopSmooth()
   } catch (err) {
@@ -506,11 +508,7 @@ async function updateEmergencyState(newState) {
   }
 }
 
-/* ===== 소켓 =====
-   - Emergency 채널: 'emergency' 룸
-   - Target(추천) 채널: users:refresh/patch/last_login
-   - 언마운트 시 disconnect() 금지 → 리스너만 off
-*/
+/* ===== 소켓 ===== */
 const socketRef = ref(null)
 const sockHandlers = {
   connect: null,
@@ -526,7 +524,7 @@ const sockHandlers = {
 
 function initSocket() {
   try {
-    const s = connectSocket()
+    const s = getSocket() || connectSocket()
     socketRef.value = s
 
     sockHandlers.connect = () => {
@@ -538,13 +536,11 @@ function initSocket() {
     sockHandlers.disconnect = () => {}
     sockHandlers.connect_error = (err) => console.error('❌ [Socket] connect_error:', err?.message || err)
 
-    // Emergency 채널
     const refetchEmergency = async () => { await fetchEmergencyUsers() }
     sockHandlers.emergency_refresh = refetchEmergency
     sockHandlers.emergency_userOn  = refetchEmergency
     sockHandlers.emergency_userOff = refetchEmergency
 
-    // Target 채널
     sockHandlers.users_refresh = (payload) => {
       rawServerList.value = (payload || []).map(u => ({ ...u, _id: String(u._id ?? u.id ?? '') }))
       recomputeTarget()
@@ -577,6 +573,11 @@ function initSocket() {
     s.on('users:refresh',      sockHandlers.users_refresh)
     s.on('users:patch',        sockHandlers.users_patch)
     s.on('users:last_login',   sockHandlers.users_last_login)
+
+    // 만약 이미 connect 상태라면 바로 subscribe
+    try {
+      if (s.connected) sockHandlers.connect()
+    } catch {}
   } catch (e) {
     console.error('❌ [socket] 초기화 실패:', e)
   }
@@ -586,7 +587,6 @@ function cleanupSocket() {
   try {
     const s = getSocket()
     if (!s) return
-    // 구독 해제만 실시 / disconnect 금지
     try { s.emit('unsubscribe', { room: 'emergency' }) } catch {}
     try { s.emit('users:leave', { scope: 'list' }) } catch {}
 
@@ -598,9 +598,9 @@ function cleanupSocket() {
     if (sockHandlers.emergency_userOn)  s.off('emergency:userOn',  sockHandlers.emergency_userOn)
     if (sockHandlers.emergency_userOff) s.off('emergency:userOff', sockHandlers.emergency_userOff)
 
-    if (sockHandlers.users_refresh)     s.off('users:refresh',      sockHandlers.users_refresh)
-    if (sockHandlers.users_patch)       s.off('users:patch',        sockHandlers.users_patch)
-    if (sockHandlers.users_last_login)  s.off('users:last_login',   sockHandlers.users_last_login)
+    if (sockHandlers.users_refresh)     s.off('users:refresh',     sockHandlers.users_refresh)
+    if (sockHandlers.users_patch)       s.off('users:patch',       sockHandlers.users_patch)
+    if (sockHandlers.users_last_login)  s.off('users:last_login',  sockHandlers.users_last_login)
   } catch (e) {
     console.error('❌ 소켓 정리 실패:', e)
   } finally {
@@ -629,7 +629,7 @@ function clearCountdown() {
   remainingSeconds.value = 0
 }
 
-/* ===== 리셋 공통 핸들링 ===== */
+/* ===== 리셋 ===== */
 const showResetConfirm = ref(false)
 function openResetConfirm() {
   if (reset.value.used >= reset.value.limit || isLoading.value) return
@@ -644,11 +644,9 @@ async function confirmReset() {
   reset.value.idx  += 1
   saveResetState()
 
-  if (emergencyOn.value) {
-    recomputeEmergency()
-  } else {
-    recomputeTarget()
-  }
+  if (emergencyOn.value) recomputeEmergency()
+  else recomputeTarget()
+
   await nextTick()
   scrollToTopSmooth()
 }
@@ -656,6 +654,7 @@ async function confirmReset() {
 /* ===== 초기화 ===== */
 onMounted(async () => {
   try {
+    // ✅ 1) me 먼저
     const me = (await api.get('/api/me')).data.user
     currentUser.value = me
     viewerId.value = String(me?._id || '')
@@ -666,29 +665,31 @@ onMounted(async () => {
     const premiumBool = me?.isPremium ?? me?.premium ?? (viewerLevel.value === '프리미엄회원')
     isPremium.value = Boolean(premiumBool)
 
-    // 통합 리셋 상태 로드
+    // ✅ 2) 리셋/관계
     loadResetState()
-
-    // 관계 로딩 (me + 각 API에서 robust하게 추출)
     await fetchRelations()
 
-    // 카운트다운 복원
+    // ✅ 3) 카운트다운 복원
     if (emergencyOn.value && me?.emergency?.remainingSeconds > 0) {
       remainingSeconds.value = me.emergency.remainingSeconds
       startCountdown(remainingSeconds.value)
     } else if (emergencyOn.value) {
-      // isActive인데 남은시간이 0이면 OFF 처리
       await updateEmergencyState(false)
     }
 
-    // 소켓
-    initSocket()
+    // ✅ 4) 현재 모드에 필요한 목록만 "즉시"
+    if (emergencyOn.value) {
+      await fetchEmergencyUsers()
+      // 일반 추천은 급하지 않으니 idle
+      runInBackground(() => { fetchTargetUsers().catch(()=>{}) }, 0)
+    } else {
+      await fetchTargetUsers()
+      runInBackground(() => { fetchEmergencyUsers().catch(()=>{}) }, 0)
+    }
 
-    // 초기 목록들
-    await Promise.all([
-      fetchEmergencyUsers(),
-      fetchTargetUsers(),
-    ])
+    // ✅ 5) 소켓은 첫 화면 뜬 다음 idle에서 연결/구독
+    runInBackground(() => { initSocket() }, 0)
+
   } catch (err) {
     console.error('❌ 초기 로딩 실패:', err)
   } finally {
@@ -698,7 +699,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearCountdown()
-  cleanupSocket()   // disconnect 금지 / 리스너만 해제
+  cleanupSocket()
 })
 </script>
 
@@ -748,7 +749,7 @@ ion-content {
   display: flex;
   justify-content: center;
   padding: 0 12px 16px;
-  height : 100px;
+  height: 100px;
 }
 
 /* 공통 카드형 버튼 */
@@ -766,7 +767,7 @@ ion-content {
 .reset-modal-overlay{
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display:flex; align-items:center; justify-content:center;
-  z-index: 9999; /* 헤더 위로 */
+  z-index: 9999;
 }
 .reset-modal-card{
   width: min(88vw, 420px);

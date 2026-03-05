@@ -41,6 +41,7 @@ const store = useUserStore()
 /**
  * computed에서 fallback 객체를 만들지 않고
  * store.user.wallet만 바라봅니다.
+ * (값이 없으면 0으로 표시 → 초기 렌더 즉시)
  */
 const wallet = computed(() => store.user?.wallet)
 const heart  = computed(() => Number(wallet.value?.heart ?? 0))
@@ -49,9 +50,11 @@ const ruby   = computed(() => Number(wallet.value?.ruby  ?? 0))
 
 // ---- 실시간 반영: 소켓 + API 인터셉터 커스텀 이벤트 ----
 let socket
+let onSocketConnect = null
+
 const onApiWallet = (e) => {
   try {
-    const w = (e)?.detail
+    const w = e?.detail
     if (w && typeof w === 'object') {
       store.updateWallet(w) // 반응형 객체로 교체
     }
@@ -60,18 +63,19 @@ const onApiWallet = (e) => {
 
 function bindSocketListeners() {
   if (!socket) return
+
   // 서버가 지갑만 내려주는 경우
   socket.on('wallet:update', (data) => {
     if (!data) return
     if (data.wallet && typeof data.wallet === 'object') {
       store.updateWallet(data.wallet)
-    } else {
-      const partial = {}
-      if (typeof data.heart === 'number') partial.heart = data.heart
-      if (typeof data.star  === 'number') partial.star  = data.star
-      if (typeof data.ruby  === 'number') partial.ruby  = data.ruby
-      if (Object.keys(partial).length) store.updateWallet(partial)
+      return
     }
+    const partial = {}
+    if (typeof data.heart === 'number') partial.heart = data.heart
+    if (typeof data.star  === 'number') partial.star  = data.star
+    if (typeof data.ruby  === 'number') partial.ruby  = data.ruby
+    if (Object.keys(partial).length) store.updateWallet(partial)
   })
 
   // 서버가 전체 me 업데이트를 내려주는 경우
@@ -85,16 +89,26 @@ function unbindSocketListeners() {
   if (!socket) return
   socket.off('wallet:update')
   socket.off('me:update')
+
+  // once로 등록한 connect 핸들러도 제거
+  if (onSocketConnect) {
+    socket.off('connect', onSocketConnect)
+    onSocketConnect = null
+  }
 }
 
-onMounted(async () => {
-  // 초기 유저 정보 없으면 1회 동기화
-  if (!store.user) {
-    await store.fetchMe()
-  }
-
+// ✅ 핵심: mounted에서 await 금지 (초기 렌더 체감 개선)
+onMounted(() => {
   // API 인터셉터 전역 이벤트 수신(소켓 없어도 즉시 반영)
   window.addEventListener('api:wallet', onApiWallet)
+
+  // 초기 유저 정보 없으면 1회 동기화 (백그라운드)
+  if (!store.user) {
+    // 렌더 먼저 → 다음 틱에서 fetch
+    queueMicrotask(() => {
+      try { store.fetchMe() } catch {}
+    })
+  }
 
   // 소켓 연결되어 있으면 즉시 바인딩, 아니면 연결 후 1회 바인딩
   socket = getSocket()
@@ -102,7 +116,8 @@ onMounted(async () => {
     if (socket.connected) {
       bindSocketListeners()
     } else {
-      socket.once('connect', bindSocketListeners)
+      onSocketConnect = () => bindSocketListeners()
+      socket.once('connect', onSocketConnect)
     }
   }
 })
